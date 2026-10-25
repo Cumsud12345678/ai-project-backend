@@ -1,0 +1,95 @@
+// AI servisinin (car-advisor) /v1/service/* endpoint-lərinin müştərisi.
+export class AiError extends Error {
+  constructor(public status: number, message: string, public code?: string, public body?: Record<string, unknown>) { super(message); }
+}
+
+export type AiResult = Record<string, any>;
+
+export type AiClient = {
+  testConfig(config: object): Promise<AiResult>;
+  createTenant(config: object): Promise<AiResult>;
+  updateConfig(tenantId: string, config: object): Promise<AiResult>;
+  patchProfile(tenantId: string, profile: object): Promise<AiResult>;
+  rotateKey(tenantId: string): Promise<AiResult>;
+  deleteTenant(tenantId: string): Promise<AiResult>;
+  usage(tenantId: string): Promise<AiResult>;
+  usageSummary(): Promise<AiResult>;
+  listings(tenantId: string, query: string): Promise<AiResult>;
+  chat(tenantId: string, message: string, history: unknown[], opts?: { test?: boolean }): Promise<AiResult>;
+  queries(tenantId: string, query: string): Promise<AiResult>;
+  queryStats(tenantId: string, days?: number): Promise<AiResult>;
+  clearQueries(tenantId: string): Promise<AiResult>;
+  kbInfo(tenantId: string): Promise<AiResult>;
+  kbAddFile(tenantId: string, file: { name: string; mime: string; data: string }): Promise<AiResult>;
+  kbAddUrl(tenantId: string, url: string, crawl: boolean): Promise<AiResult>;
+  kbAddText(tenantId: string, title: string, text: string): Promise<AiResult>;
+  kbRefresh(tenantId: string, sourceId: string): Promise<AiResult>;
+  kbDelete(tenantId: string, sourceId: string): Promise<AiResult>;
+  kbUnanswered(tenantId: string): Promise<AiResult>;
+  kbDeleteUnanswered(tenantId: string, id: string): Promise<AiResult>;
+  kbLeads(tenantId: string): Promise<AiResult>;
+  kbAddLead(tenantId: string, lead: { name: string; contact: string; question: string; conversation?: { role: string; text: string }[] }): Promise<AiResult>;
+  kbHandleLead(tenantId: string, id: string, handled: boolean): Promise<AiResult>;
+  kbDeleteLead(tenantId: string, id: string): Promise<AiResult>;
+  billing(tenantId: string, admin?: boolean): Promise<AiResult>;
+  billingTopupRequest(tenantId: string, amountAzn: number): Promise<AiResult>;
+  billingTopup(tenantId: string, body: { amountAzn: number; note?: string; by?: string }): Promise<AiResult>;
+  billingSettings(tenantId: string, body: { markup?: number | null; creditLimitAzn?: number }): Promise<AiResult>;
+  billingRequests(status: string): Promise<AiResult>;
+  billingResolve(requestId: string, action: "approve" | "reject", by: string): Promise<AiResult>;
+  billingAccounts(): Promise<AiResult>;
+};
+
+export function createAiClient(baseUrl: string, token: string): AiClient {
+  async function request(method: string, path: string, body?: object, timeoutMs = 30_000): Promise<AiResult> {
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/v1/service${path}`, {
+        method,
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (e) {
+      throw new AiError(502, e instanceof Error && e.name === "TimeoutError" ? "AI servisi vaxtında cavab vermədi" : "AI servisinə qoşulmaq olmur", "AI_UNREACHABLE");
+    }
+    const data = (await res.json().catch(() => ({}))) as AiResult;
+    if (!res.ok) throw new AiError(res.status, String(data.error ?? "AI servisi xəta qaytardı"), data.code, data);
+    return data;
+  }
+  const t = (id: string) => `/tenants/${encodeURIComponent(id)}`;
+  return {
+    testConfig: (config) => request("POST", "/config/test", config),
+    createTenant: (config) => request("POST", "/tenants", config),
+    updateConfig: (id, config) => request("PUT", `${t(id)}/config`, config),
+    patchProfile: (id, profile) => request("PATCH", `${t(id)}/profile`, profile),
+    rotateKey: (id) => request("POST", `${t(id)}/rotate-key`),
+    deleteTenant: (id) => request("DELETE", t(id)),
+    usage: (id) => request("GET", `${t(id)}/usage`),
+    usageSummary: () => request("GET", "/usage/summary"),
+    listings: (id, query) => request("GET", `${t(id)}/listings${query ? `?${query}` : ""}`),
+    chat: (id, message, history, opts) => request("POST", `${t(id)}/chat`, { message, history, ...(opts?.test && { test: true }) }, 75_000),
+    queries: (id, query) => request("GET", `${t(id)}/queries${query ? `?${query}` : ""}`),
+    queryStats: (id, days) => request("GET", `${t(id)}/queries/stats${days ? `?days=${days}` : ""}`),
+    clearQueries: (id) => request("DELETE", `${t(id)}/queries`),
+    kbInfo: (id) => request("GET", `${t(id)}/kb`),
+    kbAddFile: (id, file) => request("POST", `${t(id)}/kb/files`, file, 60_000),
+    kbAddUrl: (id, url, crawl) => request("POST", `${t(id)}/kb/urls`, { url, crawl }),
+    kbAddText: (id, title, text) => request("POST", `${t(id)}/kb/texts`, { title, text }),
+    kbRefresh: (id, sid) => request("POST", `${t(id)}/kb/sources/${encodeURIComponent(sid)}/refresh`),
+    kbDelete: (id, sid) => request("DELETE", `${t(id)}/kb/sources/${encodeURIComponent(sid)}`),
+    kbUnanswered: (id) => request("GET", `${t(id)}/kb/unanswered`),
+    kbDeleteUnanswered: (id, x) => request("DELETE", `${t(id)}/kb/unanswered/${encodeURIComponent(x)}`),
+    kbLeads: (id) => request("GET", `${t(id)}/kb/leads`),
+    kbAddLead: (id, lead) => request("POST", `${t(id)}/kb/leads`, lead),
+    kbHandleLead: (id, x, handled) => request("PATCH", `${t(id)}/kb/leads/${encodeURIComponent(x)}`, { handled }),
+    kbDeleteLead: (id, x) => request("DELETE", `${t(id)}/kb/leads/${encodeURIComponent(x)}`),
+    billing: (id, admin) => request("GET", `${t(id)}/billing${admin ? "?admin=1" : ""}`),
+    billingTopupRequest: (id, amountAzn) => request("POST", `${t(id)}/billing/topup-request`, { amountAzn }),
+    billingTopup: (id, body) => request("POST", `${t(id)}/billing/topup`, body),
+    billingSettings: (id, body) => request("PATCH", `${t(id)}/billing/settings`, body),
+    billingRequests: (status) => request("GET", `/billing/requests?status=${encodeURIComponent(status)}`),
+    billingResolve: (rid, action, by) => request("POST", `/billing/requests/${encodeURIComponent(rid)}/${action}`, { by }),
+    billingAccounts: () => request("GET", "/billing/accounts"),
+  };
+}
