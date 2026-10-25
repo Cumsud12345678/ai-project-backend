@@ -1,13 +1,13 @@
 // Müştəri saytına qoyulan çat vidjeti: ictimai script + vidjet açarı ilə işləyən endpoint-lər.
 // Gizli API açarı heç vaxt brauzerə çıxmır: vidjet yalnız ictimai açar (wk_...) göndərir,
 // portal isə həmin müştəri üçün AI servisini öz service tokeni ilə çağırır.
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Router, type RequestHandler } from "express";
 import { AiError } from "./ai.js";
 import type { Deps } from "./deps.js";
 import { HttpError } from "./http.js";
-import type { TenantRecord, WidgetSettings } from "./store/types.js";
+import type { LiveChat, TenantRecord, WidgetSettings } from "./store/types.js";
 import { cleanContact } from "./kb.js";
 import { notifyBalance } from "./billing.js";
 
@@ -87,6 +87,11 @@ export function parseWidgetPatch(body: unknown, current: WidgetSettings): Widget
     }
     next.origins = [...out];
   }
+  if (b.live !== undefined) {
+    const l = (b.live && typeof b.live === "object" ? b.live : null) as Record<string, unknown> | null;
+    if (!l || typeof l.enabled !== "boolean") throw new HttpError(400, "live.enabled true/false olmalıdır");
+    next.live = { enabled: l.enabled };
+  }
   if (b.limits !== undefined) {
     const l = (b.limits && typeof b.limits === "object" ? b.limits : null) as Record<string, unknown> | null;
     if (!l) throw new HttpError(400, "limits obyekt olmalıdır");
@@ -112,6 +117,17 @@ function publicListing(l: Record<string, unknown>) {
     url: httpUrl(l.url), image: httpUrl(l.image),
   };
 }
+
+const sha = (v: string) => createHash("sha256").update(v).digest();
+const sameToken = (token: unknown, hash: string) => typeof token === "string" && token.length <= 100 && timingSafeEqual(sha(token), Buffer.from(hash, "hex"));
+/** Vidjetə yalnız ziyarətçinin görməli olduğu sahələr çıxır. */
+const liveView = (c: LiveChat, after: number) => ({
+  status: c.status, total: c.messages.length,
+  messages: c.messages.slice(after).map((m) => ({ from: m.from, text: m.text, at: m.at })),
+});
+const cleanChat = (v: unknown) => (Array.isArray(v) ? v : []).slice(-10)
+  .filter((m: unknown): m is { role: "user" | "model"; text: string } => !!m && typeof m === "object" && ((m as { role?: unknown }).role === "user" || (m as { role?: unknown }).role === "model") && typeof (m as { text?: unknown }).text === "string")
+  .map((m) => ({ role: m.role, text: m.text.trim().slice(0, 600) })).filter((m) => m.text);
 
 let scriptCache: { text: string; at: number } | undefined;
 async function widgetScript(): Promise<string> {
@@ -161,7 +177,7 @@ export function widgetRoutes(deps: Deps) {
     const mode = modeOf(wt.config);
     // Quraşdırmanın işlədiyini göstərmək üçün: ən çox 10 dəqiqədən bir yazılır
     if (!w.lastSeenAt || Date.now() - new Date(w.lastSeenAt).getTime() > 10 * 60_000) void store.touchWidget(wt.tenantId, new Date()).catch(() => {});
-    res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, mode, contact: true }); // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
+    res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, mode, contact: true, live: Boolean(w.live?.enabled) }); // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
   });
 
   // Operatorla əlaqə (cavab tapılmayanda): sayt ziyarətçisi telefon/e-poçt qoyur, sayt sahibi panelda görür və e-poçtla xəbər alır.
@@ -236,6 +252,74 @@ export function widgetRoutes(deps: Deps) {
       }
       throw e;
     }
+  });
+
+  // ---- Canlı operator söhbəti ----
+  // Ziyarətçi söhbəti başladanda gizli token alır (yalnız hash-i saxlanır). Sonra bu token ilə mesaj göndərir və yeni mesajları oxuyur.
+  r.post("/widget/:key/live", access, async (req, res) => {
+    const t = res.locals.widgetTenant as TenantRecord;
+    if (!t.widget?.live?.enabled) throw new HttpError(404, "Canlı söhbət söndürülüb", "LIVE_OFF");
+    const key = t.widget.key, ip = req.ip ?? "unknown";
+    if (!limiter.hit(`w:live:${key}:${ip}`, 5, 10 * 60_000) || !limiter.hit(`w:liveday:${key}:${ip}`, 20, 24 * 60 * 60_000) || !limiter.hit(`w:livekey:${key}`, 200, 60 * 60_000))
+      throw new HttpError(429, "Çox sayda söhbət başladıldı, bir az sonra yenidən cəhd et", "RATE_LIMITED");
+    const b = req.body ?? {};
+    if (typeof b.website === "string" && b.website) return void res.json({ id: "x", token: "x", status: "open", total: 0, messages: [] }); // bot tələsi
+    const name = typeof b.name === "string" ? b.name.trim().slice(0, 80) : "";
+    const contactRaw = typeof b.contact === "string" ? b.contact.trim() : "";
+    const contact = contactRaw ? cleanContact(contactRaw) : "";
+    if (contactRaw && !contact) throw new HttpError(400, "Düzgün telefon nömrəsi və ya e-poçt yazın", "BAD_CONTACT");
+    const text = typeof b.message === "string" ? b.message.trim().slice(0, 1000) : "";
+    const token = randomBytes(24).toString("hex");
+    const now = new Date();
+    const chat: LiveChat = {
+      id: randomUUID(), tenantId: t.tenantId, tokenHash: sha(token).toString("hex"), name, contact: contact || "", status: "open",
+      context: cleanChat(b.chat), messages: text ? [{ from: "visitor", text, at: now }] : [], createdAt: now, updatedAt: now,
+    };
+    await store.createLive(chat);
+    // Sayt sahibinə bildiriş (10 dəqiqədə bir, spam olmasın)
+    if (limiter.hit(`live:mail:${t.tenantId}`, 1, 10 * 60_000)) {
+      try {
+        const owner = await store.findUserById(t.userId);
+        if (owner) await mailer.send(owner.email, `Canlı söhbət: ${t.businessName}`, `Saytınızın çatında ziyarətçi operatorla yazışmaq istəyir.${text ? `\n\nİlk mesaj: ${text.slice(0, 300)}` : ""}\n\nPanelin "Müraciətlər" bölməsində "Canlı söhbət" tabını açın.`);
+      } catch (e) { console.warn("[widget] canlı söhbət bildirişi göndərilmədi:", e instanceof Error ? e.message : e); }
+    }
+    res.status(201).json({ id: chat.id, token, ...liveView(chat, 0) });
+  });
+
+  // Bir sorğuda: (varsa) mesajı göndər + `after`-dan sonrakı yeni mesajları qaytar.
+  r.post("/widget/:key/live/:id/sync", access, async (req, res) => {
+    const t = res.locals.widgetTenant as TenantRecord;
+    const b = req.body ?? {};
+    const id = String(req.params.id ?? "");
+    const chat = id.length <= 60 ? await store.getLive(t.tenantId, id) : null;
+    if (!chat || !sameToken(b.token, chat.tokenHash)) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
+    if (!limiter.hit(`w:livesync:${id}`, 40, 60_000)) throw new HttpError(429, "Çox tez-tez sorğu", "RATE_LIMITED");
+    const after = Number.isInteger(b.after) && b.after >= 0 ? Math.min(b.after, 1000) : 0;
+    const text = typeof b.text === "string" ? b.text.trim() : "";
+    if (text) {
+      if (text.length > 1000) throw new HttpError(400, "Mesaj ən çox 1000 simvol ola bilər");
+      if (chat.status === "closed") throw new HttpError(409, "Söhbət bağlanıb", "LIVE_CLOSED");
+      if (!limiter.hit(`w:livemsg:${id}`, 10, 60_000)) throw new HttpError(429, "Çox tez-tez mesaj göndərdin", "RATE_LIMITED");
+      const next = await store.pushLive(t.tenantId, id, { from: "visitor", text, at: new Date() });
+      return void res.json(liveView(next ?? chat, after));
+    }
+    res.json(liveView(chat, after));
+  });
+
+  // Cavaba 👍/👎. Sual və cavab mətni yalnız sorğu jurnalı açıqdırsa saxlanır.
+  r.post("/widget/:key/feedback", access, async (req, res) => {
+    const t = res.locals.widgetTenant as TenantRecord;
+    const key = t.widget!.key, ip = req.ip ?? "unknown";
+    if (!limiter.hit(`w:fb:${key}:${ip}`, 30, 24 * 60 * 60_000) || !limiter.hit(`w:fbkey:${key}`, 2000, 24 * 60 * 60_000)) throw new HttpError(429, "Çox sayda rəy göndərildi", "RATE_LIMITED");
+    const b = req.body ?? {};
+    if (b.rating !== 1 && b.rating !== -1) throw new HttpError(400, "rating 1 və ya -1 olmalıdır");
+    const logOn = (t.config as { profile?: { logQueries?: unknown } }).profile?.logQueries !== false;
+    await store.addFeedback({
+      tenantId: t.tenantId, rating: b.rating, at: new Date(),
+      question: logOn && typeof b.question === "string" ? b.question.trim().slice(0, 300) : "",
+      answer: logOn && typeof b.answer === "string" ? b.answer.trim().slice(0, 600) : "",
+    });
+    res.status(201).json({ ok: true });
   });
 
   return r;

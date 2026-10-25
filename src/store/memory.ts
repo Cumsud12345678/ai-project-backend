@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DuplicateError, type CodePurpose, type CodeRecord, type Session, type Store, type TenantRecord, type User } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type CodeRecord, type FeedbackRecord, type LiveChat, type Session, type Store, type TenantRecord, type User } from "./types.js";
 
 /** Test və DB-siz sınaq üçün. Proses bitəndə məlumat itir. */
 export function createMemoryStore(): Store {
@@ -7,6 +7,8 @@ export function createMemoryStore(): Store {
   const sessions = new Map<string, Session>();
   const codes = new Map<string, CodeRecord>();
   const tenants = new Map<string, TenantRecord>();
+  const live = new Map<string, LiveChat>();
+  const feedback: FeedbackRecord[] = [];
   const ck = (email: string, purpose: CodePurpose) => `${email}|${purpose}`;
 
   return {
@@ -57,7 +59,34 @@ export function createMemoryStore(): Store {
       const t = tenants.get(tenantId);
       if (t?.widget) tenants.set(tenantId, { ...t, widget: { ...t.widget, lastSeenAt: at } });
     },
-    async deleteTenant(tenantId) { tenants.delete(tenantId); },
+    async deleteTenant(tenantId) {
+      tenants.delete(tenantId);
+      for (const [id, c] of live) if (c.tenantId === tenantId) live.delete(id);
+      for (let i = feedback.length - 1; i >= 0; i--) if (feedback[i]!.tenantId === tenantId) feedback.splice(i, 1);
+    },
+
+    async createLive(c) { live.set(c.id, c); },
+    async getLive(tenantId, id) { const c = live.get(id); return c && c.tenantId === tenantId ? c : null; },
+    async pushLive(tenantId, id, msg, patch = {}) {
+      const c = live.get(id);
+      if (!c || c.tenantId !== tenantId) return null;
+      const next: LiveChat = { ...c, ...patch, updatedAt: new Date(), messages: msg && c.messages.length < LIVE_MAX_MESSAGES ? [...c.messages, msg] : c.messages };
+      live.set(id, next);
+      return next;
+    },
+    async listLive(tenantId, status, limit) {
+      return [...live.values()].filter((c) => c.tenantId === tenantId && c.status === status).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, limit);
+    },
+    async deleteLiveForTenant(tenantId) { for (const [id, c] of live) if (c.tenantId === tenantId) live.delete(id); },
+
+    async addFeedback(f) { feedback.push(f); if (feedback.length > 5000) feedback.shift(); },
+    async feedbackSince(tenantId, since, limit) {
+      return feedback.filter((f) => f.tenantId === tenantId && f.at >= since).sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, limit);
+    },
+    async feedbackCounts(tenantId, since) {
+      const mine = feedback.filter((f) => f.tenantId === tenantId && f.at >= since);
+      return { up: mine.filter((f) => f.rating === 1).length, down: mine.filter((f) => f.rating === -1).length };
+    },
     async close() {},
   };
 }

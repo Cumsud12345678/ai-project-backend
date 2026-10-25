@@ -67,11 +67,11 @@
     return n;
   }
   function load() {
-    try { var v = JSON.parse(sessionStorage.getItem(STORE) || "{}"); return { messages: Array.isArray(v.messages) ? v.messages : [], open: !!v.open }; }
-    catch (e) { return { messages: [], open: false }; }
+    try { var v = JSON.parse(sessionStorage.getItem(STORE) || "{}"); return { messages: Array.isArray(v.messages) ? v.messages : [], open: !!v.open, live: v.live && typeof v.live === "object" ? v.live : null }; }
+    catch (e) { return { messages: [], open: false, live: null }; }
   }
   function save() {
-    try { sessionStorage.setItem(STORE, JSON.stringify({ messages: state.messages.slice(-MAX_STORED), open: state.open })); } catch (e) { /* məxfi rejim */ }
+    try { sessionStorage.setItem(STORE, JSON.stringify({ messages: state.messages.slice(-MAX_STORED), open: state.open, live: state.live })); } catch (e) { /* məxfi rejim */ }
   }
   var state = load();
 
@@ -85,9 +85,9 @@
   var L = (function () {
     var lang = ((document.documentElement.lang || navigator.language || "az") + "").slice(0, 2).toLowerCase();
     var T = {
-      az: { src: "Mənbə:", offline: "Çat hazırda cavab vermir. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", contact: "Operatorla əlaqə", name: "Adınız (ixtiyari)", cont: "Telefon və ya e-poçt", send: "Göndər", ok: "Təşəkkürlər! Müraciətiniz qəbul edildi, tezliklə sizinlə əlaqə saxlayacağıq.", bad: "Düzgün telefon nömrəsi və ya e-poçt yazın", fail: "Göndərilə bilmədi, bir azdan yenidən cəhd edin", cancel: "Ləğv et", fresh: "Yeni söhbət", limit: "Bu gün üçün sual limitinə çatdınız. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", busy: "Çat hazırda çox yüklüdür. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq." },
-      en: { src: "Source:", offline: "The chat can't answer right now. Leave your contact and we'll get back to you.", contact: "Contact an operator", name: "Your name (optional)", cont: "Phone or email", send: "Send", ok: "Thank you! Your request was received, we'll contact you soon.", bad: "Enter a valid phone number or email", fail: "Could not send, please try again shortly", cancel: "Cancel", fresh: "New chat", limit: "You have reached today's question limit. Leave your contact and we'll get back to you.", busy: "The chat is very busy right now. Leave your contact and we'll get back to you." },
-      ru: { src: "Источник:", offline: "Чат сейчас не может ответить. Оставьте контакт, и мы свяжемся с вами.", contact: "Связаться с оператором", name: "Ваше имя (необязательно)", cont: "Телефон или e-mail", send: "Отправить", ok: "Спасибо! Ваше обращение принято, мы скоро свяжемся с вами.", bad: "Введите корректный телефон или e-mail", fail: "Не удалось отправить, попробуйте позже", cancel: "Отмена", fresh: "Новый чат", limit: "Вы достигли лимита вопросов на сегодня. Оставьте контакт, и мы свяжемся с вами.", busy: "Чат сейчас сильно загружен. Оставьте контакт, и мы свяжемся с вами." },
+      az: { src: "Mənbə:", offline: "Çat hazırda cavab vermir. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", contact: "Operatorla əlaqə", name: "Adınız (ixtiyari)", cont: "Telefon və ya e-poçt", send: "Göndər", ok: "Təşəkkürlər! Müraciətiniz qəbul edildi, tezliklə sizinlə əlaqə saxlayacağıq.", bad: "Düzgün telefon nömrəsi və ya e-poçt yazın", fail: "Göndərilə bilmədi, bir azdan yenidən cəhd edin", cancel: "Ləğv et", fresh: "Yeni söhbət", live: "Operatorla canlı yaz", liveStart: "Operatora qoşuldunuz. Mesajınızı yazın, cavab gələndə burada görəcəksiniz.", liveBack: "AI-a qayıt", liveWait: "Operator hələ cavab verməyib. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", liveEnd: "Operator söhbəti bitirdi. Yeni sual yazsanız, yenidən AI cavab verəcək.", liveFail: "Mesaj göndərilmədi, yenidən cəhd edin", livePh: "Operatora mesaj yazın…", op: "Operator", up: "Cavab faydalı idi", down: "Cavab faydalı deyildi", thanks: "Təşəkkürlər!", limit: "Bu gün üçün sual limitinə çatdınız. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", busy: "Çat hazırda çox yüklüdür. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq." },
+      en: { src: "Source:", offline: "The chat can't answer right now. Leave your contact and we'll get back to you.", contact: "Contact an operator", name: "Your name (optional)", cont: "Phone or email", send: "Send", ok: "Thank you! Your request was received, we'll contact you soon.", bad: "Enter a valid phone number or email", fail: "Could not send, please try again shortly", cancel: "Cancel", fresh: "New chat", live: "Chat with an operator", liveStart: "You are connected to an operator. Type your message, replies will appear here.", liveBack: "Back to AI", liveWait: "The operator has not replied yet. Leave your contact and we'll get back to you.", liveEnd: "The operator ended the chat. Write a new question and the AI will answer again.", liveFail: "Message not sent, please try again", livePh: "Message the operator…", op: "Operator", up: "Helpful answer", down: "Not helpful", thanks: "Thanks!", limit: "You have reached today's question limit. Leave your contact and we'll get back to you.", busy: "The chat is very busy right now. Leave your contact and we'll get back to you." },
+      ru: { src: "Источник:", offline: "Чат сейчас не может ответить. Оставьте контакт, и мы свяжемся с вами.", contact: "Связаться с оператором", name: "Ваше имя (необязательно)", cont: "Телефон или e-mail", send: "Отправить", ok: "Спасибо! Ваше обращение принято, мы скоро свяжемся с вами.", bad: "Введите корректный телефон или e-mail", fail: "Не удалось отправить, попробуйте позже", cancel: "Отмена", fresh: "Новый чат", live: "Написать оператору", liveStart: "Вы подключены к оператору. Напишите сообщение, ответ появится здесь.", liveBack: "Назад к ИИ", liveWait: "Оператор пока не ответил. Оставьте контакт, и мы свяжемся с вами.", liveEnd: "Оператор завершил чат. Напишите новый вопрос, и снова ответит ИИ.", liveFail: "Сообщение не отправлено, попробуйте ещё раз", livePh: "Сообщение оператору…", op: "Оператор", up: "Ответ полезен", down: "Ответ не полезен", thanks: "Спасибо!", limit: "Вы достигли лимита вопросов на сегодня. Оставьте контакт, и мы свяжемся с вами.", busy: "Чат сейчас сильно загружен. Оставьте контакт, и мы свяжемся с вами." },
     };
     return T[lang] || T.az;
   })();
@@ -187,6 +187,17 @@
     ".cform .row button.go{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}",
     ".cform .row button:disabled{opacity:.5;cursor:default}",
     ".cform .err{font-size:12px;color:#991b1b}",
+    ".operator{align-self:flex-start;background:#eef2ff;border:1px solid #c7d2fe;border-bottom-left-radius:4px}",
+    ".who{font-size:11px;font-weight:700;color:#4338ca;margin-bottom:2px}",
+    ".note{align-self:center;max-width:92%;text-align:center;font-size:12px;color:#6b7280;display:flex;flex-direction:column;align-items:center;gap:6px}",
+    ".note button{border:1px solid #d1d5db;background:#fff;color:#374151;border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer}",
+    ".fb{align-self:flex-start;display:flex;align-items:center;gap:2px;margin-top:-6px}",
+    ".fbb{border:0;background:transparent;color:#9ca3af;cursor:pointer;padding:3px;border-radius:6px;display:grid;place-items:center}",
+    ".fbb:hover:not(:disabled){color:var(--accent)}.fbb.on{color:var(--accent)}.fbb:disabled{cursor:default}",
+    ".fbb svg{width:15px;height:15px}",
+    ".fb span{font-size:11px;color:#6b7280;margin-left:4px}",
+    ".livebtn[hidden]{display:none}",
+    ".launcher.dot::after{content:\"\";position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#ef4444;border:2px solid #fff}",
     ".error{align-self:center;background:#fef2f2;color:#991b1b;border:1px solid #fecaca;font-size:13px}",
     ".cards{align-self:stretch;display:flex;flex-direction:column;gap:8px}",
     ".card{display:flex;gap:10px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:8px;text-decoration:none;color:inherit}",
@@ -215,6 +226,10 @@
   var ICON_NEW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>';
   var ICON_X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 
+  var ICON_USER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>';
+  var ICON_UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v11H3V10z"/><path d="M7 10l4-8a3 3 0 0 1 3 3v4h6a2 2 0 0 1 2 2.3l-1.3 8a2 2 0 0 1-2 1.7H7"/></svg>';
+  var ICON_DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 14V3h4v11z"/><path d="M17 14l-4 8a3 3 0 0 1-3-3v-4H4a2 2 0 0 1-2-2.3l1.3-8A2 2 0 0 1 5.3 3H17"/></svg>';
+
   function boot(cfg) {
     var host = el("div");
     host.setAttribute("data-car-advisor", "");
@@ -236,9 +251,12 @@
     closeBtn.innerHTML = ICON_X; // sabit, yoxlanmış SVG
     var newBtn = el("button", { class: "close newb", type: "button", "aria-label": L.fresh, title: L.fresh });
     newBtn.innerHTML = ICON_NEW; // sabit, yoxlanmış SVG
+    var liveBtn = el("button", { class: "close livebtn", type: "button", "aria-label": L.live, title: L.live });
+    liveBtn.innerHTML = ICON_USER; // sabit, yoxlanmış SVG
+    liveBtn.hidden = !cfg.live || !!state.live;
     var form = el("form", null, [input, sendBtn]);
     var panel = el("div", { class: "panel", role: "dialog", "aria-label": cfg.title || "Çat" }, [
-      el("div", { class: "head" }, [el("h2", { text: cfg.title || "Çat" }), newBtn, closeBtn]), log, form,
+      el("div", { class: "head" }, [el("h2", { text: cfg.title || "Çat" }), liveBtn, newBtn, closeBtn]), log, form,
     ]);
     var launcher = el("button", { class: "launcher", type: "button", "aria-label": "Çatı aç", "aria-expanded": "false" });
     launcher.innerHTML = ICON_CHAT;
@@ -311,7 +329,7 @@
           err.textContent = ""; go.disabled = true;
           fetch(api + "/contact", {
             method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ name: nameI.value, contact: contI.value, question: question, chat: state.messages.slice(-8).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; }), website: hp.value }),
+            body: JSON.stringify({ name: nameI.value, contact: contI.value, question: question, chat: state.messages.filter(function (m) { return !m.live; }).slice(-8).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; }), website: hp.value }),
           }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, status: res.status, data: d }; }); })
             .then(function (r) {
               if (r.ok) { f.remove(); bubble("model", L.ok); scroll(); return; }
@@ -320,17 +338,152 @@
         });
       });
     }
-    function extras(m, question) {
-      cards(m.listings); sources(m.sources);
-      if (m.unanswered) contactBox(question);
+    // Cavaba 👍/👎: yalnız AI cavablarında
+    function feedbackRow(m, question) {
+      if (!m.text) return;
+      var row = el("div", { class: "fb" });
+      var up = el("button", { class: "fbb", type: "button", "aria-label": L.up, title: L.up });
+      var dn = el("button", { class: "fbb", type: "button", "aria-label": L.down, title: L.down });
+      up.innerHTML = ICON_UP; dn.innerHTML = ICON_DOWN; // sabit, yoxlanmış SVG
+      var thanks = el("span");
+      function mark() {
+        up.classList.toggle("on", m.fb === 1); dn.classList.toggle("on", m.fb === -1);
+        up.disabled = dn.disabled = !!m.fb; thanks.textContent = m.fb ? L.thanks : "";
+      }
+      function vote(r) {
+        if (m.fb) return;
+        m.fb = r; mark(); save();
+        fetch(api + "/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ rating: r, question: question, answer: String(m.text).slice(0, 600) }) }).catch(function () { /* rəy vacib deyil */ });
+      }
+      up.addEventListener("click", function () { vote(1); });
+      dn.addEventListener("click", function () { vote(-1); });
+      mark();
+      [up, dn, thanks].forEach(function (n) { row.appendChild(n); });
+      log.appendChild(row);
     }
+    function extras(m, question) {
+      cards(m.listings); sources(m.sources); feedbackRow(m, question);
+      if (m.unanswered) { contactBox(question); liveBox(); }
+    }
+
+    // ---------- canlı operator söhbəti ----------
+    function note(text, withBack) {
+      var kids = [el("span", { text: text })];
+      if (withBack) {
+        var back = el("button", { type: "button", text: L.liveBack });
+        back.addEventListener("click", function () { state.live = null; save(); updateLiveUi(); render(); input.focus(); });
+        kids.push(back);
+      }
+      log.appendChild(el("div", { class: withBack ? "note back" : "note" }, kids));
+    }
+    function liveBubble(role, text) {
+      if (role === "system") return note(L.liveEnd, false);
+      if (role === "operator") {
+        var b = el("div", { class: "msg operator" }, [el("div", { class: "who", text: L.op })]);
+        b.appendChild(el("div", { text: text }));
+        return log.appendChild(b);
+      }
+      bubble("user", text);
+    }
+    function liveBox() {
+      if (!cfg.live || state.live) return;
+      var b = el("button", { class: "cbtn livecbtn", type: "button", text: L.live });
+      b.addEventListener("click", function () { b.remove(); startLive(); });
+      log.appendChild(b);
+    }
+    function updateLiveUi() {
+      liveBtn.hidden = !cfg.live || !!state.live;
+      input.placeholder = state.live ? L.livePh : "Mesajınızı yazın…";
+    }
+    function startLive() {
+      if (state.live) return;
+      state.live = { pending: true, after: 0 };
+      Array.prototype.forEach.call(log.querySelectorAll(".livecbtn"), function (n) { n.remove(); });
+      save(); updateLiveUi();
+      note(L.liveStart, true); scroll(); input.focus();
+    }
+    liveBtn.addEventListener("click", startLive);
     function render() {
-      newBtn.hidden = state.messages.length === 0;
+      newBtn.hidden = state.messages.length === 0 && !state.live;
       log.textContent = "";
       bubble("model", cfg.greeting || "");
       var q = "";
-      state.messages.forEach(function (m) { bubble(m.role, m.text); if (m.role === "user") q = m.text; else extras(m, q); });
+      state.messages.forEach(function (m) {
+        if (m.live) return liveBubble(m.role, m.text);
+        bubble(m.role, m.text); if (m.role === "user") q = m.text; else extras(m, q);
+      });
+      if (state.live && state.live.pending) note(L.liveStart, true);
+      updateLiveUi();
       scroll();
+    }
+
+    var pollTimer = null, noReplyTimer = null, liveBusy = false;
+    function schedulePoll() {
+      clearTimeout(pollTimer);
+      if (!state.live || state.live.pending || !state.live.id) return;
+      pollTimer = setTimeout(function () { liveCall("").then(schedulePoll, schedulePoll); }, document.hidden ? 30000 : state.open ? 3000 : 15000);
+    }
+    function dropLive() { // söhbət tapılmadı və ya bitdi: ziyarətçi yenidən AI ilə danışır
+      clearTimeout(pollTimer); clearTimeout(noReplyTimer);
+      state.live = null; save(); updateLiveUi();
+    }
+    function applyLive(d) {
+      var gotOperator = false;
+      (d.messages || []).forEach(function (m) {
+        var role = m.from === "visitor" ? "user" : m.from === "operator" ? "operator" : "system";
+        var text = role === "system" ? "closed" : String(m.text || "");
+        state.messages.push({ role: role, text: text, live: true });
+        liveBubble(role, text);
+        if (role === "operator") gotOperator = true;
+      });
+      if (gotOperator) {
+        clearTimeout(noReplyTimer);
+        if (!state.open) launcher.classList.add("dot");
+      }
+      if (state.live) state.live.after = d.total;
+      if (d.status === "closed") dropLive(); else save();
+      newBtn.hidden = false;
+      scroll();
+    }
+    // Mesajı göndərir (varsa) və yeni mesajları gətirir. Qaytarır: uğurlu olub-olmadığı.
+    function liveCall(text) {
+      var lv = state.live;
+      if (!lv || !lv.id) return Promise.resolve(false);
+      return fetch(api + "/live/" + lv.id + "/sync", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: lv.token, after: lv.after || 0, text: text || undefined }),
+      }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, d: d }; }); })
+        .then(function (r) {
+          if (!r.ok) {
+            if (r.d.code === "LIVE_NOT_FOUND") { dropLive(); return false; }
+            if (r.d.code === "LIVE_CLOSED") { dropLive(); note(L.liveEnd, false); return false; }
+            throw new Error("sync");
+          }
+          applyLive(r.d); return true;
+        });
+    }
+    function liveSubmit(text) {
+      if (liveBusy) return;
+      liveBusy = true; sendBtn.disabled = true;
+      var lv = state.live, hadOperator = state.messages.some(function (m) { return m.live && m.role === "operator"; });
+      var go;
+      if (lv.pending) {
+        var ai = state.messages.filter(function (m) { return !m.live; }).slice(-10).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; });
+        go = fetch(api + "/live", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: text, chat: ai, vid: visitorId() }),
+        }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, d: d }; }); })
+          .then(function (r) {
+            if (!r.ok) throw new Error(r.d.code || "start");
+            state.live = { id: r.d.id, token: r.d.token, after: 0, pending: false };
+            Array.prototype.forEach.call(log.querySelectorAll(".note.back"), function (n) { n.remove(); }); // "AI-a qayıt" artıq mümkün deyil
+            applyLive(r.d); return true;
+          });
+      } else go = liveCall(text);
+      go.then(function (ok) {
+        if (ok) { input.value = ""; grow(); schedulePoll(); if (!hadOperator) { clearTimeout(noReplyTimer); noReplyTimer = setTimeout(function () { note(L.liveWait, false); contactBox(text); scroll(); }, 90000); } }
+      }).catch(function () { bubble("error", L.liveFail); scroll(); })
+        .then(function () { liveBusy = false; sendBtn.disabled = false; if (state.open) input.focus(); });
     }
 
     // Telefon pilləsində (sm, panel tam ekran olanda) arxadakı səhifə scroll olunmasın.
@@ -369,7 +522,7 @@
       launcher.setAttribute("aria-label", state.open ? "Çatı bağla" : "Çatı aç");
       layout();
       save();
-      if (state.open) { scroll(); setTimeout(function () { input.focus(); }, 0); }
+      if (state.open) { launcher.classList.remove("dot"); scroll(); setTimeout(function () { input.focus(); }, 0); schedulePoll(); }
     }
     launcher.addEventListener("click", function () { setOpen(!state.open); });
     if (hint) hint.addEventListener("click", function () { setOpen(true); });
@@ -378,7 +531,8 @@
     newBtn.addEventListener("click", function () {
       gen++; if (curCtrl) { try { curCtrl.abort(); } catch (e) { /* artıq bitib */ } }
       busy = false; sendBtn.disabled = false;
-      state.messages = []; save();
+      clearTimeout(pollTimer); clearTimeout(noReplyTimer);
+      state.messages = []; state.live = null; save();
       input.value = ""; grow();
       render(); input.focus();
     });
@@ -395,7 +549,8 @@
       e.preventDefault();
       var text = input.value.trim();
       if (!text || busy) return;
-      var history = state.messages.slice(-10).map(function (m) { return { role: m.role, text: m.text }; });
+      if (state.live) return liveSubmit(text);
+      var history = state.messages.filter(function (m) { return !m.live; }).slice(-10).map(function (m) { return { role: m.role, text: m.text }; });
       state.messages.push({ role: "user", text: text });
       newBtn.hidden = false;
       save();
@@ -418,9 +573,9 @@
         if (myGen !== gen) return; // arada "Yeni söhbət" basılıb
         if (!r.ok) {
           // Çat dayanıb (məs. balans bitib): xəta əvəzinə əlaqə formasını göstər, ziyarətçinin müraciəti itməsin
-          if (r.data.code === "OFFLINE") { bubble("error", L.offline); contactBox(text); scroll(); return; }
+          if (r.data.code === "OFFLINE") { bubble("error", L.offline); contactBox(text); liveBox(); scroll(); return; }
           // Ziyarətçi/sayt limiti dolub: ziyarətçi itməsin, əlaqə forması təklif olunur
-          if (r.data.code === "VISITOR_LIMIT" || r.data.code === "BUSY") { bubble("error", r.data.code === "BUSY" ? L.busy : L.limit); contactBox(text); scroll(); return; }
+          if (r.data.code === "VISITOR_LIMIT" || r.data.code === "BUSY") { bubble("error", r.data.code === "BUSY" ? L.busy : L.limit); contactBox(text); liveBox(); scroll(); return; }
           return bubble("error", r.data.error || "Xəta baş verdi, bir azdan yenidən cəhd et");
         }
         var answer = String(r.data.answer || "");
@@ -443,6 +598,7 @@
     render();
     document.body.appendChild(host);
     setOpen(state.open);
+    if (state.live && state.live.id && !state.live.pending) liveCall("").then(schedulePoll, schedulePoll); // yenilənəndən sonra canlı söhbət davam edir
 
     // Səhifə şərti: data-show-on / data-hide-on. SPA keçidləri (pushState/replaceState/popstate) izlənir.
     var parseList = function (attr) {

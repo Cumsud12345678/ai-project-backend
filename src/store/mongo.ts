@@ -1,5 +1,5 @@
 import { MongoClient, MongoServerError, ObjectId, type Db } from "mongodb";
-import { DuplicateError, type CodePurpose, type CodeRecord, type Session, type Store, type TenantRecord, type User } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type CodeRecord, type FeedbackRecord, type LiveChat, type Session, type Store, type TenantRecord, type User } from "./types.js";
 
 type UserDoc = Omit<User, "id"> & { _id: ObjectId };
 
@@ -19,6 +19,8 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
   const sessions = db.collection<Session>("sessions");
   const codes = db.collection<CodeRecord>("codes");
   const tenants = db.collection<TenantRecord>("tenants");
+  const lives = db.collection<LiveChat>("live_chats");
+  const feedbacks = db.collection<FeedbackRecord>("feedback");
 
   await Promise.all([
     users.createIndex({ email: 1 }, { unique: true }),
@@ -29,6 +31,11 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     codes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     tenants.createIndex({ userId: 1 }, { unique: true }),
     tenants.createIndex({ tenantId: 1 }, { unique: true }),
+    lives.createIndex({ id: 1 }, { unique: true }),
+    lives.createIndex({ tenantId: 1, status: 1, updatedAt: -1 }),
+    lives.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 60 * 24 * 3600 }), // 60 gün sonra silinir
+    feedbacks.createIndex({ tenantId: 1, at: -1 }),
+    feedbacks.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 3600 }), // 90 gün sonra silinir
     tenants.createIndex({ "widget.key": 1 }, { unique: true, partialFilterExpression: { "widget.key": { $type: "string" } } }),
   ]);
 
@@ -70,7 +77,35 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     },
     async updateTenant(tenantId, patch) { await tenants.updateOne({ tenantId }, { $set: { ...patch, updatedAt: new Date() } }); },
     async touchWidget(tenantId, at) { await tenants.updateOne({ tenantId, widget: { $exists: true } }, { $set: { "widget.lastSeenAt": at } }); },
-    async deleteTenant(tenantId) { await tenants.deleteOne({ tenantId }); },
+    async deleteTenant(tenantId) {
+      await tenants.deleteOne({ tenantId });
+      await Promise.all([lives.deleteMany({ tenantId }), feedbacks.deleteMany({ tenantId })]);
+    },
+
+    async createLive(c) { await lives.insertOne({ ...c }); },
+    async getLive(tenantId, id) { return strip(await lives.findOne({ tenantId, id })) as LiveChat | null; },
+    async pushLive(tenantId, id, msg, patch = {}) {
+      const filter = msg ? { tenantId, id, [`messages.${LIVE_MAX_MESSAGES - 1}`]: { $exists: false } } : { tenantId, id };
+      const update = { $set: { ...patch, updatedAt: new Date() }, ...(msg ? { $push: { messages: msg } } : {}) };
+      const hit = await lives.findOneAndUpdate(filter, update, { returnDocument: "after" });
+      if (hit) return strip(hit) as LiveChat;
+      // Mesaj limiti doludursa mesaj əlavə edilmir, amma sahələr yenilənir
+      const only = await lives.findOneAndUpdate({ tenantId, id }, { $set: { ...patch, updatedAt: new Date() } }, { returnDocument: "after" });
+      return only ? (strip(only) as LiveChat) : null;
+    },
+    async listLive(tenantId, status, limit) {
+      return (await lives.find({ tenantId, status }).sort({ updatedAt: -1 }).limit(limit).toArray()).map((d) => strip(d) as LiveChat);
+    },
+    async deleteLiveForTenant(tenantId) { await lives.deleteMany({ tenantId }); },
+
+    async addFeedback(f) { await feedbacks.insertOne({ ...f }); },
+    async feedbackSince(tenantId, since, limit) {
+      return (await feedbacks.find({ tenantId, at: { $gte: since } }).sort({ at: -1 }).limit(limit).toArray()).map((d) => strip(d) as FeedbackRecord);
+    },
+    async feedbackCounts(tenantId, since) {
+      const rows = await feedbacks.aggregate<{ _id: number; n: number }>([{ $match: { tenantId, at: { $gte: since } } }, { $group: { _id: "$rating", n: { $sum: 1 } } }]).toArray();
+      return { up: rows.find((r) => r._id === 1)?.n ?? 0, down: rows.find((r) => r._id === -1)?.n ?? 0 };
+    },
     async close() { await client.close(); },
   };
 }

@@ -4,7 +4,7 @@ import type { AiResult } from "../ai.js";
 import { HttpError } from "../http.js";
 import { notifyTopupRequest, parseAmount } from "../billing.js";
 import { currentUser, requireAuth } from "../middleware.js";
-import { DuplicateError, type TenantRecord } from "../store/types.js";
+import { DuplicateError, type LiveChat, type TenantRecord } from "../store/types.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseWidgetPatch } from "../widget.js";
 
 const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret"];
@@ -32,6 +32,16 @@ const publicTenant = (t: TenantRecord) => ({
   tenantId: t.tenantId, businessName: t.businessName, domain: t.domain, config: t.config,
   createdAt: t.createdAt, updatedAt: t.updatedAt, keyRotatedAt: t.keyRotatedAt ?? null,
 });
+
+/** Ziyarətçi yazıb, operator hələ cavab verməyib (və ya söhbəti açmayıb). */
+const isWaiting = (c: LiveChat) => {
+  const last = c.messages[c.messages.length - 1];
+  return c.status === "open" && (!last || last.from === "visitor") && (!c.operatorSeenAt || c.operatorSeenAt < (last?.at ?? c.createdAt));
+};
+const liveItem = (c: LiveChat) => {
+  const last = c.messages[c.messages.length - 1];
+  return { id: c.id, name: c.name, contact: c.contact, status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt, count: c.messages.length, waiting: isWaiting(c), last: last ? { from: last.from, text: last.text.slice(0, 160), at: last.at } : null };
+};
 
 export function tenantRoutes(deps: Deps) {
   const { store, ai, limiter, config } = deps;
@@ -163,6 +173,9 @@ export function tenantRoutes(deps: Deps) {
     const mode = modeOf(t.config);
     const kbOn = mode !== "listings";
     const ok = <T,>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : null);
+    const since30 = new Date(Date.now() - 30 * 86_400_000);
+    const [liveOpen, fb] = await Promise.all([store.listLive(t.tenantId, "open", 200).catch(() => []), store.feedbackCounts(t.tenantId, since30).catch(() => ({ up: 0, down: 0 }))]);
+    const liveWaiting = liveOpen.filter(isWaiting).length;
     const [stats, kb, un, leads, billing] = (await Promise.allSettled([
       ai.queryStats(t.tenantId, 30),
       kbOn ? ai.kbInfo(t.tenantId) : Promise.resolve(null),
@@ -177,6 +190,7 @@ export function tenantRoutes(deps: Deps) {
     const failed = sources.filter((s) => s.status === "failed").length;
     const attention: { kind: string; count: number }[] = [];
     if (t.widget && !t.widget.enabled) attention.push({ kind: "widgetOff", count: 1 });
+    if (liveWaiting > 0) attention.push({ kind: "live", count: liveWaiting });
     if (leads && leads.open > 0) attention.push({ kind: "leads", count: leads.open });
     if (unanswered7 > 0) attention.push({ kind: "unanswered", count: unanswered7 });
     if (failed > 0) attention.push({ kind: "sourceErrors", count: failed });
@@ -187,6 +201,8 @@ export function tenantRoutes(deps: Deps) {
     res.json({
       mode,
       limits: limitsOf(t.widget),
+      live: { enabled: Boolean(t.widget?.live?.enabled), open: liveOpen.length, waiting: liveWaiting },
+      feedback: fb,
       billing: billing ? { state: billing.state, balanceAzn: billing.balance?.totalAzn, freeAzn: billing.balance?.freeAzn, paidAzn: billing.balance?.paidAzn, monthAzn: billing.spend?.monthAzn, enforced: billing.enforced } : null,
       setup: {
         dataReady: kbOn ? sources.some((s) => s.status === "ready") : true,
@@ -204,6 +220,57 @@ export function tenantRoutes(deps: Deps) {
       },
       top: (stats?.top ?? []).slice(0, 5),
     });
+  });
+
+
+  // ---- Canlı operator söhbəti ----
+  r.get("/live/count", async (_req, res) => {
+    const t = await mine(currentUser(res).id);
+    const open = await store.listLive(t.tenantId, "open", 200);
+    res.json({ enabled: Boolean(t.widget?.live?.enabled), open: open.length, waiting: open.filter(isWaiting).length });
+  });
+  r.get("/live", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const status = req.query.status === "closed" ? "closed" : "open";
+    const items = (await store.listLive(t.tenantId, status, 100)).map(liveItem);
+    res.json({ items });
+  });
+  r.get("/live/:id", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const chat = await store.getLive(t.tenantId, String(req.params.id));
+    if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
+    const lastAt = (chat.messages[chat.messages.length - 1]?.at ?? chat.createdAt).getTime();
+    // "Gördüm" işarəsi yalnız yeni mesaj gələndə yenilənir (operator panelinin təkrar sorğuları sıralamanı pozmasın)
+    const c = !chat.operatorSeenAt || chat.operatorSeenAt.getTime() < lastAt ? (await store.pushLive(t.tenantId, chat.id, null, { operatorSeenAt: new Date() })) ?? chat : chat;
+    res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt } });
+  });
+  r.post("/live/:id/messages", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`live:op:${user.id}`, 60, 60_000)) throw new HttpError(429, "Çox tez-tez mesaj göndərirsən", "RATE_LIMITED");
+    const t = await mine(user.id);
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (!text || text.length > 1000) throw new HttpError(400, "Mesaj 1-1000 simvol olmalıdır");
+    const chat = await store.getLive(t.tenantId, String(req.params.id));
+    if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
+    if (chat.status === "closed") throw new HttpError(409, "Söhbət bağlanıb", "LIVE_CLOSED");
+    const next = await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date() }, { operatorSeenAt: new Date() });
+    res.status(201).json({ total: next?.messages.length ?? chat.messages.length });
+  });
+  r.post("/live/:id/close", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const chat = await store.getLive(t.tenantId, String(req.params.id));
+    if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
+    if (chat.status === "open") await store.pushLive(t.tenantId, chat.id, { from: "system", text: "closed", at: new Date() }, { status: "closed", operatorSeenAt: new Date() });
+    res.json({ ok: true });
+  });
+
+  // 👍/👎: sayt ziyarətçilərinin cavablara rəyi
+  r.get("/feedback", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 90);
+    const since = new Date(Date.now() - days * 86_400_000);
+    const [counts, rows] = await Promise.all([store.feedbackCounts(t.tenantId, since), store.feedbackSince(t.tenantId, since, 200)]);
+    res.json({ days, ...counts, bad: rows.filter((f) => f.rating === -1 && f.question).slice(0, 20).map((f) => ({ at: f.at, question: f.question, answer: f.answer })) });
   });
 
   r.get("/usage", async (_req, res) => {

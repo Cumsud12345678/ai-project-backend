@@ -18,6 +18,8 @@ export type WidgetSettings = {
   color: string;
   /** Çat istifadə limitləri (0 = limitsiz). Olmayanda defolt: ziyarətçi başına gündə 30 mesaj, sayt üzrə limitsiz. */
   limits?: { perVisitorDay: number; siteHour: number };
+  /** Canlı operator söhbəti: ziyarətçi operatorla panel vasitəsilə yazışır. Defolt: söndürülüb (operator panelə baxmalıdır). */
+  live?: { enabled: boolean };
   /** Vidjet scriptinin müştəri saytında son dəfə yükləndiyi vaxt (quraşdırmanın işlədiyini göstərir). */
   lastSeenAt?: Date;
 };
@@ -34,6 +36,20 @@ export type TenantRecord = {
   keyRotatedAt?: Date;
   widget?: WidgetSettings;
 };
+
+export type LiveMessage = { from: "visitor" | "operator" | "system"; text: string; at: Date };
+/** Ziyarətçi ilə operator arasında canlı söhbət. Ziyarətçi yalnız `tokenHash`-ın sahibi olan token ilə oxuya/yaza bilər. */
+export type LiveChat = {
+  id: string; tenantId: string; tokenHash: string;
+  name: string; contact: string; status: "open" | "closed";
+  /** Operatorun söhbəti başa düşməsi üçün: ziyarətçinin AI ilə əvvəlki yazışması. */
+  context: { role: "user" | "model"; text: string }[];
+  messages: LiveMessage[];
+  createdAt: Date; updatedAt: Date;
+  /** Operator söhbəti axırıncı dəfə nə vaxt açdı (cavab gözləyənləri ayırmaq üçün). */
+  operatorSeenAt?: Date;
+};
+export type FeedbackRecord = { tenantId: string; rating: 1 | -1; question: string; answer: string; at: Date };
 
 export class DuplicateError extends Error {}
 
@@ -67,5 +83,19 @@ export interface Store {
   touchWidget(tenantId: string, at: Date): Promise<void>;
   deleteTenant(tenantId: string): Promise<void>;
 
+  // Canlı söhbət (hər müştəri yalnız öz tenantId-si ilə)
+  createLive(c: LiveChat): Promise<void>;
+  getLive(tenantId: string, id: string): Promise<LiveChat | null>;
+  /** Mesaj əlavə edir (ən çox 300) və sahələri yeniləyir; söhbət tapılmasa null. */
+  pushLive(tenantId: string, id: string, msg: LiveMessage | null, patch?: Partial<Pick<LiveChat, "status" | "operatorSeenAt" | "name" | "contact">>): Promise<LiveChat | null>;
+  listLive(tenantId: string, status: "open" | "closed", limit: number): Promise<LiveChat[]>;
+  deleteLiveForTenant(tenantId: string): Promise<void>;
+
+  addFeedback(f: FeedbackRecord): Promise<void>;
+  feedbackSince(tenantId: string, since: Date, limit: number): Promise<FeedbackRecord[]>;
+  feedbackCounts(tenantId: string, since: Date): Promise<{ up: number; down: number }>;
+
   close(): Promise<void>;
 }
+
+export const LIVE_MAX_MESSAGES = 300;
