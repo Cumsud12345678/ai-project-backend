@@ -81,12 +81,12 @@
       var v = JSON.parse(sessionStorage.getItem(STORE) || "{}");
       var live = v.live && typeof v.live === "object" ? v.live : null;
       if (!live) { var s = liveStored(); if (s) live = { id: s.id, token: s.token, after: 0, pending: false, t: s.t, seen: s.seen || 0 }; } // yeni tab: tarixçə serverdən yenidən yüklənir
-      return { messages: Array.isArray(v.messages) ? v.messages : [], open: !!v.open, live: live };
+      return { messages: Array.isArray(v.messages) ? v.messages : [], open: !!v.open, live: live, sid: typeof v.sid === "string" && /^[a-f0-9]{16,32}$/.test(v.sid) ? v.sid : "" };
     }
-    catch (e) { return { messages: [], open: false, live: null }; }
+    catch (e) { return { messages: [], open: false, live: null, sid: "" }; }
   }
   function save() {
-    try { sessionStorage.setItem(STORE, JSON.stringify({ messages: state.messages.slice(-MAX_STORED), open: state.open, live: state.live })); } catch (e) { /* məxfi rejim */ }
+    try { sessionStorage.setItem(STORE, JSON.stringify({ messages: state.messages.slice(-MAX_STORED), open: state.open, live: state.live, sid: state.sid })); } catch (e) { /* məxfi rejim */ }
     try {
       if (state.live && state.live.id) localStorage.setItem(LIVE_KEY, JSON.stringify({ id: state.live.id, token: state.live.token, t: state.live.t || Date.now(), seen: state.live.seen || 0 }));
       else localStorage.removeItem(LIVE_KEY);
@@ -124,6 +124,12 @@
       try { localStorage.setItem(K, a); } catch (e) { try { sessionStorage.setItem(K, a); } catch (e2) { /* yaddaşda qalır */ } }
     }
     return memVid;
+  }
+  function newId() {
+    var a = "";
+    try { var arr = new Uint8Array(12); crypto.getRandomValues(arr); for (var i = 0; i < arr.length; i++) a += ("0" + arr[i].toString(16)).slice(-2); }
+    catch (e) { for (var j = 0; j < 24; j++) a += Math.floor(Math.random() * 16).toString(16); }
+    return a;
   }
   var isUrl = function (u) { return typeof u === "string" && /^https?:\/\//i.test(u); };
 
@@ -610,7 +616,7 @@
       gen++; if (curCtrl) { try { curCtrl.abort(); } catch (e) { /* artıq bitib */ } }
       busy = false; sendBtn.disabled = false;
       clearTimeout(pollTimer); clearTimeout(noReplyTimer); wsClose();
-      state.messages = []; state.live = null; save();
+      state.messages = []; state.live = null; state.sid = ""; save();
       input.value = ""; grow();
       render(); input.focus();
     });
@@ -632,6 +638,7 @@
       if (!text || busy) return;
       if (state.live) return liveSubmit(text);
       var history = state.messages.filter(function (m) { return !m.live; }).slice(-10).map(function (m) { return { role: m.role, text: m.text }; });
+      if (!state.sid) state.sid = newId(); // bir söhbət = bir identifikator (sayt sahibi tarixçədə qruplaşdırılmış görür)
       state.messages.push({ role: "user", text: text });
       newBtn.hidden = false;
       save();
@@ -646,7 +653,7 @@
       var timer = setTimeout(function () { ctrl.abort(); }, 60000);
       fetch(api + "/chat", {
         method: "POST", headers: { "content-type": "application/json" }, signal: ctrl.signal,
-        body: JSON.stringify({ message: text, history: history, vid: visitorId() }),
+        body: JSON.stringify({ message: text, history: history, vid: visitorId(), sid: state.sid }),
       }).then(function (res) {
         return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, data: data }; });
       }).then(function (r) {

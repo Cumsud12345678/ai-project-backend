@@ -4,6 +4,7 @@ import type { AiResult } from "../ai.js";
 import { HttpError } from "../http.js";
 import { notifyTopupRequest, parseAmount } from "../billing.js";
 import { mailVisitorReply } from "../live.js";
+import { exportCsv, funnel, type ExportKind } from "../stats.js";
 import { hub } from "../hub.js";
 import { makeTicket, wsUrlOf } from "../realtime.js";
 import { currentUser, requireAuth } from "../middleware.js";
@@ -307,6 +308,42 @@ export function tenantRoutes(deps: Deps) {
     const t = await mine(currentUser(res).id);
     const days = Number(req.query.days);
     res.json(await ai.queryStats(t.tenantId, Number.isFinite(days) && days > 0 ? days : undefined));
+  });
+  // Söhbət tarixçəsi: suallar + AI cavabları söhbətlər üzrə qruplaşdırılır
+  r.get("/conversations", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const qs = new URLSearchParams();
+    for (const k of ["limit", "days", "before"]) { const v = req.query[k]; if (typeof v === "string" && v) qs.set(k, v.slice(0, 40)); }
+    res.json(await ai.conversations(t.tenantId, qs.toString()));
+  });
+  r.get("/conversations/:sid", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    res.json(await ai.conversation(t.tenantId, sid(req.params.sid)));
+  });
+  // Konversiya: söhbətlərin neçəsi operatora/müraciətə çevrildi
+  r.get("/funnel", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const d = Number(req.query.days);
+    res.json(await funnel(deps, t, Number.isFinite(d) && d > 0 ? Math.min(Math.round(d), 90) : 30));
+  });
+  // CSV ixracı (Excel/Google Sheets)
+  r.get("/export/:kind", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`export:${user.id}`, 10, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez ixrac edirsən, bir az gözlə", "RATE_LIMITED");
+    const kind = String(req.params.kind) as ExportKind;
+    if (!["queries", "conversations", "leads", "unanswered", "live"].includes(kind)) throw new HttpError(400, "Yanlış ixrac növü");
+    const t = await mine(user.id);
+    const d = Number(req.query.days);
+    const out = await exportCsv(deps, t, kind, Number.isFinite(d) && d > 0 ? Math.min(Math.round(d), 90) : 30);
+    res.set({ "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${out.filename}"`, "x-truncated": out.truncated ? "1" : "0", "cache-control": "no-store" }).send(out.csv);
+  });
+  // Aylıq e-poçt hesabatı: oxu / aç-söndür
+  r.get("/report", async (_req, res) => { const t = await mine(currentUser(res).id); res.json({ monthly: t.report?.monthly !== false }); });
+  r.put("/report", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    if (typeof req.body?.monthly !== "boolean") throw new HttpError(400, "monthly true/false olmalıdır");
+    await store.updateTenant(t.tenantId, { report: { ...t.report, monthly: req.body.monthly } });
+    res.json({ monthly: req.body.monthly });
   });
   r.delete("/queries", async (_req, res) => {
     const t = await mine(currentUser(res).id);

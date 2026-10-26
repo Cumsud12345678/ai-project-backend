@@ -31,6 +31,8 @@ export function fakeAi(): FakeAi {
     async listings(...a) { return rec("listings", a, { count: 0, listings: [] }); },
     async queries(...a) { return rec("queries", a, { enabled: true, retentionDays: 90, total: 1, queries: [{ id: "1", at: "2026-10-17T00:00:00.000Z", message: "toyota", results: 2, tokens: 30, cached: false, error: false }] }); },
     async queryStats(...a) { return rec("queryStats", a, { enabled: true, days: 30, total: 1, noResults: 0, errors: 0, cached: 0, top: [{ message: "toyota", count: 1 }], topNoResults: [] }); },
+    async conversations(...a) { return rec("conversations", a, { enabled: true, hasMore: false, nextCursor: null, conversations: [{ sid: "aaaaaaaa11", startedAt: "2026-10-17T00:00:00.000Z", lastAt: "2026-10-17T00:01:00.000Z", messages: 2, first: "salam", unanswered: 0, costAzn: 0.01 }] }); },
+    async conversation(...a) { return rec("conversation", a, { sid: "aaaaaaaa11", messages: [{ id: "1", at: "2026-10-17T00:00:00.000Z", message: "salam", answer: "Salam!", results: 1 }] }); },
     async clearQueries(...a) { return rec("clearQueries", a, { ok: true }); },
     async kbInfo(...a) { return rec("kbInfo", a, { mode: "support", sources: [], limits: { sources: 30, chunks: 2500, fileBytes: 6291456 }, totals: { sources: 0, chunks: 0 } }); },
     async kbAddFile(...a) { return rec("kbAddFile", a, { source: { id: "s1", status: "processing" } }); },

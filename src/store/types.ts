@@ -35,6 +35,8 @@ export type TenantRecord = {
   updatedAt: Date;
   keyRotatedAt?: Date;
   widget?: WidgetSettings;
+  /** Aylıq e-poçt hesabatı: defolt aktivdir (monthly=false ilə söndürülür); lastSent = axırıncı göndərilən dövr ("2026-09"). */
+  report?: { monthly?: boolean; lastSent?: string };
 };
 
 export type LiveMessage = { from: "visitor" | "operator" | "system"; text: string; at: Date };
@@ -82,7 +84,7 @@ export interface Store {
   findTenantByWidgetKey(key: string): Promise<TenantRecord | null>;
   listTenants(limit: number): Promise<TenantRecord[]>;
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget">>): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report">>): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;

@@ -15,7 +15,9 @@ export type AiClient = {
   usage(tenantId: string): Promise<AiResult>;
   usageSummary(): Promise<AiResult>;
   listings(tenantId: string, query: string): Promise<AiResult>;
-  chat(tenantId: string, message: string, history: unknown[], opts?: { test?: boolean }): Promise<AiResult>;
+  chat(tenantId: string, message: string, history: unknown[], opts?: { test?: boolean; sid?: string }): Promise<AiResult>;
+  conversations(tenantId: string, query: string): Promise<AiResult>;
+  conversation(tenantId: string, sid: string): Promise<AiResult>;
   queries(tenantId: string, query: string): Promise<AiResult>;
   queryStats(tenantId: string, days?: number): Promise<AiResult>;
   clearQueries(tenantId: string): Promise<AiResult>;
@@ -68,7 +70,9 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     usage: (id) => request("GET", `${t(id)}/usage`),
     usageSummary: () => request("GET", "/usage/summary"),
     listings: (id, query) => request("GET", `${t(id)}/listings${query ? `?${query}` : ""}`),
-    chat: (id, message, history, opts) => request("POST", `${t(id)}/chat`, { message, history, ...(opts?.test && { test: true }) }, 75_000),
+    chat: (id, message, history, opts) => request("POST", `${t(id)}/chat`, { message, history, ...(opts?.test && { test: true }), ...(opts?.sid && { sid: opts.sid }) }, 75_000),
+    conversations: (id, query) => request("GET", `${t(id)}/conversations${query ? `?${query}` : ""}`),
+    conversation: (id, sid) => request("GET", `${t(id)}/conversations/${encodeURIComponent(sid)}`),
     queries: (id, query) => request("GET", `${t(id)}/queries${query ? `?${query}` : ""}`),
     queryStats: (id, days) => request("GET", `${t(id)}/queries/stats${days ? `?days=${days}` : ""}`),
     clearQueries: (id) => request("DELETE", `${t(id)}/queries`),

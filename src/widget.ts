@@ -230,13 +230,14 @@ export function widgetRoutes(deps: Deps) {
     }
     if (lim.siteHour > 0 && !limiter.hit(`w:key:${key}`, lim.siteHour, 60 * 60_000)) throw new HttpError(429, "Çat müvəqqəti məşğuldur, bir azdan yenidən cəhd et", "BUSY");
 
-    const { message, history } = req.body ?? {};
+    const { message, history, sid: sidRaw } = req.body ?? {};
+    const sid = typeof sidRaw === "string" && /^[a-f0-9]{16,32}$/.test(sidRaw) ? sidRaw : undefined;
     if (typeof message !== "string" || !message.trim() || message.length > 500) throw new HttpError(400, "Mesaj 1-500 simvol olmalıdır");
     const clean = (Array.isArray(history) ? history : []).slice(-10)
       .filter((h: any) => h && (h.role === "user" || h.role === "model") && typeof h.text === "string")
       .map((h: any) => ({ role: h.role, text: h.text.slice(0, 2000) }));
     try {
-      const out = await ai.chat(t.tenantId, message.trim(), clean);
+      const out = await ai.chat(t.tenantId, message.trim(), clean, { sid });
       // Balans azalıb/bitibsə sayt sahibinə email (AI servisi eyni vəziyyət üçün yalnız bir dəfə xəbər verir)
       const notify = out.billing?.notify;
       if (notify === "low" || notify === "empty") void notifyBalance(deps, t, notify, out.billing?.balanceAzn);
