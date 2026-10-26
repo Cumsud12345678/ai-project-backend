@@ -74,6 +74,7 @@ export function createMemoryStore(): Store {
       live.set(id, next);
       return next;
     },
+    async patchLive(tenantId, id, patch) { const c = live.get(id); if (c && c.tenantId === tenantId) live.set(id, { ...c, ...patch }); },
     async listLive(tenantId, status, limit) {
       return [...live.values()].filter((c) => c.tenantId === tenantId && c.status === status).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, limit);
     },

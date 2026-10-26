@@ -115,3 +115,52 @@ test("rəy: 👍/👎 sayılır; sorğu jurnalı söndürülübsə mətn saxlanm
   assert.equal(fb.down, 2);
   assert.ok(!JSON.stringify(fb).includes("gizli"), "jurnal söndürülübsə sual/cavab mətni saxlanmır");
 });
+
+// ---- ziyarətçiyə e-poçt: yalnız çatdan ayrılıbsa ----
+async function liveWith(contact: string) {
+  const { c, key } = await tenant();
+  await c.call("PUT", "/tenant/widget", { live: { enabled: true } });
+  const tenantId = (await c.call("GET", "/tenant")).body.tenant.tenantId as string;
+  const v = visitor();
+  const start = await v("POST", `/widget/${key}/live`, { message: "Salam", contact });
+  assert.equal(start.status, 201);
+  return { c, key, v, tenantId, id: start.body.id as string, token: start.body.token as string };
+}
+const mailsTo = (to: string) => p.mails.filter((m) => m.to === to);
+
+test("operator cavabı: ziyarətçi çatdadırsa e-poçt getmir", async () => {
+  const { c, id } = await liveWith("ziyaretci1@example.com");
+  assert.equal((await c.call("POST", `/tenant/live/${id}/messages`, { text: "Buyurun" })).status, 201);
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(mailsTo("ziyaretci1@example.com").length, 0);
+});
+
+test("operator cavabı: ziyarətçi 2 dəqiqədən çox yoxdursa e-poçt gedir (cavab mətni ilə), 10 dəqiqədə təkrar getmir", async () => {
+  const { c, id, tenantId } = await liveWith("ziyaretci2@example.com");
+  await p.store.patchLive(tenantId, id, { visitorSeenAt: new Date(Date.now() - 5 * 60_000) });
+  assert.equal((await c.call("POST", `/tenant/live/${id}/messages`, { text: "Qiymət 15000 AZN-dir" })).status, 201);
+  await new Promise((r) => setTimeout(r, 30));
+  const got = mailsTo("ziyaretci2@example.com");
+  assert.equal(got.length, 1);
+  assert.match(got[0]!.text, /Qiymət 15000 AZN-dir/);
+  assert.match(got[0]!.text, /https:\/\/motoelan\.com/);
+  await c.call("POST", `/tenant/live/${id}/messages`, { text: "Əlavə məlumat" });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(mailsTo("ziyaretci2@example.com").length, 1, "10 dəqiqə ərzində ikinci e-poçt yoxdur");
+});
+
+test("e-poçt yoxdur (yalnız telefon): bildiriş göndərilmir; ziyarətçi qayıdanda (sync) yenidən 'çatdadır' sayılır", async () => {
+  const phone = await liveWith("+994501234567");
+  await p.store.patchLive(phone.tenantId, phone.id, { visitorSeenAt: new Date(Date.now() - 5 * 60_000) });
+  const before = p.mails.length;
+  await phone.c.call("POST", `/tenant/live/${phone.id}/messages`, { text: "Salam" });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(p.mails.length, before);
+
+  const back = await liveWith("ziyaretci3@example.com");
+  await p.store.patchLive(back.tenantId, back.id, { visitorSeenAt: new Date(Date.now() - 5 * 60_000) });
+  await back.v("POST", `/widget/${back.key}/live/${back.id}/sync`, { token: back.token, after: 0 }); // qayıtdı
+  await back.c.call("POST", `/tenant/live/${back.id}/messages`, { text: "Buyurun" });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(mailsTo("ziyaretci3@example.com").length, 0);
+});

@@ -273,7 +273,7 @@ export function widgetRoutes(deps: Deps) {
     const now = new Date();
     const chat: LiveChat = {
       id: randomUUID(), tenantId: t.tenantId, tokenHash: sha(token).toString("hex"), name, contact: contact || "", status: "open",
-      context: cleanChat(b.chat), messages: text ? [{ from: "visitor", text, at: now }] : [], createdAt: now, updatedAt: now,
+      context: cleanChat(b.chat), messages: text ? [{ from: "visitor", text, at: now }] : [], createdAt: now, updatedAt: now, visitorSeenAt: now,
     };
     await store.createLive(chat);
     // Sayt sahibinə bildiriş (10 dəqiqədə bir, spam olmasın)
@@ -296,6 +296,8 @@ export function widgetRoutes(deps: Deps) {
     if (!limiter.hit(`w:livesync:${id}`, 40, 60_000)) throw new HttpError(429, "Çox tez-tez sorğu", "RATE_LIMITED");
     const after = Number.isInteger(b.after) && b.after >= 0 ? Math.min(b.after, 1000) : 0;
     const text = typeof b.text === "string" ? b.text.trim() : "";
+    // Ziyarətçi çatdadır: 30 saniyədən tez yazmırıq (operator cavab verəndə e-poçt göndərilib-göndərilməməsini bu müəyyən edir)
+    if (!chat.visitorSeenAt || Date.now() - chat.visitorSeenAt.getTime() > 30_000) await store.patchLive(t.tenantId, id, { visitorSeenAt: new Date() });
     if (text) {
       if (text.length > 1000) throw new HttpError(400, "Mesaj ən çox 1000 simvol ola bilər");
       if (chat.status === "closed") throw new HttpError(409, "Söhbət bağlanıb", "LIVE_CLOSED");

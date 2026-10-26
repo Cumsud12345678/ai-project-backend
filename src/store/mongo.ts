@@ -93,6 +93,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
       const only = await lives.findOneAndUpdate({ tenantId, id }, { $set: { ...patch, updatedAt: new Date() } }, { returnDocument: "after" });
       return only ? (strip(only) as LiveChat) : null;
     },
+    async patchLive(tenantId, id, patch) { await lives.updateOne({ tenantId, id }, { $set: patch }); },
     async listLive(tenantId, status, limit) {
       return (await lives.find({ tenantId, status }).sort({ updatedAt: -1 }).limit(limit).toArray()).map((d) => strip(d) as LiveChat);
     },

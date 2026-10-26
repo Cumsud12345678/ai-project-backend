@@ -3,6 +3,7 @@ import type { Deps } from "../deps.js";
 import type { AiResult } from "../ai.js";
 import { HttpError } from "../http.js";
 import { notifyTopupRequest, parseAmount } from "../billing.js";
+import { mailVisitorReply } from "../live.js";
 import { currentUser, requireAuth } from "../middleware.js";
 import { DuplicateError, type LiveChat, type TenantRecord } from "../store/types.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseWidgetPatch } from "../widget.js";
@@ -254,6 +255,7 @@ export function tenantRoutes(deps: Deps) {
     if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
     if (chat.status === "closed") throw new HttpError(409, "Söhbət bağlanıb", "LIVE_CLOSED");
     const next = await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date() }, { operatorSeenAt: new Date() });
+    void mailVisitorReply(deps, t, chat, text); // yalnız ziyarətçi çatdan ayrılıbsa və e-poçt yazıbsa
     res.status(201).json({ total: next?.messages.length ?? chat.messages.length });
   });
   r.post("/live/:id/close", async (req, res) => {

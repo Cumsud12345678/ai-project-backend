@@ -48,6 +48,11 @@ export type LiveChat = {
   createdAt: Date; updatedAt: Date;
   /** Operator söhbəti axırıncı dəfə nə vaxt açdı (cavab gözləyənləri ayırmaq üçün). */
   operatorSeenAt?: Date;
+  /** Ziyarətçi çatda axırıncı dəfə nə vaxt aktiv idi (hər sorğuda yenilənir, 30 san-dən tez yazılmır). */
+  visitorSeenAt?: Date;
+  /** Ziyarətçiyə operator cavabı barədə axırıncı e-poçt və göndərilən sayı. */
+  notifiedAt?: Date;
+  notifyCount?: number;
 };
 export type FeedbackRecord = { tenantId: string; rating: 1 | -1; question: string; answer: string; at: Date };
 
@@ -88,6 +93,8 @@ export interface Store {
   getLive(tenantId: string, id: string): Promise<LiveChat | null>;
   /** Mesaj əlavə edir (ən çox 300) və sahələri yeniləyir; söhbət tapılmasa null. */
   pushLive(tenantId: string, id: string, msg: LiveMessage | null, patch?: Partial<Pick<LiveChat, "status" | "operatorSeenAt" | "name" | "contact">>): Promise<LiveChat | null>;
+  /** updatedAt-a toxunmadan yalnız izləmə sahələrini yeniləyir */
+  patchLive(tenantId: string, id: string, patch: Partial<Pick<LiveChat, "visitorSeenAt" | "notifiedAt" | "notifyCount">>): Promise<void>;
   listLive(tenantId: string, status: "open" | "closed", limit: number): Promise<LiveChat[]>;
   deleteLiveForTenant(tenantId: string): Promise<void>;
 
