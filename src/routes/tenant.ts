@@ -4,6 +4,8 @@ import type { AiResult } from "../ai.js";
 import { HttpError } from "../http.js";
 import { notifyTopupRequest, parseAmount } from "../billing.js";
 import { mailVisitorReply } from "../live.js";
+import { hub } from "../hub.js";
+import { makeTicket, wsUrlOf } from "../realtime.js";
 import { currentUser, requireAuth } from "../middleware.js";
 import { DuplicateError, type LiveChat, type TenantRecord } from "../store/types.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseWidgetPatch } from "../widget.js";
@@ -245,6 +247,13 @@ export function tenantRoutes(deps: Deps) {
     const c = !chat.operatorSeenAt || chat.operatorSeenAt.getTime() < lastAt ? (await store.pushLive(t.tenantId, chat.id, null, { operatorSeenAt: new Date() })) ?? chat : chat;
     res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt } });
   });
+  // Real vaxt bağlantısı üçün qısa ömürlü bilet (panel WebSocket-i bununla açır; cookie portalın ünvanına getmir)
+  r.post("/live/ws-ticket", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`live:ticket:${user.id}`, 30, 60_000)) throw new HttpError(429, "Çox tez-tez sorğu", "RATE_LIMITED");
+    await mine(user.id);
+    res.json({ ticket: makeTicket(deps, user.id), url: wsUrlOf(config.publicPortalUrl) });
+  });
   r.post("/live/:id/messages", async (req, res) => {
     const user = currentUser(res);
     if (!limiter.hit(`live:op:${user.id}`, 60, 60_000)) throw new HttpError(429, "Çox tez-tez mesaj göndərirsən", "RATE_LIMITED");
@@ -256,13 +265,20 @@ export function tenantRoutes(deps: Deps) {
     if (chat.status === "closed") throw new HttpError(409, "Söhbət bağlanıb", "LIVE_CLOSED");
     const next = await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date() }, { operatorSeenAt: new Date() });
     void mailVisitorReply(deps, t, chat, text); // yalnız ziyarətçi çatdan ayrılıbsa və e-poçt yazıbsa
+    const total = next?.messages.length ?? chat.messages.length;
+    hub.toChat(chat.id, { t: "new", total });                                   // ziyarətçi dərhal oxuyur
+    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "message" });   // operatorun digər tabları yenilənir
     res.status(201).json({ total: next?.messages.length ?? chat.messages.length });
   });
   r.post("/live/:id/close", async (req, res) => {
     const t = await mine(currentUser(res).id);
     const chat = await store.getLive(t.tenantId, String(req.params.id));
     if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
-    if (chat.status === "open") await store.pushLive(t.tenantId, chat.id, { from: "system", text: "closed", at: new Date() }, { status: "closed", operatorSeenAt: new Date() });
+    if (chat.status === "open") {
+      await store.pushLive(t.tenantId, chat.id, { from: "system", text: "closed", at: new Date() }, { status: "closed", operatorSeenAt: new Date() });
+      hub.toChat(chat.id, { t: "new", total: chat.messages.length + 1 });
+      hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "close" });
+    }
     res.json({ ok: true });
   });
 

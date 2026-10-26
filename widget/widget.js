@@ -104,9 +104,9 @@
   var L = (function () {
     var lang = ((document.documentElement.lang || navigator.language || "az") + "").slice(0, 2).toLowerCase();
     var T = {
-      az: { src: "Mənbə:", offline: "Çat hazırda cavab vermir. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", contact: "Operatorla əlaqə", name: "Adınız (ixtiyari)", cont: "Telefon və ya e-poçt", send: "Göndər", ok: "Təşəkkürlər! Müraciətiniz qəbul edildi, tezliklə sizinlə əlaqə saxlayacağıq.", bad: "Düzgün telefon nömrəsi və ya e-poçt yazın", fail: "Göndərilə bilmədi, bir azdan yenidən cəhd edin", cancel: "Ləğv et", fresh: "Yeni söhbət", live: "Operatorla canlı yaz", liveStart: "Operatora qoşuldunuz. Mesajınızı yazın, cavab gələndə burada görəcəksiniz.", liveMailPh: "E-poçt (ixtiyari)", liveMailHint: "Çatdan çıxsanız, operatorun cavabını e-poçtla göndərək.", liveBack: "AI-a qayıt", liveWait: "Operator hələ cavab verməyib. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", liveEnd: "Operator söhbəti bitirdi. Yeni sual yazsanız, yenidən AI cavab verəcək.", liveFail: "Mesaj göndərilmədi, yenidən cəhd edin", livePh: "Operatora mesaj yazın…", op: "Operator", up: "Cavab faydalı idi", down: "Cavab faydalı deyildi", thanks: "Təşəkkürlər!", limit: "Bu gün üçün sual limitinə çatdınız. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", busy: "Çat hazırda çox yüklüdür. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq." },
-      en: { src: "Source:", offline: "The chat can't answer right now. Leave your contact and we'll get back to you.", contact: "Contact an operator", name: "Your name (optional)", cont: "Phone or email", send: "Send", ok: "Thank you! Your request was received, we'll contact you soon.", bad: "Enter a valid phone number or email", fail: "Could not send, please try again shortly", cancel: "Cancel", fresh: "New chat", live: "Chat with an operator", liveStart: "You are connected to an operator. Type your message, replies will appear here.", liveMailPh: "Email (optional)", liveMailHint: "If you leave the chat, we will email you the operator's reply.", liveBack: "Back to AI", liveWait: "The operator has not replied yet. Leave your contact and we'll get back to you.", liveEnd: "The operator ended the chat. Write a new question and the AI will answer again.", liveFail: "Message not sent, please try again", livePh: "Message the operator…", op: "Operator", up: "Helpful answer", down: "Not helpful", thanks: "Thanks!", limit: "You have reached today's question limit. Leave your contact and we'll get back to you.", busy: "The chat is very busy right now. Leave your contact and we'll get back to you." },
-      ru: { src: "Источник:", offline: "Чат сейчас не может ответить. Оставьте контакт, и мы свяжемся с вами.", contact: "Связаться с оператором", name: "Ваше имя (необязательно)", cont: "Телефон или e-mail", send: "Отправить", ok: "Спасибо! Ваше обращение принято, мы скоро свяжемся с вами.", bad: "Введите корректный телефон или e-mail", fail: "Не удалось отправить, попробуйте позже", cancel: "Отмена", fresh: "Новый чат", live: "Написать оператору", liveStart: "Вы подключены к оператору. Напишите сообщение, ответ появится здесь.", liveMailPh: "E-mail (необязательно)", liveMailHint: "Если вы выйдете из чата, мы отправим ответ оператора на e-mail.", liveBack: "Назад к ИИ", liveWait: "Оператор пока не ответил. Оставьте контакт, и мы свяжемся с вами.", liveEnd: "Оператор завершил чат. Напишите новый вопрос, и снова ответит ИИ.", liveFail: "Сообщение не отправлено, попробуйте ещё раз", livePh: "Сообщение оператору…", op: "Оператор", up: "Ответ полезен", down: "Ответ не полезен", thanks: "Спасибо!", limit: "Вы достигли лимита вопросов на сегодня. Оставьте контакт, и мы свяжемся с вами.", busy: "Чат сейчас сильно загружен. Оставьте контакт, и мы свяжемся с вами." },
+      az: { src: "Mənbə:", offline: "Çat hazırda cavab vermir. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", contact: "Operatorla əlaqə", name: "Adınız (ixtiyari)", cont: "Telefon və ya e-poçt", send: "Göndər", ok: "Təşəkkürlər! Müraciətiniz qəbul edildi, tezliklə sizinlə əlaqə saxlayacağıq.", bad: "Düzgün telefon nömrəsi və ya e-poçt yazın", fail: "Göndərilə bilmədi, bir azdan yenidən cəhd edin", cancel: "Ləğv et", fresh: "Yeni söhbət", live: "Operatorla canlı yaz", liveStart: "Operatora qoşuldunuz. Mesajınızı yazın, cavab gələndə burada görəcəksiniz.", opTyping: "Operator yazır…", liveMailPh: "E-poçt (ixtiyari)", liveMailHint: "Çatdan çıxsanız, operatorun cavabını e-poçtla göndərək.", liveBack: "AI-a qayıt", liveWait: "Operator hələ cavab verməyib. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", liveEnd: "Operator söhbəti bitirdi. Yeni sual yazsanız, yenidən AI cavab verəcək.", liveFail: "Mesaj göndərilmədi, yenidən cəhd edin", livePh: "Operatora mesaj yazın…", op: "Operator", up: "Cavab faydalı idi", down: "Cavab faydalı deyildi", thanks: "Təşəkkürlər!", limit: "Bu gün üçün sual limitinə çatdınız. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", busy: "Çat hazırda çox yüklüdür. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq." },
+      en: { src: "Source:", offline: "The chat can't answer right now. Leave your contact and we'll get back to you.", contact: "Contact an operator", name: "Your name (optional)", cont: "Phone or email", send: "Send", ok: "Thank you! Your request was received, we'll contact you soon.", bad: "Enter a valid phone number or email", fail: "Could not send, please try again shortly", cancel: "Cancel", fresh: "New chat", live: "Chat with an operator", liveStart: "You are connected to an operator. Type your message, replies will appear here.", opTyping: "Operator is typing…", liveMailPh: "Email (optional)", liveMailHint: "If you leave the chat, we will email you the operator's reply.", liveBack: "Back to AI", liveWait: "The operator has not replied yet. Leave your contact and we'll get back to you.", liveEnd: "The operator ended the chat. Write a new question and the AI will answer again.", liveFail: "Message not sent, please try again", livePh: "Message the operator…", op: "Operator", up: "Helpful answer", down: "Not helpful", thanks: "Thanks!", limit: "You have reached today's question limit. Leave your contact and we'll get back to you.", busy: "The chat is very busy right now. Leave your contact and we'll get back to you." },
+      ru: { src: "Источник:", offline: "Чат сейчас не может ответить. Оставьте контакт, и мы свяжемся с вами.", contact: "Связаться с оператором", name: "Ваше имя (необязательно)", cont: "Телефон или e-mail", send: "Отправить", ok: "Спасибо! Ваше обращение принято, мы скоро свяжемся с вами.", bad: "Введите корректный телефон или e-mail", fail: "Не удалось отправить, попробуйте позже", cancel: "Отмена", fresh: "Новый чат", live: "Написать оператору", liveStart: "Вы подключены к оператору. Напишите сообщение, ответ появится здесь.", opTyping: "Оператор печатает…", liveMailPh: "E-mail (необязательно)", liveMailHint: "Если вы выйдете из чата, мы отправим ответ оператора на e-mail.", liveBack: "Назад к ИИ", liveWait: "Оператор пока не ответил. Оставьте контакт, и мы свяжемся с вами.", liveEnd: "Оператор завершил чат. Напишите новый вопрос, и снова ответит ИИ.", liveFail: "Сообщение не отправлено, попробуйте ещё раз", livePh: "Сообщение оператору…", op: "Оператор", up: "Ответ полезен", down: "Ответ не полезен", thanks: "Спасибо!", limit: "Вы достигли лимита вопросов на сегодня. Оставьте контакт, и мы свяжемся с вами.", busy: "Чат сейчас сильно загружен. Оставьте контакт, и мы свяжемся с вами." },
     };
     return T[lang] || T.az;
   })();
@@ -212,6 +212,7 @@
     ".operator{align-self:flex-start;background:#eef2ff;border:1px solid #c7d2fe;border-bottom-left-radius:4px}",
     ".who{font-size:11px;font-weight:700;color:#4338ca;margin-bottom:2px}",
     ".note{align-self:center;max-width:92%;text-align:center;font-size:12px;color:#6b7280;display:flex;flex-direction:column;align-items:center;gap:6px}",
+    ".note.typing span{font-style:italic}",
     ".note button{border:1px solid #d1d5db;background:#fff;color:#374151;border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer}",
     ".fb{align-self:flex-start;display:flex;align-items:center;gap:2px;margin-top:-6px}",
     ".fbb{border:0;background:transparent;color:#9ca3af;cursor:pointer;padding:3px;border-radius:6px;display:grid;place-items:center}",
@@ -447,18 +448,63 @@
     }
 
     var pollTimer = null, noReplyTimer = null, liveBusy = false;
+    var ws = null, wsOk = false, wsTries = 0, wsRetry = null, typingEl = null, typingTimer = null, typingSentAt = 0, refreshBusy = false, refreshAgain = false;
+    var wsUrl = base.replace(/^http/i, "ws") + "/ws";
+    // Real vaxt: WebSocket yalnız "yeni mesaj var" siqnalı verir, mesajlar yenə HTTP ilə gəlir. Soket qoşuludursa polling yalnız ehtiyatdır (45 san).
     function schedulePoll() {
       clearTimeout(pollTimer);
       if (!state.live || state.live.pending || !state.live.id) return;
-      pollTimer = setTimeout(function () { liveCall("").then(schedulePoll, schedulePoll); }, document.hidden ? 30000 : state.open ? 3000 : 15000);
+      var wait = wsOk ? (document.hidden ? 60000 : 45000) : document.hidden ? 30000 : state.open ? 3000 : 15000;
+      pollTimer = setTimeout(function () { liveCall("").then(schedulePoll, schedulePoll); }, wait);
+    }
+    function hideTyping() { clearTimeout(typingTimer); if (typingEl) { typingEl.remove(); typingEl = null; } }
+    function showTyping() {
+      if (!typingEl) { typingEl = el("div", { class: "note typing", "aria-live": "polite" }, [el("span", { text: L.opTyping })]); log.appendChild(typingEl); scroll(); }
+      clearTimeout(typingTimer); typingTimer = setTimeout(hideTyping, 4000);
+    }
+    function liveRefresh() { // eyni anda yalnız bir sorğu; siqnal gec gəlibsə bitəndə yenidən
+      if (!state.live || !state.live.id) return;
+      if (refreshBusy) { refreshAgain = true; return; }
+      refreshBusy = true;
+      liveCall("").catch(function () {}).then(function () { refreshBusy = false; if (refreshAgain) { refreshAgain = false; liveRefresh(); } });
+    }
+    function wsClose() {
+      clearTimeout(wsRetry); wsTries = 0; wsOk = false; hideTyping();
+      if (ws) { var w = ws; ws = null; w.onclose = null; try { w.close(); } catch (e) { /* artıq bağlıdır */ } }
+    }
+    function wsOpen() {
+      if (ws || !window.WebSocket || !state.live || !state.live.id || state.live.pending) return;
+      var sock;
+      try { sock = new WebSocket(wsUrl); } catch (e) { return; }
+      ws = sock;
+      sock.onopen = function () { sock.send(JSON.stringify({ t: "auth", role: "visitor", key: key, id: state.live.id, token: state.live.token })); };
+      sock.onmessage = function (ev) {
+        var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.t === "ready") { wsOk = true; wsTries = 0; schedulePoll(); liveRefresh(); }
+        else if (m.t === "new") { hideTyping(); liveRefresh(); }
+        else if (m.t === "typing") showTyping();
+      };
+      sock.onclose = function (ev) {
+        if (ws !== sock) return;
+        ws = null; wsOk = false; hideTyping(); schedulePoll();
+        if (!state.live || !state.live.id) return;
+        if (ev && (ev.code === 4403 || ev.code === 4404)) return; // icazə yoxdur / söhbət yoxdur: polling davam edir
+        wsTries++; wsRetry = setTimeout(wsOpen, Math.min(60000, 1000 * Math.pow(2, Math.min(wsTries, 6))));
+      };
+      sock.onerror = function () { /* onclose yenidən qoşulur */ };
     }
     function dropLive() { // söhbət tapılmadı və ya bitdi: ziyarətçi yenidən AI ilə danışır
-      clearTimeout(pollTimer); clearTimeout(noReplyTimer);
+      clearTimeout(pollTimer); clearTimeout(noReplyTimer); wsClose();
       state.live = null; save(); updateLiveUi();
     }
     function applyLive(d) {
       var gotOperator = false;
-      (d.messages || []).forEach(function (m) {
+      var list = d.messages || [];
+      // Siqnal və polling eyni anda işləyə bilər: artıq göstərilən mesajlar təkrar əlavə olunmasın
+      var skip = Math.max(0, (state.live ? state.live.after || 0 : 0) - (d.total - list.length));
+      list = list.slice(skip);
+      if (list.length) hideTyping();
+      list.forEach(function (m) {
         var role = m.from === "visitor" ? "user" : m.from === "operator" ? "operator" : "system";
         var text = role === "system" ? "closed" : String(m.text || "");
         state.messages.push({ role: role, text: text, live: true });
@@ -508,7 +554,7 @@
             if (!r.ok) throw new Error(r.d.code || "start");
             state.live = { id: r.d.id, token: r.d.token, after: 0, pending: false, t: Date.now(), seen: 0 };
             Array.prototype.forEach.call(log.querySelectorAll(".note.back, .mailrow"), function (n) { n.remove(); }); // "AI-a qayıt" artıq mümkün deyil
-            applyLive(r.d); return true;
+            applyLive(r.d); wsOpen(); return true;
           });
       } else go = liveCall(text);
       go.then(function (ok) {
@@ -563,7 +609,7 @@
     newBtn.addEventListener("click", function () {
       gen++; if (curCtrl) { try { curCtrl.abort(); } catch (e) { /* artıq bitib */ } }
       busy = false; sendBtn.disabled = false;
-      clearTimeout(pollTimer); clearTimeout(noReplyTimer);
+      clearTimeout(pollTimer); clearTimeout(noReplyTimer); wsClose();
       state.messages = []; state.live = null; save();
       input.value = ""; grow();
       render(); input.focus();
@@ -573,6 +619,9 @@
     var busy = false, gen = 0, curCtrl = null;
     function grow() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 96) + "px"; }
     input.addEventListener("input", grow);
+    input.addEventListener("input", function () { // operatora "yazır..." siqnalı (3 saniyədə bir)
+      if (wsOk && ws && state.live && state.live.id && Date.now() - typingSentAt > 3000) { typingSentAt = Date.now(); try { ws.send('{"t":"typing"}'); } catch (e) { /* bağlanır */ } }
+    });
     input.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
     });
@@ -630,7 +679,7 @@
     render();
     document.body.appendChild(host);
     setOpen(state.open);
-    if (state.live && state.live.id && !state.live.pending) liveCall("").then(schedulePoll, schedulePoll); // yenilənəndən sonra canlı söhbət davam edir
+    if (state.live && state.live.id && !state.live.pending) { liveCall("").then(schedulePoll, schedulePoll); wsOpen(); } // yenilənəndən sonra canlı söhbət davam edir
 
     // Səhifə şərti: data-show-on / data-hide-on. SPA keçidləri (pushState/replaceState/popstate) izlənir.
     var parseList = function (attr) {

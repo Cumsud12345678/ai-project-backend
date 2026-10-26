@@ -10,6 +10,7 @@ import { HttpError } from "./http.js";
 import type { LiveChat, TenantRecord, WidgetSettings } from "./store/types.js";
 import { cleanContact } from "./kb.js";
 import { notifyBalance } from "./billing.js";
+import { hub } from "./hub.js";
 
 export const WIDGET_KEY_RE = /^wk_[a-f0-9]{32}$/;
 export const newWidgetKey = () => `wk_${randomBytes(16).toString("hex")}`;
@@ -118,8 +119,8 @@ function publicListing(l: Record<string, unknown>) {
   };
 }
 
-const sha = (v: string) => createHash("sha256").update(v).digest();
-const sameToken = (token: unknown, hash: string) => typeof token === "string" && token.length <= 100 && timingSafeEqual(sha(token), Buffer.from(hash, "hex"));
+export const sha = (v: string) => createHash("sha256").update(v).digest();
+export const sameToken = (token: unknown, hash: string) => typeof token === "string" && token.length <= 100 && timingSafeEqual(sha(token), Buffer.from(hash, "hex"));
 /** Vidjetə yalnız ziyarətçinin görməli olduğu sahələr çıxır. */
 const liveView = (c: LiveChat, after: number) => ({
   status: c.status, total: c.messages.length,
@@ -283,6 +284,7 @@ export function widgetRoutes(deps: Deps) {
         if (owner) await mailer.send(owner.email, `Canlı söhbət: ${t.businessName}`, `Saytınızın çatında ziyarətçi operatorla yazışmaq istəyir.${text ? `\n\nİlk mesaj: ${text.slice(0, 300)}` : ""}\n\nPanelin "Müraciətlər" bölməsində "Canlı söhbət" tabını açın.`);
       } catch (e) { console.warn("[widget] canlı söhbət bildirişi göndərilmədi:", e instanceof Error ? e.message : e); }
     }
+    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "start" });
     res.status(201).json({ id: chat.id, token, ...liveView(chat, 0) });
   });
 
@@ -303,6 +305,7 @@ export function widgetRoutes(deps: Deps) {
       if (chat.status === "closed") throw new HttpError(409, "Söhbət bağlanıb", "LIVE_CLOSED");
       if (!limiter.hit(`w:livemsg:${id}`, 10, 60_000)) throw new HttpError(429, "Çox tez-tez mesaj göndərdin", "RATE_LIMITED");
       const next = await store.pushLive(t.tenantId, id, { from: "visitor", text, at: new Date() });
+      hub.toOperators(t.tenantId, { t: "live", id, kind: "message" });
       return void res.json(liveView(next ?? chat, after));
     }
     res.json(liveView(chat, after));

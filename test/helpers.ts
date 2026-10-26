@@ -1,5 +1,6 @@
 import type { AddressInfo } from "node:net";
 import { createApp } from "../src/app.js";
+import { attachRealtime } from "../src/realtime.js";
 import { AiError, type AiClient } from "../src/ai.js";
 import type { Config } from "../src/config.js";
 import { createLimiter } from "../src/security.js";
@@ -65,11 +66,13 @@ export async function startPortal(overrides: Partial<Config> = {}) {
   const store = createMemoryStore();
   const mails: { to: string; subject: string; text: string }[] = [];
   const ai = fakeAi();
-  const app = createApp({
+  const deps = {
     config: { ...config, ...overrides }, store, ai, limiter: createLimiter(),
-    mailer: { async send(to, subject, text) { mails.push({ to, subject, text }); } },
-  });
-  const server = await new Promise<import("node:http").Server>((res) => { const s = app.listen(0, () => res(s)); });
+    mailer: { async send(to: string, subject: string, text: string) { mails.push({ to, subject, text }); } },
+  };
+  const app = createApp(deps);
+  const server = await new Promise<import("node:http").Server>((res) => { const s = app.listen(overrides.port ?? 0, () => res(s)); });
+  attachRealtime(server, deps);
   const base = `http://localhost:${(server.address() as AddressInfo).port}`;
   const lastCode = (to: string) => {
     const m = [...mails].reverse().find((x) => x.to === to);
