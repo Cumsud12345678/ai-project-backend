@@ -230,20 +230,21 @@ export function widgetRoutes(deps: Deps) {
     }
     if (lim.siteHour > 0 && !limiter.hit(`w:key:${key}`, lim.siteHour, 60 * 60_000)) throw new HttpError(429, "Çat müvəqqəti məşğuldur, bir azdan yenidən cəhd et", "BUSY");
 
-    const { message, history, sid: sidRaw } = req.body ?? {};
+    const { message, history, sid: sidRaw, identity: identityRaw } = req.body ?? {};
+    const identity = typeof identityRaw === "string" && identityRaw.length <= 1000 && /^v1\.[\w-]+\.[\w-]+$/.test(identityRaw) ? identityRaw : undefined; // imzanı AI servisi yoxlayır; burada yalnız format
     const sid = typeof sidRaw === "string" && /^[a-f0-9]{16,32}$/.test(sidRaw) ? sidRaw : undefined;
     if (typeof message !== "string" || !message.trim() || message.length > 500) throw new HttpError(400, "Mesaj 1-500 simvol olmalıdır");
     const clean = (Array.isArray(history) ? history : []).slice(-10)
       .filter((h: any) => h && (h.role === "user" || h.role === "model") && typeof h.text === "string")
       .map((h: any) => ({ role: h.role, text: h.text.slice(0, 2000) }));
     try {
-      const out = await ai.chat(t.tenantId, message.trim(), clean, { sid });
+      const out = await ai.chat(t.tenantId, message.trim(), clean, { sid, identity });
       // Balans azalıb/bitibsə sayt sahibinə email (AI servisi eyni vəziyyət üçün yalnız bir dəfə xəbər verir)
       const notify = out.billing?.notify;
       if (notify === "low" || notify === "empty") void notifyBalance(deps, t, notify, out.billing?.balanceAzn);
       const listings = (Array.isArray(out.listings) ? out.listings : []).slice(0, 10).map(publicListing);
       const sources = (Array.isArray(out.sources) ? out.sources : []).slice(0, 3).map((s: Record<string, unknown>) => ({ title: str(s.title, 120) ?? "", url: httpUrl(s.url) }));
-      res.json({ answer: String(out.answer ?? "").slice(0, 8000), listings, ...(sources.length && { sources }), ...(out.unanswered === true && { unanswered: true }) });
+      res.json({ answer: String(out.answer ?? "").slice(0, 8000), listings, ...(sources.length && { sources }), ...(out.unanswered === true && { unanswered: true }), ...(out.identity === "invalid" && { identity: "invalid" }) });
     } catch (e) {
       // Ziyarətçi müştərinin limit və ya konfiqurasiya məlumatını görməməlidir.
       if (e instanceof AiError) {

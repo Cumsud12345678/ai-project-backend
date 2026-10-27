@@ -16,6 +16,10 @@
  *   data-hide-on="/checkout,/admin/*"  çat bu səhifələrdə gizlənir (ikisi də yazılıbsa: show-on-a uyğun və hide-on-a uyğun olmayan)
  *   Next.js və digər SPA saytlarda link ilə keçid (səhifə yenilənmədən) və geri düyməsi də izlənir.
  * Əl ilə idarə: window.CarAdvisor.open() / close() / toggle() / destroy()
+ * Hesaba daxil olmuş istifadəçi (sifariş/ödəniş üçün): saytın SERVERİ imzalı qısaömürlü token yaradır, səhifə onu verir:
+ *   window.CarAdvisor.identify(token)   // daxil olanda və hər yenilənəndə; çıxanda identify(null)
+ *   window.addEventListener("caradvisor:identity-expired", function () { ... yeni token al və identify(...) çağır ... });
+ * Token yalnız yaddaşda saxlanır (storage-ə yazılmır). İstifadəçi dəyişəndə/çıxanda söhbət təmizlənir.
  *
  * Vidjet yalnız ictimai açar (wk_...) göndərir. Gizli API açarı burada lazım deyil.
  */
@@ -32,6 +36,21 @@
   var key = script.getAttribute("data-key") || "";
   if (!/^wk_[a-f0-9]{32}$/.test(key)) return console.warn("[car-advisor] data-key düzgün deyil");
   window.__carAdvisorWidget = true;
+
+  // Şəxsi məlumat üçün kimlik tokeni: vidjet qurulmamışdan əvvəl də identify() çağırıla bilər
+  var idToken = null, idWho = null, idHook = null, idCalled = false;
+  function whoOf(t) {
+    try { var p = String(t).split("."); if (p.length !== 3 || p[0] !== "v1") return ""; var j = JSON.parse(atob(p[1].replace(/-/g, "+").replace(/_/g, "/"))); return typeof j.sub === "string" ? j.sub.slice(0, 100) : ""; }
+    catch (e) { return ""; }
+  }
+  window.CarAdvisor = window.CarAdvisor || {};
+  window.CarAdvisor.identify = function (t) {
+    idCalled = true;
+    idToken = typeof t === "string" && t.length > 20 && t.length <= 1000 ? t : null;
+    idWho = idToken ? whoOf(idToken) : "";
+    if (!idWho) idToken = null;
+    if (idHook) idHook();
+  };
 
   var base = new URL(script.src, location.href).origin;
   var api = base + "/widget/" + key;
@@ -81,12 +100,12 @@
       var v = JSON.parse(sessionStorage.getItem(STORE) || "{}");
       var live = v.live && typeof v.live === "object" ? v.live : null;
       if (!live) { var s = liveStored(); if (s) live = { id: s.id, token: s.token, after: 0, pending: false, t: s.t, seen: s.seen || 0 }; } // yeni tab: tarixçə serverdən yenidən yüklənir
-      return { messages: Array.isArray(v.messages) ? v.messages : [], open: !!v.open, live: live, sid: typeof v.sid === "string" && /^[a-f0-9]{16,32}$/.test(v.sid) ? v.sid : "" };
+      return { messages: Array.isArray(v.messages) ? v.messages : [], open: !!v.open, live: live, sid: typeof v.sid === "string" && /^[a-f0-9]{16,32}$/.test(v.sid) ? v.sid : "", who: typeof v.who === "string" ? v.who : "" };
     }
-    catch (e) { return { messages: [], open: false, live: null, sid: "" }; }
+    catch (e) { return { messages: [], open: false, live: null, sid: "", who: "" }; }
   }
   function save() {
-    try { sessionStorage.setItem(STORE, JSON.stringify({ messages: state.messages.slice(-MAX_STORED), open: state.open, live: state.live, sid: state.sid })); } catch (e) { /* məxfi rejim */ }
+    try { sessionStorage.setItem(STORE, JSON.stringify({ messages: state.messages.slice(-MAX_STORED), open: state.open, live: state.live, sid: state.sid, who: state.who })); } catch (e) { /* məxfi rejim */ }
     try {
       if (state.live && state.live.id) localStorage.setItem(LIVE_KEY, JSON.stringify({ id: state.live.id, token: state.live.token, t: state.live.t || Date.now(), seen: state.live.seen || 0 }));
       else localStorage.removeItem(LIVE_KEY);
@@ -653,7 +672,7 @@
       var timer = setTimeout(function () { ctrl.abort(); }, 60000);
       fetch(api + "/chat", {
         method: "POST", headers: { "content-type": "application/json" }, signal: ctrl.signal,
-        body: JSON.stringify({ message: text, history: history, vid: visitorId(), sid: state.sid }),
+        body: JSON.stringify({ message: text, history: history, vid: visitorId(), sid: state.sid, identity: idToken || undefined }),
       }).then(function (res) {
         return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, data: data }; });
       }).then(function (r) {
@@ -666,6 +685,7 @@
           if (r.data.code === "VISITOR_LIMIT" || r.data.code === "BUSY") { bubble("error", r.data.code === "BUSY" ? L.busy : L.limit); contactBox(text); liveBox(); scroll(); return; }
           return bubble("error", r.data.error || "Xəta baş verdi, bir azdan yenidən cəhd et");
         }
+        if (r.data.identity === "invalid" && idToken) { idToken = null; try { window.dispatchEvent(new CustomEvent("caradvisor:identity-expired")); } catch (e) { /* köhnə brauzer */ } }
         var answer = String(r.data.answer || "");
         var msg = { role: "model", text: answer, listings: r.data.listings || [], sources: r.data.sources || [], unanswered: r.data.unanswered === true };
         state.messages.push(msg);
@@ -683,6 +703,16 @@
       });
     });
 
+    // İstifadəçi dəyişəndə (və ya çıxanda) əvvəlki söhbət, o cümlədən şəxsi cavablar, bu brauzerdən silinir
+    function syncIdentity() {
+      if (!idCalled || (state.who || "") === (idWho || "")) return; // identify() hələ çağırılmayıb: səhifə yükləməsində söhbət silinməsin
+      gen++; if (curCtrl) { try { curCtrl.abort(); } catch (e) { /* artıq bitib */ } }
+      busy = false; sendBtn.disabled = false;
+      clearTimeout(pollTimer); clearTimeout(noReplyTimer); wsClose();
+      state.messages = []; state.live = null; state.sid = ""; state.who = idWho || ""; save();
+      input.value = ""; grow(); render();
+    }
+    idHook = syncIdentity; syncIdentity();
     render();
     document.body.appendChild(host);
     setOpen(state.open);
@@ -726,6 +756,7 @@
     }
 
     window.CarAdvisor = {
+      identify: window.CarAdvisor.identify,
       open: function () { setOpen(true); },
       close: function () { setOpen(false); },
       toggle: function () { setOpen(!state.open); },
@@ -734,7 +765,7 @@
         if (state.open) setOpen(false);
         window.removeEventListener("popstate", onRoute); window.removeEventListener("hashchange", onRoute);
         restore.forEach(function (f) { f(); });
-        host.remove(); delete window.CarAdvisor; window.__carAdvisorWidget = false;
+        host.remove(); idHook = null; delete window.CarAdvisor; window.__carAdvisorWidget = false;
       },
     };
   }

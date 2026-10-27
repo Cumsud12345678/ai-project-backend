@@ -337,6 +337,26 @@ export function tenantRoutes(deps: Deps) {
     const out = await exportCsv(deps, t, kind, Number.isFinite(d) && d > 0 ? Math.min(Math.round(d), 90) : 30);
     res.set({ "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${out.filename}"`, "x-truncated": out.truncated ? "1" : "0", "cache-control": "no-store" }).send(out.csv);
   });
+  // ---- Müştəriyə məxsus məlumat (sifariş / ödəniş): sayt istifadəçisinə öz məlumatını göstərmək ----
+  const pdWrite = (userId: string) => { if (!limiter.hit(`pd:${userId}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox əməliyyat oldu, bir az gözləyin", "RATE_LIMITED"); };
+  r.get("/private-data", async (_req, res) => { res.json(await ai.privateData((await mine(currentUser(res).id)).tenantId)); });
+  r.put("/private-data", async (req, res) => {
+    const user = currentUser(res); pdWrite(user.id);
+    const t = await mine(user.id);
+    res.json(await ai.setPrivateData(t.tenantId, req.body ?? {}));
+  });
+  r.delete("/private-data", async (_req, res) => { const user = currentUser(res); pdWrite(user.id); res.json(await ai.deletePrivateData((await mine(user.id)).tenantId)); });
+  r.post("/private-data/identity-secret", async (_req, res) => {
+    const user = currentUser(res); pdWrite(user.id);
+    res.set("cache-control", "no-store").status(201).json(await ai.newIdentitySecret((await mine(user.id)).tenantId));
+  });
+  r.post("/private-data/test", async (req, res) => {
+    const user = currentUser(res); pdWrite(user.id);
+    const b = (req.body ?? {}) as { kind?: unknown; userId?: unknown };
+    if (typeof b.kind !== "string" || typeof b.userId !== "string") throw new HttpError(400, "kind və userId tələb olunur");
+    res.set("cache-control", "no-store").json(await ai.testPrivateData((await mine(user.id)).tenantId, { kind: b.kind, userId: b.userId }));
+  });
+
   // Aylıq e-poçt hesabatı: oxu / aç-söndür
   r.get("/report", async (_req, res) => { const t = await mine(currentUser(res).id); res.json({ monthly: t.report?.monthly !== false }); });
   r.put("/report", async (req, res) => {
