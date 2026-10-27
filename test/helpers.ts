@@ -3,13 +3,14 @@ import { createApp } from "../src/app.js";
 import { attachRealtime } from "../src/realtime.js";
 import { AiError, type AiClient } from "../src/ai.js";
 import type { Config } from "../src/config.js";
+import { TelegramError, type TelegramApi } from "../src/telegram.js";
 import { createLimiter } from "../src/security.js";
 import { createMemoryStore } from "../src/store/memory.js";
 
 export const config: Config = {
   port: 0, mongoUri: "", dbName: "", aiServiceUrl: "http://ai.test", aiServiceToken: "t", publicAdvisorUrl: "https://advisor.test", publicPortalUrl: "https://portal.test",
   adminEmails: ["boss@example.com"], allowedOrigins: ["http://localhost:3001"], cookieSecure: false, sessionDays: 30,
-  resendApiKey: undefined, mailFrom: "x", mailReplyTo: undefined, trustProxy: 1, isProd: false,
+  resendApiKey: undefined, mailFrom: "x", mailReplyTo: undefined, trustProxy: 1, secretKey: "test-secret-key-test-secret-key-0000", isProd: false,
 };
 
 export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown> };
@@ -69,12 +70,27 @@ export function fakeAi(): FakeAi {
   return ai;
 }
 
+export type FakeTelegram = TelegramApi & { sent: { token: string; chatId: string; text: string }[]; hooks: Map<string, { url: string; secret: string }>; actions: number; badToken?: string; failSend?: boolean };
+/** Saxta Telegram: göndərilən mesajları və webhook-ları yadda saxlayır. */
+export function fakeTelegram(): FakeTelegram {
+  const tg: FakeTelegram = {
+    sent: [], hooks: new Map(), actions: 0,
+    async getMe(token) { if (token === tg.badToken) throw new TelegramError(401, "Unauthorized"); return { id: Number(token.split(":")[0]), username: `bot_${token.split(":")[0]}` }; },
+    async setWebhook(token, o) { tg.hooks.set(token, o); },
+    async deleteWebhook(token) { tg.hooks.delete(token); },
+    async sendMessage(token, chatId, text) { if (tg.failSend) throw new TelegramError(500, "boom"); tg.sent.push({ token, chatId, text }); },
+    async sendChatAction() { tg.actions++; },
+  };
+  return tg;
+}
+
 export async function startPortal(overrides: Partial<Config> = {}) {
   const store = createMemoryStore();
   const mails: { to: string; subject: string; text: string }[] = [];
   const ai = fakeAi();
+  const telegram = fakeTelegram();
   const deps = {
-    config: { ...config, ...overrides }, store, ai, limiter: createLimiter(),
+    config: { ...config, ...overrides }, store, ai, limiter: createLimiter(), telegram,
     mailer: { async send(to: string, subject: string, text: string) { mails.push({ to, subject, text }); } },
   };
   const app = createApp(deps);
@@ -114,5 +130,5 @@ export async function startPortal(overrides: Partial<Config> = {}) {
     return c;
   }
 
-  return { base, store, mails, ai, client, signedIn, lastCode, close: () => new Promise<void>((r) => server.close(() => r())) };
+  return { base, store, mails, ai, telegram, client, signedIn, lastCode, close: () => new Promise<void>((r) => server.close(() => r())) };
 }

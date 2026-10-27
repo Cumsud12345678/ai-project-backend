@@ -17,7 +17,7 @@ async function tenant() {
   const t = (await p.store.findUserByEmail(email).then((u) => p.store.findTenantByUser(u!.id)))!;
   return { c, t };
 }
-const deps = () => ({ config: baseConfig, store: p.store, ai: p.ai, limiter: undefined as never, mailer: { async send(to: string, subject: string, text: string) { p.mails.push({ to, subject, text }); } } }) as Deps;
+const deps = () => ({ config: baseConfig, store: p.store, ai: p.ai, limiter: undefined as never, telegram: undefined as never, mailer: { async send(to: string, subject: string, text: string) { p.mails.push({ to, subject, text }); } } }) as Deps;
 
 test("csvCell: düstur inyeksiyası, dırnaq və ; qorunur", () => {
   assert.equal(csvCell("=HYPERLINK(1)"), "'=HYPERLINK(1)");

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { MongoClient, MongoServerError, ObjectId, type Db } from "mongodb";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type Session, type Store, type TenantRecord, type User } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type Session, type Store, type TenantRecord, type User } from "./types.js";
 
 type UserDoc = Omit<User, "id"> & { _id: ObjectId };
 
@@ -23,6 +23,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
   const lives = db.collection<LiveChat>("live_chats");
   const feedbacks = db.collection<FeedbackRecord>("feedback");
   const errors = db.collection<ErrorRecord>("error_log");
+  const channelSessions = db.collection<ChannelSession>("channel_sessions");
   const audits = db.collection<AuditRecord>("admin_audit");
   const settings = db.collection<{ _id: string; value: unknown }>("settings");
 
@@ -40,6 +41,9 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     lives.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 60 * 24 * 3600 }), // 60 gün sonra silinir
     feedbacks.createIndex({ tenantId: 1, at: -1 }),
     feedbacks.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 3600 }), // 90 gün sonra silinir
+    channelSessions.createIndex({ tenantId: 1, channel: 1, chatId: 1 }, { unique: true }),
+    channelSessions.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 14 * 24 * 3600 }), // 14 gün hərəkətsiz qalan söhbət silinir
+    tenants.createIndex({ "telegram.hook": 1 }, { unique: true, partialFilterExpression: { "telegram.hook": { $type: "string" } } }),
     errors.createIndex({ at: -1 }),
     errors.createIndex({ at: 1 }, { expireAfterSeconds: 30 * 24 * 3600 }), // 30 gün sonra silinir
     errors.createIndex({ fingerprint: 1 }),
@@ -79,6 +83,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
 
     async findTenantByUser(userId) { return strip(await tenants.findOne({ userId })) as TenantRecord | null; },
     async findTenantById(tenantId) { return strip(await tenants.findOne({ tenantId })) as TenantRecord | null; },
+    async findTenantByTelegramHook(hook) { return strip(await tenants.findOne({ "telegram.hook": hook })) as TenantRecord | null; },
     async findTenantByWidgetKey(key) { return strip(await tenants.findOne({ "widget.key": key })) as TenantRecord | null; },
     async listTenants(limit) { return (await tenants.find().limit(limit).toArray()).map((d) => strip(d) as TenantRecord); },
     async createTenant(t) {
@@ -88,7 +93,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async touchWidget(tenantId, at) { await tenants.updateOne({ tenantId, widget: { $exists: true } }, { $set: { "widget.lastSeenAt": at } }); },
     async deleteTenant(tenantId) {
       await tenants.deleteOne({ tenantId });
-      await Promise.all([lives.deleteMany({ tenantId }), feedbacks.deleteMany({ tenantId })]);
+      await Promise.all([lives.deleteMany({ tenantId }), feedbacks.deleteMany({ tenantId }), channelSessions.deleteMany({ tenantId })]);
     },
 
     async createLive(c) { await lives.insertOne({ ...c }); },
@@ -116,6 +121,9 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
       const rows = await feedbacks.aggregate<{ _id: number; n: number }>([{ $match: { tenantId, at: { $gte: since } } }, { $group: { _id: "$rating", n: { $sum: 1 } } }]).toArray();
       return { up: rows.find((r) => r._id === 1)?.n ?? 0, down: rows.find((r) => r._id === -1)?.n ?? 0 };
     },
+    async getChannelSession(tenantId, channel, chatId) { return strip(await channelSessions.findOne({ tenantId, channel, chatId })) as ChannelSession | null; },
+    async saveChannelSession(s) { await channelSessions.replaceOne({ tenantId: s.tenantId, channel: s.channel, chatId: s.chatId }, { ...s }, { upsert: true }); },
+    async deleteChannelSessions(tenantId) { await channelSessions.deleteMany({ tenantId }); },
     async addError(e) { await errors.insertOne({ ...e, id: randomUUID(), at: e.at ?? new Date() }); },
     async listErrors({ since, source, limit }) {
       const q: Record<string, unknown> = {};

@@ -6,6 +6,7 @@ import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { tenantRoutes } from "./routes/tenant.js";
 import { recordError } from "./errorlog.js";
+import { telegramPanelRoutes, telegramWebhook } from "./telegram-channel.js";
 import { widgetRoutes } from "./widget.js";
 
 export function createApp(deps: Deps) {
@@ -22,6 +23,7 @@ export function createApp(deps: Deps) {
 
   // Müştəri saytlarından çağırılan ictimai vidjet route-ları (öz CORS/origin yoxlaması var).
   app.use(widgetRoutes(deps));
+  app.use(telegramWebhook(deps)); // Telegram-ın webhook-u: öz gizli başlığı ilə qorunur, cookie/origin tələb etmir
 
   app.use(originCheck(deps), loadUser(deps));
   app.use("/auth", authRoutes(deps));
@@ -44,6 +46,7 @@ export function createApp(deps: Deps) {
     const a = await deps.store.getAnnouncement();
     res.json({ announcement: a?.active ? { text: a.text, level: a.level } : null });
   });
+  app.use("/tenant/channels", telegramPanelRoutes(deps));
   app.use("/tenant", tenantRoutes(deps));
   app.use("/admin", adminRoutes(deps));
 

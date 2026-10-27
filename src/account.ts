@@ -1,11 +1,15 @@
 // Hesabı və ona bağlı hər şeyi silir (admin başqasını silir və ya istifadəçi özünü silir).
 import { AiError } from "./ai.js";
 import type { Deps } from "./deps.js";
+import { decryptSecret } from "./secrets.js";
 import type { User } from "./store/types.js";
 
 export async function deleteAccount(deps: Deps, user: User): Promise<{ hadTenant: boolean }> {
   const { store, ai } = deps;
   const tenant = await store.findTenantByUser(user.id);
+  if (tenant?.telegram) { // botun webhook-u götürülür: hesab silinəndən sonra Telegram bizə yazmasın (alınmasa da davam edirik)
+    try { await deps.telegram.deleteWebhook(decryptSecret(tenant.telegram.tokenEnc, deps.config.secretKey)); } catch { /* token etibarsızdır və ya Telegram əlçatmazdır */ }
+  }
   if (tenant) {
     // Əvvəlcə AI servisində: orada silinməsə, burada silsək müştəri "yetim" qalar və açarı işləməyə davam edər.
     try { await ai.deleteTenant(tenant.tenantId); }

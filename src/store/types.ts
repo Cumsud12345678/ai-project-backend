@@ -37,6 +37,18 @@ export type TenantRecord = {
   widget?: WidgetSettings;
   /** Aylıq e-poçt hesabatı: defolt aktivdir (monthly=false ilə söndürülür); lastSent = axırıncı göndərilən dövr ("2026-09"). */
   report?: { monthly?: boolean; lastSent?: string };
+  telegram?: TelegramLink | null;
+};
+
+/** Müştərinin Telegram botu. Token şifrələnmiş saxlanır, panelə qayıtmır. `hook` webhook ünvanındakı təsadüfi hissədir, `secret` Telegram-ın hər sorğuya qoyduğu başlıqdır. */
+export type TelegramLink = { tokenEnc: string; botId: number; botUsername: string; hook: string; secret: string; enabled: boolean; connectedAt: Date };
+/** Kanaldakı (Telegram) söhbətin serverdə saxlanan vəziyyəti: vidjetdən fərqli olaraq tarixçəni brauzer göndərmir. */
+export type ChannelSession = {
+  tenantId: string; channel: "telegram"; chatId: string; sid: string;
+  history: { role: "user" | "model"; text: string }[];
+  /** Cavab tapılmayıb: növbəti mesaj telefon/e-poçt kimi qəbul edilir və müraciətə çevrilir. */
+  pending?: { question: string } | null;
+  updatedAt: Date;
 };
 
 export type LiveMessage = { from: "visitor" | "operator" | "system"; text: string; at: Date };
@@ -58,7 +70,7 @@ export type LiveChat = {
 };
 export type FeedbackRecord = { tenantId: string; rating: 1 | -1; question: string; answer: string; at: Date };
 
-export type ErrorSource = "api" | "ai" | "mail" | "widget" | "process" | "client" | "job";
+export type ErrorSource = "api" | "ai" | "mail" | "widget" | "process" | "client" | "job" | "channel";
 /** Sistem xəta jurnalı: serverdə və ya panelin brauzerində baş verən gözlənilməz xəta. Sirr və şəxsi məlumat yazılmır. */
 export type ErrorRecord = {
   id: string; at: Date; source: ErrorSource; message: string;
@@ -95,9 +107,10 @@ export interface Store {
   findTenantByUser(userId: string): Promise<TenantRecord | null>;
   findTenantById(tenantId: string): Promise<TenantRecord | null>;
   findTenantByWidgetKey(key: string): Promise<TenantRecord | null>;
+  findTenantByTelegramHook(hook: string): Promise<TenantRecord | null>;
   listTenants(limit: number): Promise<TenantRecord[]>;
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report">>): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report">> & { telegram?: TelegramLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;
@@ -116,6 +129,10 @@ export interface Store {
   addFeedback(f: FeedbackRecord): Promise<void>;
   feedbackSince(tenantId: string, since: Date, limit: number): Promise<FeedbackRecord[]>;
   feedbackCounts(tenantId: string, since: Date): Promise<{ up: number; down: number }>;
+
+  getChannelSession(tenantId: string, channel: "telegram", chatId: string): Promise<ChannelSession | null>;
+  saveChannelSession(s: ChannelSession): Promise<void>;
+  deleteChannelSessions(tenantId: string): Promise<void>;
 
   addError(e: Omit<ErrorRecord, "id" | "at"> & { at?: Date }): Promise<void>;
   listErrors(opts: { since?: Date; source?: ErrorSource; limit: number }): Promise<ErrorRecord[]>;

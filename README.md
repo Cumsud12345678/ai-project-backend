@@ -103,3 +103,11 @@ Təhlükəsizlik modeli:
 - Dəyişdirici sorğular yalnız `ALLOWED_ORIGINS`-dən qəbul edilir.
 - Backend-in `/auth`, `/tenant`, `/admin` yolları internetə birbaşa açıq olmamalıdır: yalnız frontend-in proxy-si çatsın. Yalnız vidjet yolları (`/widget.js`, `/widget/*`) ictimai olur.
 - Qeydiyyat açıqdır və yoxlamadan keçən konfiqurasiya avtomatik aktivləşir. Xərci AI servisinin `DEFAULT_MONTHLY_REQUESTS` limiti ilə idarə et.
+
+## Telegram kanalı
+Müştəri paneldə (Kanallar) öz botunun tokenini yapışdırır. Portal tokeni `CHANNEL_SECRET_KEY` ilə şifrələyib saxlayır və Telegram-a webhook qurur: `PUBLIC_PORTAL_URL/telegram/<təsadüfi hissə>`.
+- `PUBLIC_PORTAL_URL` mütləq **https** olmalıdır (Telegram başqa ünvana göndərmir).
+- `CHANNEL_SECRET_KEY` (ən azı 32 simvol, `openssl rand -hex 32`) bir dəfə yazılır. Dəyişsən qoşulmuş botların tokenləri oxunmaz olur.
+- Telegram hər sorğuya gizli başlıq (`X-Telegram-Bot-Api-Secret-Token`) qoyur, portal onu yoxlayır.
+- Söhbət tarixçəsi `channel_sessions` kolleksiyasında saxlanır (14 gün hərəkətsiz qalan silinir). Cavab tapılmayanda bot telefon/e-poçt istəyir, müraciət vidjetdəki kimi gələn qutusuna düşür.
+- Hələlik: yalnız mətn, yalnız şəxsi söhbət, müştəri məlumatı (sifariş/ödəniş) və canlı operator yoxdur.

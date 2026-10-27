@@ -17,6 +17,8 @@ export type Config = {
   mailFrom: string;
   mailReplyTo: string | undefined;
   trustProxy: number;
+  /** Bazada saxlanan üçüncü tərəf sirlərinin (Telegram tokeni) şifrələmə açarı. Boşdursa kanallar qoşulmur. */
+  secretKey: string;
   isProd: boolean;
 };
 
@@ -45,6 +47,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     mailFrom: env.MAIL_FROM || "Car Advisor <onboarding@resend.dev>",
     mailReplyTo: env.MAIL_REPLY_TO || undefined,
     trustProxy: env.TRUST_PROXY === undefined ? 1 : Number(env.TRUST_PROXY),
+    // Production-da açar verilməyibsə boş qalır: portal yenə qalxır, yalnız Telegram qoşmaq 503 verir (mövcud qurğular sınmasın)
+    secretKey: (env.CHANNEL_SECRET_KEY ?? "").length >= 32 ? env.CHANNEL_SECRET_KEY! : isProd ? "" : "dev-only-secret-key-do-not-use-in-production",
     isProd,
   };
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type Session, type Store, type TenantRecord, type User } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type Session, type Store, type TenantRecord, type User } from "./types.js";
 
 /** Test və DB-siz sınaq üçün. Proses bitəndə məlumat itir. */
 export function createMemoryStore(): Store {
@@ -10,6 +10,7 @@ export function createMemoryStore(): Store {
   const live = new Map<string, LiveChat>();
   const feedback: FeedbackRecord[] = [];
   const errors: ErrorRecord[] = [];
+  const sessionsCh = new Map<string, ChannelSession>();
   const audit: AuditRecord[] = [];
   let announcement: Announcement | null = null;
   const ck = (email: string, purpose: CodePurpose) => `${email}|${purpose}`;
@@ -48,6 +49,7 @@ export function createMemoryStore(): Store {
 
     async findTenantByUser(userId) { return [...tenants.values()].find((t) => t.userId === userId) ?? null; },
     async findTenantById(tenantId) { return tenants.get(tenantId) ?? null; },
+    async findTenantByTelegramHook(hook) { return [...tenants.values()].find((t) => t.telegram?.hook === hook) ?? null; },
     async findTenantByWidgetKey(key) { return [...tenants.values()].find((t) => t.widget?.key === key) ?? null; },
     async listTenants(limit) { return [...tenants.values()].slice(0, limit); },
     async createTenant(t) {
@@ -66,6 +68,7 @@ export function createMemoryStore(): Store {
       tenants.delete(tenantId);
       for (const [id, c] of live) if (c.tenantId === tenantId) live.delete(id);
       for (let i = feedback.length - 1; i >= 0; i--) if (feedback[i]!.tenantId === tenantId) feedback.splice(i, 1);
+      for (const k of [...sessionsCh.keys()]) if (k.startsWith(`${tenantId}|`)) sessionsCh.delete(k);
     },
 
     async createLive(c) { live.set(c.id, c); },
@@ -91,6 +94,9 @@ export function createMemoryStore(): Store {
       const mine = feedback.filter((f) => f.tenantId === tenantId && f.at >= since);
       return { up: mine.filter((f) => f.rating === 1).length, down: mine.filter((f) => f.rating === -1).length };
     },
+    async getChannelSession(tenantId, channel, chatId) { return sessionsCh.get(`${tenantId}|${channel}|${chatId}`) ?? null; },
+    async saveChannelSession(s) { sessionsCh.set(`${s.tenantId}|${s.channel}|${s.chatId}`, s); },
+    async deleteChannelSessions(tenantId) { for (const k of [...sessionsCh.keys()]) if (k.startsWith(`${tenantId}|`)) sessionsCh.delete(k); },
     async addError(e) { errors.push({ ...e, id: randomUUID(), at: e.at ?? new Date() }); if (errors.length > 2000) errors.shift(); },
     async listErrors({ since, source, limit }) {
       return errors.filter((e) => (!since || e.at >= since) && (!source || e.source === source)).sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, limit);

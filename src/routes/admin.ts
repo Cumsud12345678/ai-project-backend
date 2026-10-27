@@ -8,7 +8,7 @@ import { currentUser, requireAdmin, requireAuth } from "../middleware.js";
 import { notifyTopupDone, parseAmount } from "../billing.js";
 import type { ErrorSource } from "../store/types.js";
 
-const SOURCES: ErrorSource[] = ["api", "ai", "mail", "widget", "process", "client", "job"];
+const SOURCES: ErrorSource[] = ["api", "ai", "mail", "widget", "process", "client", "job", "channel"];
 const RANGE_DAYS: Record<string, number> = { "1d": 1, "7d": 7, "30d": 30 };
 const csvCell = (v: unknown) => {
   let s = String(v ?? "");
