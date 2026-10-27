@@ -11,6 +11,7 @@ export function createMemoryStore(): Store {
   const feedback: FeedbackRecord[] = [];
   const errors: ErrorRecord[] = [];
   const sessionsCh = new Map<string, ChannelSession>();
+  const waAuth = new Map<string, string>();
   const audit: AuditRecord[] = [];
   let announcement: Announcement | null = null;
   const ck = (email: string, purpose: CodePurpose) => `${email}|${purpose}`;
@@ -69,6 +70,7 @@ export function createMemoryStore(): Store {
       for (const [id, c] of live) if (c.tenantId === tenantId) live.delete(id);
       for (let i = feedback.length - 1; i >= 0; i--) if (feedback[i]!.tenantId === tenantId) feedback.splice(i, 1);
       for (const k of [...sessionsCh.keys()]) if (k.startsWith(`${tenantId}|`)) sessionsCh.delete(k);
+      for (const k of [...waAuth.keys()]) if (k.startsWith(`${tenantId}|`)) waAuth.delete(k);
     },
 
     async createLive(c) { live.set(c.id, c); },
@@ -96,7 +98,10 @@ export function createMemoryStore(): Store {
     },
     async getChannelSession(tenantId, channel, chatId) { return sessionsCh.get(`${tenantId}|${channel}|${chatId}`) ?? null; },
     async saveChannelSession(s) { sessionsCh.set(`${s.tenantId}|${s.channel}|${s.chatId}`, s); },
-    async deleteChannelSessions(tenantId) { for (const k of [...sessionsCh.keys()]) if (k.startsWith(`${tenantId}|`)) sessionsCh.delete(k); },
+    async deleteChannelSessions(tenantId, channel) { for (const k of [...sessionsCh.keys()]) if (k.startsWith(channel ? `${tenantId}|${channel}|` : `${tenantId}|`)) sessionsCh.delete(k); },
+    async getWaAuth(tenantId, names) { const out: Record<string, string> = {}; for (const n of names) { const v = waAuth.get(`${tenantId}|${n}`); if (v !== undefined) out[n] = v; } return out; },
+    async setWaAuth(tenantId, entries) { for (const [n, v] of Object.entries(entries)) { if (v === null) waAuth.delete(`${tenantId}|${n}`); else waAuth.set(`${tenantId}|${n}`, v); } },
+    async deleteWaAuth(tenantId) { for (const k of [...waAuth.keys()]) if (k.startsWith(`${tenantId}|`)) waAuth.delete(k); },
     async addError(e) { errors.push({ ...e, id: randomUUID(), at: e.at ?? new Date() }); if (errors.length > 2000) errors.shift(); },
     async listErrors({ since, source, limit }) {
       return errors.filter((e) => (!since || e.at >= since) && (!source || e.source === source)).sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, limit);

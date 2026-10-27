@@ -111,3 +111,13 @@ Müştəri paneldə (Kanallar) öz botunun tokenini yapışdırır. Portal token
 - Telegram hər sorğuya gizli başlıq (`X-Telegram-Bot-Api-Secret-Token`) qoyur, portal onu yoxlayır.
 - Söhbət tarixçəsi `channel_sessions` kolleksiyasında saxlanır (14 gün hərəkətsiz qalan silinir). Cavab tapılmayanda bot telefon/e-poçt istəyir, müraciət vidjetdəki kimi gələn qutusuna düşür.
 - Hələlik: yalnız mətn, yalnız şəxsi söhbət, müştəri məlumatı (sifariş/ödəniş) və canlı operator yoxdur.
+
+## WhatsApp kanalı (QR ilə)
+Müştəri paneldə (Kanallar) riski təsdiq edib QR kodu telefonla skan edir (WhatsApp → Əlaqəli cihazlar). Bu **qeyri-rəsmi** WhatsApp Web protokoludur (`@whiskeysockets/baileys`): WhatsApp qaydalarına zidd sayıb nömrəni bloklaya bilər. Rəsmi yol WhatsApp Business Platform (Cloud API) ayrıca işdir.
+- Sessiya açarları `wa_auth` kolleksiyasında `CHANNEL_SECRET_KEY` ilə şifrəli saxlanır (açarı dəyişsən nömrələr yenidən qoşulmalıdır).
+- **Yalnız TƏK proses.** Socketlər prosesin yaddaşındadır, eyni nömrəni ikinci replika açsa birincisi "connection replaced" ilə düşür. Server açılanda qoşulmuş nömrələr 1,5 san aralıqla bərpa olunur.
+- Yalnız şəxsi yazışmalar: qrup, status və kanallara cavab verilmir. Yalnız mətn. 2 dəqiqədən köhnə (oflayn yığılmış) mesajlara cavab verilmir.
+- Bloklanma riskini azaltmaq üçün: cavabdan əvvəl "yazır..." və 1,5–6 san gecikmə, söhbət başına dəqiqədə 10, nömrə başına saatda 150 cavab həddi.
+- Sahib telefondan özü yazanda bot həmin söhbətdə 12 saat susur (panelden söndürülür). Bu yaddaşdadır: server yenidən açılanda sıfırlanır.
+- Telefondan "Əlaqəli cihazlar"dan çıxarılsa (401) qeyd və açarlar avtomatik silinir. Panel statusu: off | connecting | qr | open | error | replaced.
+- Real WhatsApp-a qarşı test olunmayıb: testlər saxta socket ilə işləyir (`test/whatsapp.test.ts`).

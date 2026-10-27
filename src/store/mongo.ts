@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { MongoClient, MongoServerError, ObjectId, type Db } from "mongodb";
+import { MongoClient, MongoServerError, ObjectId, type AnyBulkWriteOperation, type Db } from "mongodb";
 import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type Session, type Store, type TenantRecord, type User } from "./types.js";
 
 type UserDoc = Omit<User, "id"> & { _id: ObjectId };
@@ -24,6 +24,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
   const feedbacks = db.collection<FeedbackRecord>("feedback");
   const errors = db.collection<ErrorRecord>("error_log");
   const channelSessions = db.collection<ChannelSession>("channel_sessions");
+  const waAuth = db.collection<{ tenantId: string; name: string; value: string }>("wa_auth");
   const audits = db.collection<AuditRecord>("admin_audit");
   const settings = db.collection<{ _id: string; value: unknown }>("settings");
 
@@ -44,6 +45,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     channelSessions.createIndex({ tenantId: 1, channel: 1, chatId: 1 }, { unique: true }),
     channelSessions.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 14 * 24 * 3600 }), // 14 gün hərəkətsiz qalan söhbət silinir
     tenants.createIndex({ "telegram.hook": 1 }, { unique: true, partialFilterExpression: { "telegram.hook": { $type: "string" } } }),
+    waAuth.createIndex({ tenantId: 1, name: 1 }, { unique: true }),
     errors.createIndex({ at: -1 }),
     errors.createIndex({ at: 1 }, { expireAfterSeconds: 30 * 24 * 3600 }), // 30 gün sonra silinir
     errors.createIndex({ fingerprint: 1 }),
@@ -85,7 +87,8 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async findTenantById(tenantId) { return strip(await tenants.findOne({ tenantId })) as TenantRecord | null; },
     async findTenantByTelegramHook(hook) { return strip(await tenants.findOne({ "telegram.hook": hook })) as TenantRecord | null; },
     async findTenantByWidgetKey(key) { return strip(await tenants.findOne({ "widget.key": key })) as TenantRecord | null; },
-    async listTenants(limit) { return (await tenants.find().limit(limit).toArray()).map((d) => strip(d) as TenantRecord); },
+    // Siyahılarda loqonun baytları oxunmur (hər biri onlarla KB): yalnız tək hesab oxunanda gəlir. Bu nəticədən widget-i bazaya geri yazmayın.
+    async listTenants(limit) { return (await tenants.find().project({ "widget.logo.data": 0 }).limit(limit).toArray()).map((d) => strip(d) as TenantRecord); },
     async createTenant(t) {
       try { await tenants.insertOne({ ...t }); } catch (e) { throw isDup(e) ? new DuplicateError("tenant") : e; }
     },
@@ -93,7 +96,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async touchWidget(tenantId, at) { await tenants.updateOne({ tenantId, widget: { $exists: true } }, { $set: { "widget.lastSeenAt": at } }); },
     async deleteTenant(tenantId) {
       await tenants.deleteOne({ tenantId });
-      await Promise.all([lives.deleteMany({ tenantId }), feedbacks.deleteMany({ tenantId }), channelSessions.deleteMany({ tenantId })]);
+      await Promise.all([lives.deleteMany({ tenantId }), feedbacks.deleteMany({ tenantId }), channelSessions.deleteMany({ tenantId }), waAuth.deleteMany({ tenantId })]);
     },
 
     async createLive(c) { await lives.insertOne({ ...c }); },
@@ -123,7 +126,22 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     },
     async getChannelSession(tenantId, channel, chatId) { return strip(await channelSessions.findOne({ tenantId, channel, chatId })) as ChannelSession | null; },
     async saveChannelSession(s) { await channelSessions.replaceOne({ tenantId: s.tenantId, channel: s.channel, chatId: s.chatId }, { ...s }, { upsert: true }); },
-    async deleteChannelSessions(tenantId) { await channelSessions.deleteMany({ tenantId }); },
+    async deleteChannelSessions(tenantId, channel) { await channelSessions.deleteMany(channel ? { tenantId, channel } : { tenantId }); },
+    async getWaAuth(tenantId, names) {
+      const out: Record<string, string> = {};
+      if (!names.length) return out;
+      for (const d of await waAuth.find({ tenantId, name: { $in: names } }).toArray()) out[d.name] = d.value;
+      return out;
+    },
+    async setWaAuth(tenantId, entries) {
+      const ops: AnyBulkWriteOperation<{ tenantId: string; name: string; value: string }>[] = [];
+      for (const [name, value] of Object.entries(entries)) {
+        if (value === null) ops.push({ deleteOne: { filter: { tenantId, name } } });
+        else ops.push({ updateOne: { filter: { tenantId, name }, update: { $set: { value } }, upsert: true } });
+      }
+      if (ops.length) await waAuth.bulkWrite(ops, { ordered: false });
+    },
+    async deleteWaAuth(tenantId) { await waAuth.deleteMany({ tenantId }); },
     async addError(e) { await errors.insertOne({ ...e, id: randomUUID(), at: e.at ?? new Date() }); },
     async listErrors({ since, source, limit }) {
       const q: Record<string, unknown> = {};

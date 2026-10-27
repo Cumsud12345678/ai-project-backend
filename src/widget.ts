@@ -53,6 +53,21 @@ export function originAllowed(origin: string | undefined, tenant: Pick<TenantRec
   return u.hostname === d || u.hostname.endsWith(`.${d}`);
 }
 
+export const LOGO_MAX_BYTES = 100 * 1024;
+/** Loqo: yalnız PNG/JPEG/WebP (SVG yoxdur: skript daşıya bilər), ölçü və başlıq baytları yoxlanır. */
+export function parseLogo(body: unknown): NonNullable<WidgetSettings["logo"]> {
+  const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  if (typeof b.data !== "string" || !b.data || b.data.length > Math.ceil(LOGO_MAX_BYTES * 1.4) + 64) throw new HttpError(400, "Loqo faylı çox böyükdür (maksimum 100 KB)", "LOGO_TOO_LARGE");
+  const buf = Buffer.from(b.data, "base64");
+  if (!buf.length || buf.length > LOGO_MAX_BYTES) throw new HttpError(400, "Loqo faylı çox böyükdür (maksimum 100 KB)", "LOGO_TOO_LARGE");
+  const png = buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const jpeg = buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+  const webp = buf.length > 12 && buf.subarray(0, 4).toString("latin1") === "RIFF" && buf.subarray(8, 12).toString("latin1") === "WEBP";
+  const mime = png ? "image/png" : jpeg ? "image/jpeg" : webp ? "image/webp" : null;
+  if (!mime) throw new HttpError(400, "Loqo PNG, JPG və ya WebP olmalıdır", "LOGO_TYPE");
+  return { mime, data: buf.toString("base64"), v: Date.now() };
+}
+
 /** Panel girişini yoxlayır; səhv varsa HttpError atır. */
 export function parseWidgetPatch(body: unknown, current: WidgetSettings): WidgetSettings {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
@@ -76,6 +91,10 @@ export function parseWidgetPatch(body: unknown, current: WidgetSettings): Widget
   if (b.color !== undefined) {
     if (typeof b.color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(b.color)) throw new HttpError(400, "Rəng #rrggbb formatında olmalıdır");
     next.color = b.color.toLowerCase();
+  }
+  if (b.theme !== undefined) {
+    if (b.theme !== "light" && b.theme !== "dark" && b.theme !== "auto") throw new HttpError(400, "Mövzu light, dark və ya auto olmalıdır");
+    next.theme = b.theme;
   }
   if (b.origins !== undefined) {
     if (!Array.isArray(b.origins) || b.origins.length > 10) throw new HttpError(400, "Ən çox 10 əlavə ünvan əlavə edə bilərsən");
@@ -138,6 +157,8 @@ async function widgetScript(): Promise<string> {
   return text;
 }
 
+export const logoUrl = (portalUrl: string, w: Pick<WidgetSettings, "key" | "logo">) => `${portalUrl}/widget/${w.key}/logo?v=${w.logo?.v ?? 0}`;
+
 /** /widget.js və /widget/:key/* — giriş (cookie) tələb etmir, brauzerdən müştəri saytından çağırılır. */
 export function widgetRoutes(deps: Deps) {
   const { store, ai, limiter, mailer } = deps;
@@ -171,6 +192,21 @@ export function widgetRoutes(deps: Deps) {
     } catch (e) { next(e); }
   };
 
+  // Loqo şəkli: <img> ilə yüklənir (CORS lazım deyil). Yalnız aktiv vidjetin loqosu, keşlənir; skript icrası mümkün deyil.
+  r.get("/widget/:key/logo", async (req, res, next) => {
+    try {
+      const key = String(req.params.key ?? "");
+      const tenant = WIDGET_KEY_RE.test(key) ? await store.findTenantByWidgetKey(key) : null;
+      const logo = tenant?.widget?.enabled ? tenant.widget.logo : undefined;
+      if (!logo) throw new HttpError(404, "Loqo tapılmadı", "NO_LOGO");
+      res.set({
+        "Content-Type": logo.mime, "Cache-Control": "public, max-age=86400", "Cross-Origin-Resource-Policy": "cross-origin",
+        "Content-Security-Policy": "default-src 'none'; sandbox", "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline",
+      });
+      res.send(Buffer.from(logo.data, "base64"));
+    } catch (e) { next(e); }
+  });
+
   r.options("/widget/:key/{*rest}", access);
   r.get("/widget/:key/config", access, (_req, res) => {
     const w = (res.locals.widgetTenant as TenantRecord).widget!;
@@ -178,7 +214,8 @@ export function widgetRoutes(deps: Deps) {
     const mode = modeOf(wt.config);
     // Quraşdırmanın işlədiyini göstərmək üçün: ən çox 10 dəqiqədən bir yazılır
     if (!w.lastSeenAt || Date.now() - new Date(w.lastSeenAt).getTime() > 10 * 60_000) void store.touchWidget(wt.tenantId, new Date()).catch(() => {});
-    res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, mode, contact: true, live: Boolean(w.live?.enabled) }); // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
+    res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, mode, contact: true, live: Boolean(w.live?.enabled), // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
+      theme: w.theme ?? "light", ...(w.logo && { logo: logoUrl(deps.config.publicPortalUrl, w) }) });
   });
 
   // Operatorla əlaqə (cavab tapılmayanda): sayt ziyarətçisi telefon/e-poçt qoyur, sayt sahibi panelda görür və e-poçtla xəbər alır.

@@ -123,9 +123,9 @@
   var L = (function () {
     var lang = ((document.documentElement.lang || navigator.language || "az") + "").slice(0, 2).toLowerCase();
     var T = {
-      az: { src: "Mənbə:", offline: "Çat hazırda cavab vermir. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", contact: "Operatorla əlaqə", name: "Adınız (ixtiyari)", cont: "Telefon və ya e-poçt", send: "Göndər", ok: "Təşəkkürlər! Müraciətiniz qəbul edildi, tezliklə sizinlə əlaqə saxlayacağıq.", bad: "Düzgün telefon nömrəsi və ya e-poçt yazın", fail: "Göndərilə bilmədi, bir azdan yenidən cəhd edin", cancel: "Ləğv et", fresh: "Yeni söhbət", live: "Operatorla canlı yaz", liveStart: "Operatora qoşuldunuz. Mesajınızı yazın, cavab gələndə burada görəcəksiniz.", opTyping: "Operator yazır…", liveMailPh: "E-poçt (ixtiyari)", liveMailHint: "Çatdan çıxsanız, operatorun cavabını e-poçtla göndərək.", liveBack: "AI-a qayıt", liveWait: "Operator hələ cavab verməyib. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", liveEnd: "Operator söhbəti bitirdi. Yeni sual yazsanız, yenidən AI cavab verəcək.", liveFail: "Mesaj göndərilmədi, yenidən cəhd edin", livePh: "Operatora mesaj yazın…", op: "Operator", up: "Cavab faydalı idi", down: "Cavab faydalı deyildi", thanks: "Təşəkkürlər!", limit: "Bu gün üçün sual limitinə çatdınız. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", busy: "Çat hazırda çox yüklüdür. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq." },
-      en: { src: "Source:", offline: "The chat can't answer right now. Leave your contact and we'll get back to you.", contact: "Contact an operator", name: "Your name (optional)", cont: "Phone or email", send: "Send", ok: "Thank you! Your request was received, we'll contact you soon.", bad: "Enter a valid phone number or email", fail: "Could not send, please try again shortly", cancel: "Cancel", fresh: "New chat", live: "Chat with an operator", liveStart: "You are connected to an operator. Type your message, replies will appear here.", opTyping: "Operator is typing…", liveMailPh: "Email (optional)", liveMailHint: "If you leave the chat, we will email you the operator's reply.", liveBack: "Back to AI", liveWait: "The operator has not replied yet. Leave your contact and we'll get back to you.", liveEnd: "The operator ended the chat. Write a new question and the AI will answer again.", liveFail: "Message not sent, please try again", livePh: "Message the operator…", op: "Operator", up: "Helpful answer", down: "Not helpful", thanks: "Thanks!", limit: "You have reached today's question limit. Leave your contact and we'll get back to you.", busy: "The chat is very busy right now. Leave your contact and we'll get back to you." },
-      ru: { src: "Источник:", offline: "Чат сейчас не может ответить. Оставьте контакт, и мы свяжемся с вами.", contact: "Связаться с оператором", name: "Ваше имя (необязательно)", cont: "Телефон или e-mail", send: "Отправить", ok: "Спасибо! Ваше обращение принято, мы скоро свяжемся с вами.", bad: "Введите корректный телефон или e-mail", fail: "Не удалось отправить, попробуйте позже", cancel: "Отмена", fresh: "Новый чат", live: "Написать оператору", liveStart: "Вы подключены к оператору. Напишите сообщение, ответ появится здесь.", opTyping: "Оператор печатает…", liveMailPh: "E-mail (необязательно)", liveMailHint: "Если вы выйдете из чата, мы отправим ответ оператора на e-mail.", liveBack: "Назад к ИИ", liveWait: "Оператор пока не ответил. Оставьте контакт, и мы свяжемся с вами.", liveEnd: "Оператор завершил чат. Напишите новый вопрос, и снова ответит ИИ.", liveFail: "Сообщение не отправлено, попробуйте ещё раз", livePh: "Сообщение оператору…", op: "Оператор", up: "Ответ полезен", down: "Ответ не полезен", thanks: "Спасибо!", limit: "Вы достигли лимита вопросов на сегодня. Оставьте контакт, и мы свяжемся с вами.", busy: "Чат сейчас сильно загружен. Оставьте контакт, и мы свяжемся с вами." },
+      az: { src: "Mənbə:", offline: "Çat hazırda cavab vermir. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", contact: "Operatorla əlaqə", name: "Adınız (ixtiyari)", cont: "Telefon və ya e-poçt", send: "Göndər", ok: "Təşəkkürlər! Müraciətiniz qəbul edildi, tezliklə sizinlə əlaqə saxlayacağıq.", bad: "Düzgün telefon nömrəsi və ya e-poçt yazın", fail: "Göndərilə bilmədi, bir azdan yenidən cəhd edin", cancel: "Ləğv et", fresh: "Yeni söhbət", toDark: "Gecə rejimi", toLight: "Gündüz rejimi", live: "Operatorla canlı yaz", liveStart: "Operatora qoşuldunuz. Mesajınızı yazın, cavab gələndə burada görəcəksiniz.", opTyping: "Operator yazır…", liveMailPh: "E-poçt (ixtiyari)", liveMailHint: "Çatdan çıxsanız, operatorun cavabını e-poçtla göndərək.", liveBack: "AI-a qayıt", liveWait: "Operator hələ cavab verməyib. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", liveEnd: "Operator söhbəti bitirdi. Yeni sual yazsanız, yenidən AI cavab verəcək.", liveFail: "Mesaj göndərilmədi, yenidən cəhd edin", livePh: "Operatora mesaj yazın…", op: "Operator", up: "Cavab faydalı idi", down: "Cavab faydalı deyildi", thanks: "Təşəkkürlər!", limit: "Bu gün üçün sual limitinə çatdınız. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", busy: "Çat hazırda çox yüklüdür. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq." },
+      en: { src: "Source:", offline: "The chat can't answer right now. Leave your contact and we'll get back to you.", contact: "Contact an operator", name: "Your name (optional)", cont: "Phone or email", send: "Send", ok: "Thank you! Your request was received, we'll contact you soon.", bad: "Enter a valid phone number or email", fail: "Could not send, please try again shortly", cancel: "Cancel", fresh: "New chat", toDark: "Night mode", toLight: "Day mode", live: "Chat with an operator", liveStart: "You are connected to an operator. Type your message, replies will appear here.", opTyping: "Operator is typing…", liveMailPh: "Email (optional)", liveMailHint: "If you leave the chat, we will email you the operator's reply.", liveBack: "Back to AI", liveWait: "The operator has not replied yet. Leave your contact and we'll get back to you.", liveEnd: "The operator ended the chat. Write a new question and the AI will answer again.", liveFail: "Message not sent, please try again", livePh: "Message the operator…", op: "Operator", up: "Helpful answer", down: "Not helpful", thanks: "Thanks!", limit: "You have reached today's question limit. Leave your contact and we'll get back to you.", busy: "The chat is very busy right now. Leave your contact and we'll get back to you." },
+      ru: { src: "Источник:", offline: "Чат сейчас не может ответить. Оставьте контакт, и мы свяжемся с вами.", contact: "Связаться с оператором", name: "Ваше имя (необязательно)", cont: "Телефон или e-mail", send: "Отправить", ok: "Спасибо! Ваше обращение принято, мы скоро свяжемся с вами.", bad: "Введите корректный телефон или e-mail", fail: "Не удалось отправить, попробуйте позже", cancel: "Отмена", fresh: "Новый чат", toDark: "Ночной режим", toLight: "Дневной режим", live: "Написать оператору", liveStart: "Вы подключены к оператору. Напишите сообщение, ответ появится здесь.", opTyping: "Оператор печатает…", liveMailPh: "E-mail (необязательно)", liveMailHint: "Если вы выйдете из чата, мы отправим ответ оператора на e-mail.", liveBack: "Назад к ИИ", liveWait: "Оператор пока не ответил. Оставьте контакт, и мы свяжемся с вами.", liveEnd: "Оператор завершил чат. Напишите новый вопрос, и снова ответит ИИ.", liveFail: "Сообщение не отправлено, попробуйте ещё раз", livePh: "Сообщение оператору…", op: "Оператор", up: "Ответ полезен", down: "Ответ не полезен", thanks: "Спасибо!", limit: "Вы достигли лимита вопросов на сегодня. Оставьте контакт, и мы свяжемся с вами.", busy: "Чат сейчас сильно загружен. Оставьте контакт, и мы свяжемся с вами." },
     };
     return T[lang] || T.az;
   })();
@@ -201,67 +201,69 @@
     ".launcher{position:fixed;bottom:var(--cy);" + position + ":var(--cx);width:56px;height:56px;border-radius:50%;border:0;cursor:pointer;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:var(--ca-z);transition:transform .15s}",
     ".launcher:hover{transform:scale(1.06)}",
     // Loqonun yanındakı yazı: loqonun mərkəzi ilə eyni hündürlükdə (56px loqo, 44px yazı -> 6px yuxarı)
-    ".hint{position:fixed;bottom:calc(var(--cy) + 6px);height:44px;" + position + ":calc(var(--cx) + 66px);max-width:calc(100vw - var(--cx) - 78px);display:flex;align-items:center;padding:0 16px;border:0;border-radius:22px;background:#fff;color:#111827;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.2);z-index:var(--ca-z);animation:hintIn .35s ease both}",
+    ".hint{position:fixed;bottom:calc(var(--cy) + 6px);height:44px;" + position + ":calc(var(--cx) + 66px);max-width:calc(100vw - var(--cx) - 78px);display:flex;align-items:center;padding:0 16px;border:0;border-radius:22px;background:var(--bg);color:var(--fg);font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.2);z-index:var(--ca-z);animation:hintIn .35s ease both}",
     "@keyframes hintIn{from{opacity:0;transform:translateX(" + (position === "left" ? "-" : "") + "8px)}to{opacity:1;transform:none}}",
     ".launcher:focus-visible,button:focus-visible,textarea:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}",
     ".launcher svg{width:26px;height:26px}",
-    ".panel{position:fixed;bottom:calc(var(--cy) + 68px);" + position + ":var(--cx);width:380px;max-width:calc(100vw - 24px);height:560px;max-height:max(240px,calc(100vh - var(--cy) - 88px));background:#fff;color:#111827;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:none;flex-direction:column;overflow:hidden;z-index:calc(var(--ca-z) + 1);border:1px solid #e5e7eb}",
+    ".launcher.logo{padding:0;overflow:hidden;background:var(--bg)}.launcher.logo img{width:100%;height:100%;object-fit:cover;display:block}",
+    ".logo-h{width:28px;height:28px;border-radius:50%;object-fit:cover;background:var(--bg);flex:none}",
+    ".panel{position:fixed;bottom:calc(var(--cy) + 68px);" + position + ":var(--cx);width:380px;max-width:calc(100vw - 24px);height:560px;max-height:max(240px,calc(100vh - var(--cy) - 88px));background:var(--bg);color:var(--fg);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:none;flex-direction:column;overflow:hidden;z-index:calc(var(--ca-z) + 1);border:1px solid var(--border)}",
     ".panel.open{display:flex}",
     ".head{display:flex;align-items:center;gap:8px;padding:14px 16px;background:var(--accent);color:var(--accent-fg)}",
     ".head h2{flex:1;margin:0;font-size:15px;font-weight:600;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
     ".close{background:transparent;border:0;color:inherit;cursor:pointer;padding:4px;border-radius:6px;display:grid;place-items:center}",
     ".close svg{width:20px;height:20px}",
     ".newb[hidden]{display:none}",
-    ".log{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:14px;display:flex;flex-direction:column;gap:10px;background:#f9fafb}",
+    ".log{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--bg2)}",
     ".msg{max-width:88%;padding:9px 12px;border-radius:14px;font-size:14px;line-height:1.45;word-wrap:break-word;overflow-wrap:anywhere}",
     ".msg p{margin:0}.msg p+p,.msg ul+p,.msg p+ul{margin-top:6px}",
     ".msg ul{margin:0;padding-left:18px}",
     ".msg a{color:inherit;text-decoration:underline}",
     ".user{align-self:flex-end;background:var(--accent);color:var(--accent-fg);border-bottom-right-radius:4px}",
-    ".model{align-self:flex-start;background:#fff;border:1px solid #e5e7eb;border-bottom-left-radius:4px}",
-    ".model a{color:var(--accent)}",
-    ".srcs{align-self:flex-start;max-width:88%;font-size:12px;color:#6b7280;margin-top:-4px;display:flex;flex-wrap:wrap;gap:4px 8px}",
-    ".srcs a{color:var(--accent);text-decoration:underline}",
-    ".cbtn{align-self:flex-start;border:1px solid var(--accent);background:#fff;color:var(--accent);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}",
-    ".cform{align-self:stretch;display:flex;flex-direction:column;align-items:stretch;gap:6px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px}",
-    ".cform input{border:1px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:14px;color:#111827;background:#fff}",
+    ".model{align-self:flex-start;background:var(--bg);border:1px solid var(--border);border-bottom-left-radius:4px}",
+    ".model a{color:var(--accent-t)}",
+    ".srcs{align-self:flex-start;max-width:88%;font-size:12px;color:var(--muted);margin-top:-4px;display:flex;flex-wrap:wrap;gap:4px 8px}",
+    ".srcs a{color:var(--accent-t);text-decoration:underline}",
+    ".cbtn{align-self:flex-start;border:1px solid var(--accent-t);background:var(--bg);color:var(--accent-t);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}",
+    ".cform{align-self:stretch;display:flex;flex-direction:column;align-items:stretch;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px}",
+    ".cform input{border:1px solid var(--border2);border-radius:8px;padding:8px 10px;font-size:14px;color:var(--fg);background:var(--bg)}",
     ".cform .hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}",
     ".cform .row{display:flex;gap:8px}",
-    ".cform .row button{flex:1;border-radius:8px;padding:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid #d1d5db;background:#fff;color:#374151}",
+    ".cform .row button{flex:1;border-radius:8px;padding:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--border2);background:var(--bg);color:var(--fg)}",
     ".cform .row button.go{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}",
     ".cform .row button:disabled{opacity:.5;cursor:default}",
-    ".cform .err{font-size:12px;color:#991b1b}",
+    ".cform .err{font-size:12px;color:var(--errfg)}",
     ".mailrow{align-self:stretch;display:flex;flex-direction:column;gap:4px}",
-    ".mailrow input{border:1px solid #d1d5db;border-radius:8px;padding:8px 10px;font-size:14px;color:#111827;background:#fff}",
-    ".mailrow .hint2{font-size:12px;color:#6b7280}",
-    ".operator{align-self:flex-start;background:#eef2ff;border:1px solid #c7d2fe;border-bottom-left-radius:4px}",
-    ".who{font-size:11px;font-weight:700;color:#4338ca;margin-bottom:2px}",
-    ".note{align-self:center;max-width:92%;text-align:center;font-size:12px;color:#6b7280;display:flex;flex-direction:column;align-items:center;gap:6px}",
+    ".mailrow input{border:1px solid var(--border2);border-radius:8px;padding:8px 10px;font-size:14px;color:var(--fg);background:var(--bg)}",
+    ".mailrow .hint2{font-size:12px;color:var(--muted)}",
+    ".operator{align-self:flex-start;background:var(--opbg);border:1px solid var(--opbd);border-bottom-left-radius:4px}",
+    ".who{font-size:11px;font-weight:700;color:var(--opfg);margin-bottom:2px}",
+    ".note{align-self:center;max-width:92%;text-align:center;font-size:12px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:6px}",
     ".note.typing span{font-style:italic}",
-    ".note button{border:1px solid #d1d5db;background:#fff;color:#374151;border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer}",
+    ".note button{border:1px solid var(--border2);background:var(--bg);color:var(--fg);border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer}",
     ".fb{align-self:flex-start;display:flex;align-items:center;gap:2px;margin-top:-6px}",
-    ".fbb{border:0;background:transparent;color:#9ca3af;cursor:pointer;padding:3px;border-radius:6px;display:grid;place-items:center}",
-    ".fbb:hover:not(:disabled){color:var(--accent)}.fbb.on{color:var(--accent)}.fbb:disabled{cursor:default}",
+    ".fbb{border:0;background:transparent;color:var(--muted);cursor:pointer;padding:3px;border-radius:6px;display:grid;place-items:center}",
+    ".fbb:hover:not(:disabled){color:var(--accent-t)}.fbb.on{color:var(--accent-t)}.fbb:disabled{cursor:default}",
     ".fbb svg{width:15px;height:15px}",
-    ".fb span{font-size:11px;color:#6b7280;margin-left:4px}",
+    ".fb span{font-size:11px;color:var(--muted);margin-left:4px}",
     ".livebtn[hidden]{display:none}",
     ".launcher.dot::after{content:\"\";position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#ef4444;border:2px solid #fff}",
-    ".error{align-self:center;background:#fef2f2;color:#991b1b;border:1px solid #fecaca;font-size:13px}",
+    ".error{align-self:center;background:var(--errbg);color:var(--errfg);border:1px solid var(--errbd);font-size:13px}",
     ".cards{align-self:stretch;display:flex;flex-direction:column;gap:8px}",
-    ".card{display:flex;gap:10px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:8px;text-decoration:none;color:inherit}",
+    ".card{display:flex;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:8px;text-decoration:none;color:inherit}",
     "a.card:hover{border-color:var(--accent)}",
-    ".card img{width:68px;height:68px;object-fit:cover;border-radius:8px;flex:none;background:#f3f4f6}",
+    ".card img{width:68px;height:68px;object-fit:cover;border-radius:8px;flex:none;background:var(--bg2)}",
     ".card .t{font-size:14px;font-weight:600;line-height:1.3}",
-    ".card .p{font-size:14px;color:var(--accent);font-weight:600;margin-top:2px}",
-    ".card .m{font-size:12px;color:#6b7280;margin-top:2px}",
-    ".card .go{font-size:12px;color:var(--accent);margin-top:4px}",
-    ".typing{align-self:flex-start;display:flex;gap:4px;padding:12px 14px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;border-bottom-left-radius:4px}",
-    ".typing i{width:6px;height:6px;border-radius:50%;background:#9ca3af;animation:b 1s infinite ease-in-out}",
+    ".card .p{font-size:14px;color:var(--accent-t);font-weight:600;margin-top:2px}",
+    ".card .m{font-size:12px;color:var(--muted);margin-top:2px}",
+    ".card .go{font-size:12px;color:var(--accent-t);margin-top:4px}",
+    ".typing{align-self:flex-start;display:flex;gap:4px;padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:14px;border-bottom-left-radius:4px}",
+    ".typing i{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:b 1s infinite ease-in-out}",
     ".typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}",
     "@keyframes b{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}",
     "@media (prefers-reduced-motion:reduce){.typing i{animation:none;opacity:.7}.launcher{transition:none}.hint{animation:none}}",
-    "form{display:flex;gap:8px;padding:10px;border-top:1px solid #e5e7eb;background:#fff;align-items:flex-end}",
-    "textarea{flex:1;resize:none;border:1px solid #d1d5db;border-radius:10px;padding:9px 10px;font-size:14px;line-height:1.35;max-height:96px;color:#111827;background:#fff}",
+    "form{display:flex;gap:8px;padding:10px;border-top:1px solid var(--border);background:var(--bg);align-items:flex-end}",
+    "textarea{flex:1;resize:none;border:1px solid var(--border2);border-radius:10px;padding:9px 10px;font-size:14px;line-height:1.35;max-height:96px;color:var(--fg);background:var(--bg)}",
     ".send{border:0;border-radius:10px;background:var(--accent);color:var(--accent-fg);padding:0 14px;height:38px;font-size:14px;font-weight:600;cursor:pointer}",
     ".send:disabled{opacity:.5;cursor:default}",
     // Cari pillənin məsafələri --cx/--cy-yə yazılır (lg defolt, sonra md, sonra sm). Sm-də çat tam ekrandır.
@@ -275,8 +277,23 @@
   var ICON_X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 
   var ICON_USER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>';
+  var ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+  var ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
   var ICON_UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v11H3V10z"/><path d="M7 10l4-8a3 3 0 0 1 3 3v4h6a2 2 0 0 1 2 2.3l-1.3 8a2 2 0 0 1-2 1.7H7"/></svg>';
   var ICON_DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 14V3h4v11z"/><path d="M17 14l-4 8a3 3 0 0 1-3-3v-4H4a2 2 0 0 1-2-2.3l1.3-8A2 2 0 0 1 5.3 3H17"/></svg>';
+
+  // Rəng mövzusu: bg + fg-dən qalan bütün rənglər (xətt, yumşaq fon, ikinci dərəcəli mətn) color-mix ilə çıxarılır.
+  var PAL = {
+    light: { bg: "#ffffff", fg: "#111827", opbg: "#eef2ff", opbd: "#c7d2fe", opfg: "#4338ca", errbg: "#fef2f2", errfg: "#991b1b", errbd: "#fecaca" },
+    dark: { bg: "#1f2937", fg: "#f3f4f6", opbg: "#312e81", opbd: "#4338ca", opfg: "#c7d2fe", errbg: "#450a0a", errfg: "#fecaca", errbd: "#7f1d1d" },
+  };
+  function palVars(p) { return Object.keys(p).map(function (k) { return "--" + k + ":" + p[k]; }).join(";"); }
+  var DERIVED = "--bg2:color-mix(in srgb,var(--bg),var(--fg) 4%);--border:color-mix(in srgb,var(--bg),var(--fg) 14%);--border2:color-mix(in srgb,var(--bg),var(--fg) 28%);--muted:color-mix(in srgb,var(--fg),var(--bg) 42%)";
+  // Açıq/tünd mövzu host elementindəki data-ca-theme atributu ilə dəyişir (ziyarətçi düymə ilə seçir).
+  function themeCss() {
+    // --accent-t: rəngin MƏTN kimi işləndiyi yerlər (link, qiymət). Tünd fonda tünd rəng itməsin deyə açılır.
+    return ":host{" + palVars(PAL.light) + ";" + DERIVED + ";--accent-t:var(--accent)}:host([data-ca-theme=dark]){" + palVars(PAL.dark) + ";--accent-t:color-mix(in srgb,var(--accent),#fff 42%)}";
+  }
 
   function boot(cfg) {
     var host = el("div");
@@ -290,7 +307,7 @@
       + ";--ca-side:" + sideLg + "px;--ca-bottom:" + bottomLg + "px"
       + ";--ca-side-md:" + val(sideMd, "--ca-side") + ";--ca-bottom-md:" + val(bottomMd, "--ca-bottom")
       + ";--ca-side-sm:" + val(sideSm, "--ca-side-md") + ";--ca-bottom-sm:" + val(bottomSm, "--ca-bottom-md");
-    root.appendChild(el("style", { text: ":host{" + vars + "}" + CSS }));
+    root.appendChild(el("style", { text: ":host{" + vars + "}" + themeCss() + CSS }));
 
     var log = el("div", { class: "log", role: "log", "aria-live": "polite", "aria-label": "Söhbət" });
     var input = el("textarea", { rows: "1", maxlength: "500", placeholder: "Mesajınızı yazın…", "aria-label": "Mesaj" });
@@ -302,14 +319,41 @@
     var liveBtn = el("button", { class: "close livebtn", type: "button", "aria-label": L.live, title: L.live });
     liveBtn.innerHTML = ICON_USER; // sabit, yoxlanmış SVG
     liveBtn.hidden = !cfg.live || !!state.live;
+    var themeBtn = el("button", { class: "close themeb", type: "button" });
+    // Ziyarətçinin seçimi (düymə) yadda qalır; seçməyibsə panelde təyin olunan açılış rejimi: light / dark / auto (cihaz ayarı)
+    var THEME_KEY = "ca_theme";
+    var mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+    function chosenTheme() { try { var v = localStorage.getItem(THEME_KEY); return v === "dark" || v === "light" ? v : ""; } catch (e) { return ""; } }
+    function effectiveTheme() { return chosenTheme() || (cfg.theme === "dark" ? "dark" : cfg.theme === "auto" && mq && mq.matches ? "dark" : "light"); }
+    function applyTheme() {
+      var th = effectiveTheme();
+      host.setAttribute("data-ca-theme", th);
+      if (th === "dark") themeBtn.innerHTML = ICON_SUN; else themeBtn.innerHTML = ICON_MOON; // sabit, yoxlanmış SVG
+      var lbl = th === "dark" ? L.toLight : L.toDark;
+      themeBtn.setAttribute("aria-label", lbl); themeBtn.title = lbl;
+    }
+    themeBtn.addEventListener("click", function () {
+      try { localStorage.setItem(THEME_KEY, effectiveTheme() === "dark" ? "light" : "dark"); } catch (e) { /* yaddaş bağlıdır */ }
+      applyTheme();
+    });
+    if (mq && mq.addEventListener) mq.addEventListener("change", applyTheme);
     var form = el("form", null, [input, sendBtn]);
+    // Loqo yalnız bizim portaldan gələn https ünvandır; yüklənməsə sakitcə gizlənir (başlıqda) və ya standart ikonaya qayıdır (düymədə)
+    var logoUrl = typeof cfg.logo === "string" && /^https?:\/\//i.test(cfg.logo) ? cfg.logo : "";
+    var headLogo = logoUrl ? el("img", { class: "logo-h", src: logoUrl, alt: "", referrerpolicy: "no-referrer" }) : null;
+    if (headLogo) headLogo.addEventListener("error", function () { headLogo.remove(); });
     var panel = el("div", { class: "panel", role: "dialog", "aria-label": cfg.title || "Çat" }, [
-      el("div", { class: "head" }, [el("h2", { text: cfg.title || "Çat" }), liveBtn, newBtn, closeBtn]), log, form,
+      el("div", { class: "head" }, [].concat(logoUrl ? [headLogo] : [], [el("h2", { text: cfg.title || "Çat" }), liveBtn, themeBtn, newBtn, closeBtn])), log, form,
     ]);
     var launcher = el("button", { class: "launcher", type: "button", "aria-label": "Çatı aç", "aria-expanded": "false" });
     launcher.innerHTML = ICON_CHAT;
+    if (logoUrl) {
+      var lImg = el("img", { src: logoUrl, alt: "", referrerpolicy: "no-referrer" });
+      lImg.addEventListener("load", function () { launcher.textContent = ""; launcher.classList.add("logo"); launcher.appendChild(lImg); });
+    }
     root.appendChild(panel);
     root.appendChild(launcher);
+    applyTheme();
     // Yazı mətni textContent ilə yazılır (HTML kimi şərh olunmur). Ekran oxuyucular üçün gizlədilir: loqonun öz adı var.
     var label = typeof cfg.label === "string" ? cfg.label.trim().slice(0, 40) : "";
     var hint = null;

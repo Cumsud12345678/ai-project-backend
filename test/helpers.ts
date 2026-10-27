@@ -4,6 +4,8 @@ import { attachRealtime } from "../src/realtime.js";
 import { AiError, type AiClient } from "../src/ai.js";
 import type { Config } from "../src/config.js";
 import { TelegramError, type TelegramApi } from "../src/telegram.js";
+import { EventEmitter } from "node:events";
+import { createWhatsAppManager, type WaSocket } from "../src/whatsapp/manager.js";
 import { createLimiter } from "../src/security.js";
 import { createMemoryStore } from "../src/store/memory.js";
 
@@ -70,6 +72,31 @@ export function fakeAi(): FakeAi {
   return ai;
 }
 
+export type FakeWaSocket = WaSocket & { sent: { jid: string; text: string; id?: string }[]; presence: string[]; read: number; loggedOut: boolean; ended: boolean; emit(event: string, arg: unknown): void; tenantId: string };
+/** Saxta WhatsApp: socketlər yadda saxlanır, hadisələr əl ilə göndərilir. */
+export function fakeWhatsApp() {
+  const sockets: FakeWaSocket[] = [];
+  const manager = createWhatsAppManager({
+    delay: () => 0, reconnectMs: () => 5,
+    async factory({ tenantId }) {
+      const ev = new EventEmitter();
+      const s: FakeWaSocket = {
+        tenantId, sent: [], presence: [], read: 0, loggedOut: false, ended: false, user: { id: "994501234567:7@s.whatsapp.net" },
+        ev: { on: (e, fn) => ev.on(e, fn) },
+        async sendMessage(jid, c, o) { s.sent.push({ jid, text: c.text, id: o?.messageId }); return { key: { id: o?.messageId } }; },
+        async sendPresenceUpdate(t) { s.presence.push(t); },
+        async readMessages() { s.read++; },
+        async logout() { s.loggedOut = true; },
+        end() { s.ended = true; },
+        emit: (e, a) => { ev.emit(e, a); },
+      };
+      sockets.push(s);
+      return s;
+    },
+  });
+  return { manager, sockets, last: () => sockets[sockets.length - 1]! };
+}
+
 export type FakeTelegram = TelegramApi & { sent: { token: string; chatId: string; text: string }[]; hooks: Map<string, { url: string; secret: string }>; actions: number; badToken?: string; failSend?: boolean };
 /** Saxta Telegram: göndərilən mesajları və webhook-ları yadda saxlayır. */
 export function fakeTelegram(): FakeTelegram {
@@ -89,8 +116,9 @@ export async function startPortal(overrides: Partial<Config> = {}) {
   const mails: { to: string; subject: string; text: string }[] = [];
   const ai = fakeAi();
   const telegram = fakeTelegram();
+  const wa = fakeWhatsApp();
   const deps = {
-    config: { ...config, ...overrides }, store, ai, limiter: createLimiter(), telegram,
+    config: { ...config, ...overrides }, store, ai, limiter: createLimiter(), telegram, whatsapp: wa.manager,
     mailer: { async send(to: string, subject: string, text: string) { mails.push({ to, subject, text }); } },
   };
   const app = createApp(deps);
@@ -130,5 +158,5 @@ export async function startPortal(overrides: Partial<Config> = {}) {
     return c;
   }
 
-  return { base, store, mails, ai, telegram, client, signedIn, lastCode, close: () => new Promise<void>((r) => server.close(() => r())) };
+  return { base, store, mails, ai, telegram, wa, deps, client, signedIn, lastCode, close: () => new Promise<void>((r) => server.close(() => r())) };
 }

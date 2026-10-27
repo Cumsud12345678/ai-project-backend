@@ -7,6 +7,7 @@ import { authRoutes } from "./routes/auth.js";
 import { tenantRoutes } from "./routes/tenant.js";
 import { recordError } from "./errorlog.js";
 import { telegramPanelRoutes, telegramWebhook } from "./telegram-channel.js";
+import { whatsappPanelRoutes } from "./whatsapp/routes.js";
 import { widgetRoutes } from "./widget.js";
 
 export function createApp(deps: Deps) {
@@ -46,7 +47,7 @@ export function createApp(deps: Deps) {
     const a = await deps.store.getAnnouncement();
     res.json({ announcement: a?.active ? { text: a.text, level: a.level } : null });
   });
-  app.use("/tenant/channels", telegramPanelRoutes(deps));
+  app.use("/tenant/channels", telegramPanelRoutes(deps), whatsappPanelRoutes(deps));
   app.use("/tenant", tenantRoutes(deps));
   app.use("/admin", adminRoutes(deps));
 

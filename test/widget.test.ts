@@ -76,7 +76,7 @@ test("config: icazəli saytlar CORS alır, yadlar 403 və CORS başlığı almı
     assert.equal(res.headers.get("access-control-allow-origin"), origin);
     assert.match(res.headers.get("vary") ?? "", /Origin/i);
     const body = (await res.json()) as any;
-    assert.deepEqual(Object.keys(body).sort(), ["color", "contact", "greeting", "label", "live", "mode", "title"], "yalnız ictimai sahələr");
+    assert.deepEqual(Object.keys(body).sort(), ["color", "contact", "greeting", "label", "live", "mode", "theme", "title"], "yalnız ictimai sahələr");
   }
   for (const origin of ["https://evil.com", "https://motoelan.com.evil.com", "https://evilmotoelan.com"]) {
     const res = await raw(`/widget/${key}/config`, { headers: { origin } });

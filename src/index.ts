@@ -5,6 +5,7 @@ import { loadConfig } from "./config.js";
 import { recordError, loggedMailer } from "./errorlog.js";
 import { createMailer } from "./mailer.js";
 import { createTelegramApi } from "./telegram.js";
+import { createWhatsAppManager } from "./whatsapp/manager.js";
 import { createLimiter } from "./security.js";
 import { attachRealtime } from "./realtime.js";
 import { startReportScheduler } from "./stats.js";
@@ -17,6 +18,7 @@ const deps = {
   mailer: loggedMailer(createMailer({ apiKey: config.resendApiKey, from: config.mailFrom, replyTo: config.mailReplyTo }), store),
   ai: createAiClient(config.aiServiceUrl, config.aiServiceToken),
   telegram: createTelegramApi(),
+  whatsapp: createWhatsAppManager(),
 };
 const app = createApp(deps);
 
@@ -25,7 +27,8 @@ if (!config.secretKey) console.warn("[telegram] CHANNEL_SECRET_KEY yoxdur: Teleg
 const server = app.listen(config.port, () => console.log(`Portal API: http://localhost:${config.port}`));
 attachRealtime(server, deps); // canlı söhbət üçün WebSocket (/ws)
 startReportScheduler(deps); // aylıq e-poçt hesabatı (ayın 1-i)
-for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => server.close(() => store.close().then(() => process.exit(0))));
+void deps.whatsapp.restoreAll(deps).then((n) => { if (n) console.log(`[whatsapp] ${n} nömrə bərpa olunur`); });
+for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => { void deps.whatsapp.shutdown().finally(() => server.close(() => store.close().then(() => process.exit(0)))); });
 
 // Tutulmamış xətalar jurnala düşür. Gözlənilməz istisnadan sonra proses təmiz vəziyyətdə olmaya bilər: yazıb çıxırıq (PM2/Docker yenidən qaldırır).
 process.on("unhandledRejection", (e) => {

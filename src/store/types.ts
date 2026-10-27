@@ -16,6 +16,10 @@ export type WidgetSettings = {
   /** Loqonun yanındakı qısa yazı (məs. "AI-dan soruş"). Boş sətir = yazı göstərilmir. Olmayanda defolt işləyir. */
   label?: string;
   color: string;
+  /** Çatın ilk açılış rejimi: light (defolt), dark və ya auto (cihaz ayarı). Ziyarətçi çatdakı düymə ilə özü dəyişir və seçimi yadda qalır. */
+  theme?: "light" | "dark" | "auto";
+  /** Yüklənmiş loqo (kiçildilmiş şəkil, base64). Panelə və vidjetə yalnız ünvanı qayıdır. `v` keşi yeniləmək üçündür. */
+  logo?: { mime: "image/png" | "image/jpeg" | "image/webp"; data: string; v: number };
   /** Çat istifadə limitləri (0 = limitsiz). Olmayanda defolt: ziyarətçi başına gündə 30 mesaj, sayt üzrə limitsiz. */
   limits?: { perVisitorDay: number; siteHour: number };
   /** Canlı operator söhbəti: ziyarətçi operatorla panel vasitəsilə yazışır. Defolt: söndürülüb (operator panelə baxmalıdır). */
@@ -38,13 +42,16 @@ export type TenantRecord = {
   /** Aylıq e-poçt hesabatı: defolt aktivdir (monthly=false ilə söndürülür); lastSent = axırıncı göndərilən dövr ("2026-09"). */
   report?: { monthly?: boolean; lastSent?: string };
   telegram?: TelegramLink | null;
+  whatsapp?: WhatsAppLink | null;
 };
 
 /** Müştərinin Telegram botu. Token şifrələnmiş saxlanır, panelə qayıtmır. `hook` webhook ünvanındakı təsadüfi hissədir, `secret` Telegram-ın hər sorğuya qoyduğu başlıqdır. */
 export type TelegramLink = { tokenEnc: string; botId: number; botUsername: string; hook: string; secret: string; enabled: boolean; connectedAt: Date };
+/** Müştərinin QR ilə qoşulmuş WhatsApp nömrəsi. Sessiya açarları ayrıca (`wa_auth`) şifrəli saxlanır. `ackAt`: qeyri-rəsmi qoşulmanın riskini qəbul etdiyi an. */
+export type WhatsAppLink = { enabled: boolean; phone: string; connectedAt: Date; ackAt: Date; /** Sahib telefondan özü yazanda bot həmin söhbətdə 12 saat susur */ pauseOnOwnReply: boolean };
 /** Kanaldakı (Telegram) söhbətin serverdə saxlanan vəziyyəti: vidjetdən fərqli olaraq tarixçəni brauzer göndərmir. */
 export type ChannelSession = {
-  tenantId: string; channel: "telegram"; chatId: string; sid: string;
+  tenantId: string; channel: "telegram" | "whatsapp"; chatId: string; sid: string;
   history: { role: "user" | "model"; text: string }[];
   /** Cavab tapılmayıb: növbəti mesaj telefon/e-poçt kimi qəbul edilir və müraciətə çevrilir. */
   pending?: { question: string } | null;
@@ -110,7 +117,7 @@ export interface Store {
   findTenantByTelegramHook(hook: string): Promise<TenantRecord | null>;
   listTenants(limit: number): Promise<TenantRecord[]>;
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report">> & { telegram?: TelegramLink | null }): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;
@@ -130,9 +137,14 @@ export interface Store {
   feedbackSince(tenantId: string, since: Date, limit: number): Promise<FeedbackRecord[]>;
   feedbackCounts(tenantId: string, since: Date): Promise<{ up: number; down: number }>;
 
-  getChannelSession(tenantId: string, channel: "telegram", chatId: string): Promise<ChannelSession | null>;
+  getChannelSession(tenantId: string, channel: ChannelSession["channel"], chatId: string): Promise<ChannelSession | null>;
   saveChannelSession(s: ChannelSession): Promise<void>;
-  deleteChannelSessions(tenantId: string): Promise<void>;
+  deleteChannelSessions(tenantId: string, channel?: ChannelSession["channel"]): Promise<void>;
+
+  /** WhatsApp sessiya açarları (hər biri şifrəli sətir). value=null olan açar silinir. */
+  getWaAuth(tenantId: string, names: string[]): Promise<Record<string, string>>;
+  setWaAuth(tenantId: string, entries: Record<string, string | null>): Promise<void>;
+  deleteWaAuth(tenantId: string): Promise<void>;
 
   addError(e: Omit<ErrorRecord, "id" | "at"> & { at?: Date }): Promise<void>;
   listErrors(opts: { since?: Date; source?: ErrorSource; limit: number }): Promise<ErrorRecord[]>;

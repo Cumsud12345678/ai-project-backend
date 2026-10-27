@@ -9,10 +9,10 @@ import { hub } from "../hub.js";
 import { makeTicket, wsUrlOf } from "../realtime.js";
 import { currentUser, requireAuth } from "../middleware.js";
 import { DuplicateError, type LiveChat, type TenantRecord } from "../store/types.js";
-import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseWidgetPatch } from "../widget.js";
+import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, logoUrl } from "../widget.js";
 
 const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret"];
-const PROFILE_KEYS = ["language", "tone", "maxResults", "extraInstructions", "logQueries", "mode", "fallbackMessage", "generalKnowledge"];
+const PROFILE_KEYS = ["language", "tone", "maxResults", "extraInstructions", "logQueries", "mode", "fallbackMessage", "generalKnowledge", "kbAutoRefresh"];
 
 /** Müştərinin göndərdiyi JSON-dan yalnız tanınan sahələri götürür. */
 function extractConfig(body: unknown): Record<string, unknown> {
@@ -139,7 +139,8 @@ export function tenantRoutes(deps: Deps) {
     return widget;
   };
   const widgetView = (t: TenantRecord, widget: NonNullable<TenantRecord["widget"]>) => ({
-    widget: { ...widget, label: widget.label ?? DEFAULT_LABEL, limits: limitsOf(widget) }, scriptUrl: `${config.publicPortalUrl}/widget.js`, domain: t.domain,
+    // Loqonun baytları panelə qayıtmır: yalnız ünvan
+    widget: { ...widget, logo: undefined, logoUrl: widget.logo ? logoUrl(config.publicPortalUrl, widget) : null, theme: widget.theme ?? "light", label: widget.label ?? DEFAULT_LABEL, limits: limitsOf(widget) }, scriptUrl: `${config.publicPortalUrl}/widget.js`, domain: t.domain,
   });
 
   r.get("/widget", async (_req, res) => {
@@ -155,6 +156,29 @@ export function tenantRoutes(deps: Deps) {
       const w = parseWidgetPatch(req.body, await widgetOf(t));
       await store.updateTenant(t.tenantId, { widget: w });
       return w;
+    });
+    res.json(widgetView(t, next));
+  });
+
+  r.put("/widget/logo", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`logo:${user.id}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox əməliyyat oldu, bir az gözləyin", "RATE_LIMITED");
+    const t = await mine(user.id);
+    const logo = parseLogo(req.body);
+    const next = await exclusive(user.id, async () => {
+      const w = { ...(await widgetOf(t)), logo };
+      await store.updateTenant(t.tenantId, { widget: w });
+      return w;
+    });
+    res.json(widgetView(t, next));
+  });
+  r.delete("/widget/logo", async (_req, res) => {
+    const user = currentUser(res);
+    const t = await mine(user.id);
+    const next = await exclusive(user.id, async () => {
+      const { logo: _gone, ...rest } = await widgetOf(t);
+      await store.updateTenant(t.tenantId, { widget: rest });
+      return rest;
     });
     res.json(widgetView(t, next));
   });

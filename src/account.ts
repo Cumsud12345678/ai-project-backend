@@ -10,6 +10,7 @@ export async function deleteAccount(deps: Deps, user: User): Promise<{ hadTenant
   if (tenant?.telegram) { // botun webhook-u götürülür: hesab silinəndən sonra Telegram bizə yazmasın (alınmasa da davam edirik)
     try { await deps.telegram.deleteWebhook(decryptSecret(tenant.telegram.tokenEnc, deps.config.secretKey)); } catch { /* token etibarsızdır və ya Telegram əlçatmazdır */ }
   }
+  if (tenant?.whatsapp || tenant && deps.whatsapp.isActive(tenant.tenantId)) await deps.whatsapp.disconnect(deps, tenant.tenantId).catch(() => {}); // nömrə telefondan da ayrılır
   if (tenant) {
     // Əvvəlcə AI servisində: orada silinməsə, burada silsək müştəri "yetim" qalar və açarı işləməyə davam edər.
     try { await ai.deleteTenant(tenant.tenantId); }
