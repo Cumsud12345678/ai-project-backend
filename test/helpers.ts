@@ -1,3 +1,4 @@
+import type { Deps } from "../src/deps.js";
 import type { AddressInfo } from "node:net";
 import { createApp } from "../src/app.js";
 import { attachRealtime } from "../src/realtime.js";
@@ -72,18 +73,18 @@ export function fakeAi(): FakeAi {
   return ai;
 }
 
-export type FakeWaSocket = WaSocket & { sent: { jid: string; text: string; id?: string }[]; presence: string[]; read: number; loggedOut: boolean; ended: boolean; emit(event: string, arg: unknown): void; tenantId: string };
+export type FakeWaSocket = WaSocket & { sent: { jid: string; text: string; id?: string }[]; images: { jid: string; bytes: number; caption: string }[]; presence: string[]; read: number; loggedOut: boolean; ended: boolean; emit(event: string, arg: unknown): void; tenantId: string };
 /** Saxta WhatsApp: socketlər yadda saxlanır, hadisələr əl ilə göndərilir. */
-export function fakeWhatsApp() {
+export function fakeWhatsApp(batchMs = 0) {
   const sockets: FakeWaSocket[] = [];
   const manager = createWhatsAppManager({
-    delay: () => 0, reconnectMs: () => 5,
+    delay: () => 0, reconnectMs: () => 5, batchMs,
     async factory({ tenantId }) {
       const ev = new EventEmitter();
       const s: FakeWaSocket = {
-        tenantId, sent: [], presence: [], read: 0, loggedOut: false, ended: false, user: { id: "994501234567:7@s.whatsapp.net" },
+        tenantId, sent: [], images: [], presence: [], read: 0, loggedOut: false, ended: false, user: { id: "994501234567:7@s.whatsapp.net" },
         ev: { on: (e, fn) => ev.on(e, fn) },
-        async sendMessage(jid, c, o) { s.sent.push({ jid, text: c.text, id: o?.messageId }); return { key: { id: o?.messageId } }; },
+        async sendMessage(jid, c, o) { if ("image" in c) { s.images.push({ jid, bytes: c.image.length, caption: c.caption }); return { key: { id: o?.messageId } }; } s.sent.push({ jid, text: c.text, id: o?.messageId }); return { key: { id: o?.messageId } }; },
         async sendPresenceUpdate(t) { s.presence.push(t); },
         async readMessages() { s.read++; },
         async logout() { s.loggedOut = true; },
@@ -97,28 +98,29 @@ export function fakeWhatsApp() {
   return { manager, sockets, last: () => sockets[sockets.length - 1]! };
 }
 
-export type FakeTelegram = TelegramApi & { sent: { token: string; chatId: string; text: string }[]; hooks: Map<string, { url: string; secret: string }>; actions: number; badToken?: string; failSend?: boolean };
+export type FakeTelegram = TelegramApi & { sent: { token: string; chatId: string; text: string }[]; hooks: Map<string, { url: string; secret: string }>; actions: number; photos: { chatId: string; url: string; caption: string }[]; failPhoto?: boolean; badToken?: string; failSend?: boolean };
 /** Saxta Telegram: göndərilən mesajları və webhook-ları yadda saxlayır. */
 export function fakeTelegram(): FakeTelegram {
   const tg: FakeTelegram = {
-    sent: [], hooks: new Map(), actions: 0,
+    sent: [], photos: [], hooks: new Map(), actions: 0,
     async getMe(token) { if (token === tg.badToken) throw new TelegramError(401, "Unauthorized"); return { id: Number(token.split(":")[0]), username: `bot_${token.split(":")[0]}` }; },
     async setWebhook(token, o) { tg.hooks.set(token, o); },
     async deleteWebhook(token) { tg.hooks.delete(token); },
     async sendMessage(token, chatId, text) { if (tg.failSend) throw new TelegramError(500, "boom"); tg.sent.push({ token, chatId, text }); },
+    async sendPhoto(_t, chatId, url, caption) { if (tg.failPhoto) throw new TelegramError(400, "bad url"); tg.photos.push({ chatId, url, caption }); },
     async sendChatAction() { tg.actions++; },
   };
   return tg;
 }
 
-export async function startPortal(overrides: Partial<Config> = {}) {
+export async function startPortal(overrides: Partial<Config> = {}, waBatchMs = 0) {
   const store = createMemoryStore();
   const mails: { to: string; subject: string; text: string }[] = [];
   const ai = fakeAi();
   const telegram = fakeTelegram();
-  const wa = fakeWhatsApp();
-  const deps = {
-    config: { ...config, ...overrides }, store, ai, limiter: createLimiter(), telegram, whatsapp: wa.manager,
+  const wa = fakeWhatsApp(waBatchMs);
+  const deps: Deps = {
+    config: { ...config, ...overrides }, store, ai, limiter: createLimiter(), telegramBatchMs: 0, telegram, whatsapp: wa.manager,
     mailer: { async send(to: string, subject: string, text: string) { mails.push({ to, subject, text }); } },
   };
   const app = createApp(deps);

@@ -9,6 +9,7 @@ export type TelegramApi = {
   setWebhook(token: string, o: { url: string; secret: string }): Promise<void>;
   deleteWebhook(token: string): Promise<void>;
   sendMessage(token: string, chatId: string, text: string): Promise<void>;
+  sendPhoto(token: string, chatId: string, url: string, caption: string): Promise<void>;
   sendChatAction(token: string, chatId: string): Promise<void>;
 };
 
@@ -29,6 +30,7 @@ export function createTelegramApi(fetchFn: typeof fetch = fetch): TelegramApi {
     async setWebhook(token, { url, secret }) { await call(token, "setWebhook", { url, secret_token: secret, allowed_updates: ["message"], drop_pending_updates: true }); },
     async deleteWebhook(token) { await call(token, "deleteWebhook", { drop_pending_updates: true }); },
     async sendMessage(token, chatId, text) { await call(token, "sendMessage", { chat_id: chatId, text: text.slice(0, 4000) }); },
+    async sendPhoto(token, chatId, url, caption) { await call(token, "sendPhoto", { chat_id: chatId, photo: url, caption: caption.slice(0, 1000) }); },
     async sendChatAction(token, chatId) { await call(token, "sendChatAction", { chat_id: chatId, action: "typing" }); },
   };
 }

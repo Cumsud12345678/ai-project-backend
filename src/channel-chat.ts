@@ -27,13 +27,16 @@ export const clip = (v: unknown, n: number) => String(v ?? "").trim().slice(0, n
 const httpUrl = (v: unknown) => (typeof v === "string" && /^https?:\/\//i.test(v) && v.length < 2000 ? v : "");
 
 /** AI cavabını mesajlaşma proqramı üçün düz mətnə çevirir (formatlama simvolları yoxdur). */
-export function formatReply(out: Record<string, any>): string {
+/** hide: şəkli ayrıca göndərilən elanların indekslərı (mətndə təkrarlanmasın) */
+export function listingText(l: Record<string, unknown>): string {
+  const price = typeof l.price === "number" ? ` — ${l.price}${l.currency ? ` ${clip(l.currency, 8)}` : ""}` : "";
+  const url = httpUrl(l.url);
+  return `• ${clip(l.title, 120) || "Elan"}${price}${url ? `\n${url}` : ""}`;
+}
+
+export function formatReply(out: Record<string, any>, hide: Set<number> = new Set()): string {
   const parts = [clip(out.answer, 3000) || "..."];
-  const items = (Array.isArray(out.listings) ? out.listings : []).slice(0, 3).map((l: Record<string, unknown>) => {
-    const price = typeof l.price === "number" ? ` — ${l.price}${l.currency ? ` ${clip(l.currency, 8)}` : ""}` : "";
-    const url = httpUrl(l.url);
-    return `• ${clip(l.title, 120) || "Elan"}${price}${url ? `\n${url}` : ""}`;
-  });
+  const items = (Array.isArray(out.listings) ? out.listings : []).slice(0, 3).map((l: Record<string, unknown>, i: number) => hide.has(i) ? "" : listingText(l)).filter(Boolean);
   if (items.length) parts.push(items.join("\n"));
   const src = (Array.isArray(out.sources) ? out.sources : []).slice(0, 2).map((s: Record<string, unknown>) => {
     const url = httpUrl(s.url);
@@ -70,6 +73,8 @@ export type ChatIO = {
   senderName: string;
   /** Qarşı tərəfə düz mətn göndərir */
   send(text: string): Promise<unknown>;
+  /** Şəkil + başlıq göndərir; alınmasa xəta atır (çağıran mətnə keçir). Yoxdursa şəkil göndərilmir. */
+  photo?(url: string, caption: string): Promise<unknown>;
   /** "yazır..." göstəricisi (alınmasa da davam edilir) */
   typing(): Promise<unknown> | void;
   /** Söhbəti sıfırlayıb salamlama göndərmək (/start) */
@@ -140,10 +145,18 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     }
     const notify = out.billing?.notify;
     if (notify === "low" || notify === "empty") void notifyBalance(deps, tenant, notify, out.billing?.balanceAzn);
-    const answer = formatReply(out);
+    const withPhoto = io.photo
+      ? (Array.isArray(out.listings) ? out.listings : []).slice(0, 3).map((l: Record<string, unknown>, i: number) => ({ l, i, img: httpUrl(l.image) })).filter((x: { img: string }) => x.img)
+      : [];
+    const answer = formatReply(out, new Set(withPhoto.map((x: { i: number }) => x.i)));
     const unanswered = out.unanswered === true;
     const history = [...session.history, { role: "user" as const, text: text.slice(0, 600) }, { role: "model" as const, text: clip(out.answer, 600) }].slice(-HISTORY_KEEP);
     await store.saveChannelSession({ ...session, history, pending: unanswered ? { question: text.slice(0, 500) } : null, updatedAt: new Date() });
     await io.send(unanswered ? `${answer}\n\n${MSG.askContact}` : answer);
+    // Şəkilli elanlar ayrıca göndərilir; alınmayan olarsa mətn kimi
+    for (const { l, img } of withPhoto) {
+      const caption = listingText(l);
+      try { await io.photo!(img, caption); } catch { await io.send(caption).catch(() => {}); }
+    }
   });
 }

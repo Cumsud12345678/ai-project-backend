@@ -93,6 +93,9 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
       try { await tenants.insertOne({ ...t }); } catch (e) { throw isDup(e) ? new DuplicateError("tenant") : e; }
     },
     async updateTenant(tenantId, patch) { await tenants.updateOne({ tenantId }, { $set: { ...patch, updatedAt: new Date() } }); },
+    async setWidgetLogo(tenantId, logo) {
+      await tenants.updateOne({ tenantId, widget: { $exists: true } }, logo ? { $set: { "widget.logo": logo, updatedAt: new Date() } } : { $unset: { "widget.logo": "" }, $set: { updatedAt: new Date() } });
+    },
     async touchWidget(tenantId, at) { await tenants.updateOne({ tenantId, widget: { $exists: true } }, { $set: { "widget.lastSeenAt": at } }); },
     async deleteTenant(tenantId) {
       await tenants.deleteOne({ tenantId });

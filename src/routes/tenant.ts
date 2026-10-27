@@ -160,27 +160,30 @@ export function tenantRoutes(deps: Deps) {
     res.json(widgetView(t, next));
   });
 
+  // Loqo: tək atomik yazma ($set/$unset widget.logo). Bütün vidjet sənədini yenidən yazmırıq.
+  const timed = (label: string, t0: number) => {
+    const ms = Date.now() - t0;
+    if (ms > 1500) console.warn(`[widget-logo] ${label} ${ms}ms (yavaş: əsasən baza gecikməsi)`);
+  };
   r.put("/widget/logo", async (req, res) => {
+    const t0 = Date.now();
     const user = currentUser(res);
     if (!limiter.hit(`logo:${user.id}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox əməliyyat oldu, bir az gözləyin", "RATE_LIMITED");
     const t = await mine(user.id);
     const logo = parseLogo(req.body);
-    const next = await exclusive(user.id, async () => {
-      const w = { ...(await widgetOf(t)), logo };
-      await store.updateTenant(t.tenantId, { widget: w });
-      return w;
-    });
-    res.json(widgetView(t, next));
+    const base = await widgetOf(t);
+    await store.setWidgetLogo(t.tenantId, logo);
+    timed("PUT", t0);
+    res.json(widgetView(t, { ...base, logo }));
   });
   r.delete("/widget/logo", async (_req, res) => {
+    const t0 = Date.now();
     const user = currentUser(res);
     const t = await mine(user.id);
-    const next = await exclusive(user.id, async () => {
-      const { logo: _gone, ...rest } = await widgetOf(t);
-      await store.updateTenant(t.tenantId, { widget: rest });
-      return rest;
-    });
-    res.json(widgetView(t, next));
+    const { logo: _gone, ...rest } = await widgetOf(t);
+    await store.setWidgetLogo(t.tenantId, null);
+    timed("DELETE", t0);
+    res.json(widgetView(t, rest));
   });
 
   // Köhnə açarla qoyulmuş scriptlər dərhal işləməyi dayandırır.

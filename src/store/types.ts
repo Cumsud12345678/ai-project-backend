@@ -117,6 +117,8 @@ export interface Store {
   findTenantByTelegramHook(hook: string): Promise<TenantRecord | null>;
   listTenants(limit: number): Promise<TenantRecord[]>;
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
+  /** Yalnız vidjet loqosunu dəyişir (bütün vidjet sənədini yenidən yazmır). null = sil. */
+  setWidgetLogo(tenantId: string, logo: NonNullable<WidgetSettings["logo"]> | null): Promise<void>;
   updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */

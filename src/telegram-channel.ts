@@ -2,7 +2,7 @@
 // Panel marşrutları: /tenant/channels/telegram (token qoşmaq/çıxarmaq). İctimai marşrut: POST /telegram/:hook (yalnız Telegram).
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { Router } from "express";
-import { clip, dedupe, formatReply, handleChat } from "./channel-chat.js";
+import { MAX_TEXT, clip, dedupe, formatReply, handleChat } from "./channel-chat.js";
 import type { Deps } from "./deps.js";
 import { recordError } from "./errorlog.js";
 import { HttpError } from "./http.js";
@@ -28,13 +28,33 @@ export async function processUpdate(deps: Deps, tenant: TenantRecord, update: Up
   const token = decryptSecret(link.tokenEnc, config.secretKey);
   const chatId = String(msg.chat.id);
   const text = typeof msg.text === "string" ? msg.text.trim() : "";
-  await handleChat(deps, tenant, {
-    channel: "telegram", label: "Telegram", chatId, text,
+  const run = (txt: string) => handleChat(deps, tenant, {
+    channel: "telegram", label: "Telegram", chatId, text: txt,
     senderName: [msg.from?.first_name, msg.from?.username ? `@${msg.from.username}` : ""].filter(Boolean).join(" "),
     send: (t) => telegram.sendMessage(token, chatId, t),
+    photo: (url, caption) => telegram.sendPhoto(token, chatId, url, caption),
     typing: () => telegram.sendChatAction(token, chatId),
-    reset: /^\/start(\s|@|$)/i.test(text),
+    reset: /^\/start(\s|@|$)/i.test(txt),
   });
+  const batchMs = deps.telegramBatchMs ?? 4000;
+  if (batchMs <= 0 || !text || text.startsWith("/")) return run(text);
+  // Dalbadal mesajlar: sakitlik olanda hamısı bir sual kimi cavablanır
+  const key = `${tenant.tenantId}|${chatId}`;
+  const entry = tgBatches.get(key) ?? { texts: [], first: Date.now(), timer: undefined as unknown as NodeJS.Timeout };
+  entry.texts.push(text);
+  clearTimeout(entry.timer);
+  const wait = Math.max(0, Math.min(batchMs, 12_000 - (Date.now() - entry.first)));
+  entry.timer = setTimeout(() => {
+    tgBatches.delete(key);
+    run(entry.texts.join("\n").slice(0, MAX_TEXT)).catch((e) => reportUpdateError(deps, tenant, e));
+  }, wait);
+  tgBatches.set(key, entry);
+}
+
+const tgBatches = new Map<string, { texts: string[]; first: number; timer: NodeJS.Timeout }>();
+function reportUpdateError(deps: Deps, tenant: TenantRecord, e: unknown) {
+  console.warn(`[telegram] ${tenant.tenantId}: ${e instanceof Error ? e.message : e}`);
+  void recordError(deps.store, { source: "channel", message: `Telegram: ${e instanceof Error ? e.message : String(e)}`, stack: e instanceof Error ? e.stack : undefined, tenantId: tenant.tenantId, code: "TELEGRAM_UPDATE" });
 }
 
 /** İctimai webhook: Telegram bura çağırır. Ünvandakı təsadüfi hissə və gizli başlıq yoxlanır, cavab dərhal 200 qayıdır. */

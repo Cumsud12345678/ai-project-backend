@@ -2,16 +2,17 @@
 // DİQQƏT: yalnız TƏK proses işləməlidir: eyni nömrəyə ikinci qoşulma birincini "connection replaced" ilə düşürür.
 import { randomBytes } from "node:crypto";
 import QRCode from "qrcode";
-import { clip, dedupe, handleChat } from "../channel-chat.js";
+import { MAX_TEXT, clip, dedupe, handleChat } from "../channel-chat.js";
 import type { Deps } from "../deps.js";
 import { recordError } from "../errorlog.js";
+import { fetchImage } from "../safe-image.js";
 import type { TenantRecord, WhatsAppLink } from "../store/types.js";
 
 /** Kitabxanadan asılı olmayan minimal socket interfeysi (testlərdə saxta socket verilir). */
 export type WaSocket = {
   ev: { on(event: string, fn: (arg: any) => void): unknown };
   user?: { id?: string } | undefined;
-  sendMessage(jid: string, content: { text: string }, opts?: { messageId?: string }): Promise<unknown>;
+  sendMessage(jid: string, content: { text: string } | { image: Buffer; caption: string }, opts?: { messageId?: string }): Promise<unknown>;
   sendPresenceUpdate(type: "composing" | "paused", jid?: string): Promise<unknown>;
   readMessages(keys: unknown[]): Promise<unknown>;
   logout(): Promise<unknown>;
@@ -49,7 +50,10 @@ export function extractText(message: Record<string, any> | null | undefined): st
 
 export type WhatsAppManager = ReturnType<typeof createWhatsAppManager>;
 
-export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan əvvəl "yazır..." gözləməsi (ms) */ delay?: (text: string) => number; reconnectMs?: (attempt: number) => number } = {}) {
+export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan əvvəl "yazır..." gözləməsi (ms) */ delay?: (text: string) => number; reconnectMs?: (attempt: number) => number; /** ardıcıl mesajları birləşdirmək üçün sakitlik gözləməsi (ms), 0 = söndürülüb */ batchMs?: number } = {}) {
+  const batchMs = opts.batchMs ?? 4000;
+  const BATCH_MAX_MS = 12_000;
+  const batches = new Map<string, { texts: string[]; first: number; timer: NodeJS.Timeout }>();
   const entries = new Map<string, Entry>();
   const delay = opts.delay ?? ((t: string) => Math.min(6000, 1500 + t.length * 15 + Math.random() * 1500));
   const reconnectMs = opts.reconnectMs ?? ((n: number) => Math.min(60_000, 2000 * 2 ** n));
@@ -92,6 +96,7 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
   async function onClose(e: Entry, update: { lastDisconnect?: { error?: { output?: { statusCode?: number }; message?: string } } }) {
     if (e.closing) return;
     const code = update.lastDisconnect?.error?.output?.statusCode;
+    console.warn(`[whatsapp] ${e.tenantId}: bağlantı bağlandı (kod ${code ?? "?"}, ${update.lastDisconnect?.error?.message ?? ""})`);
     e.sock = null;
     if (code === LOGGED_OUT) { // istifadəçi telefondan "Əlaqəli cihazlar"dan çıxardı və ya WhatsApp sessiyanı ləğv etdi
       await e.deps.store.deleteWaAuth(e.tenantId);
@@ -108,32 +113,57 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     e.timer.unref?.();
   }
 
+  // WA_DEBUG=1: hər gələn mesajın niyə cavablandırıldığı və ya buraxıldığı konsola yazılır (səbəb axtarmaq üçün)
+  const dbg = (e: Entry, jid: string, why: string) => { if (process.env.WA_DEBUG) console.log(`[whatsapp:debug] ${e.tenantId} ${jid}: ${why}`); };
+
   async function onMessage(e: Entry, m: Record<string, any>) {
     const { deps } = e;
     const jid = String(m?.key?.remoteJid ?? "");
-    if (!PRIVATE_JID.test(jid) || !m.key?.id) return; // qruplar, status, kanallar: cavab verilmir
+    if (!PRIVATE_JID.test(jid) || !m.key?.id) return dbg(e, jid, "şəxsi söhbət deyil (qrup/status/kanal)"); // qruplar, status, kanallar: cavab verilmir
     const t = await deps.store.findTenantById(e.tenantId);
     const wl = t?.whatsapp;
-    if (!t || !wl) return;
+    if (!t || !wl) return dbg(e, jid, "tenant/WhatsApp qeydi yoxdur");
     if (m.key.fromMe) {
+      dbg(e, jid, "özümüzdən gedən mesaj");
       // Sahib özü telefondan yazdı (botun göndərdiyi deyil) → bu söhbətdə bot bir müddət susur
       if (wl.pauseOnOwnReply && !e.sentIds.has(m.key.id) && extractText(m.message) !== undefined) e.pauses.set(jid, Date.now() + PAUSE_MS);
       return;
     }
-    if (!wl.enabled) return;
+    if (!wl.enabled) return dbg(e, jid, "köməkçi söndürülüb");
     const text = extractText(m.message);
-    if (text === undefined) return;
+    if (text === undefined) return dbg(e, jid, `mətn deyil (${Object.keys(m.message ?? {}).join(",") || "boş"})`);
     const ts = Number(m.messageTimestamp?.low ?? m.messageTimestamp ?? 0) * 1000;
-    if (ts && Date.now() - ts > STALE_MSG_MS) return;
-    if (dedupe(`wa:${e.tenantId}:${m.key.id}`)) return;
+    if (ts && Date.now() - ts > STALE_MSG_MS) return dbg(e, jid, "köhnə mesaj");
+    if (dedupe(`wa:${e.tenantId}:${m.key.id}`)) return dbg(e, jid, "təkrar mesaj");
     const until = e.pauses.get(jid);
-    if (until && until > Date.now()) return;
+    if (until && until > Date.now()) return dbg(e, jid, "sahib yazdığı üçün susdurulub");
     if (until) e.pauses.delete(jid);
     // Nömrənin qadağan olunmaması üçün sərt tavan: müştəri başına saatda 150 cavab
-    if (!deps.limiter.hit(`wa:cap:${e.tenantId}`, 150, 60 * 60_000)) return;
+    if (!deps.limiter.hit(`wa:cap:${e.tenantId}`, 150, 60 * 60_000)) return dbg(e, jid, "saatlıq tavan");
     const sock = e.sock;
-    if (!sock) return;
+    if (!sock) return dbg(e, jid, "socket yoxdur");
+    dbg(e, jid, "emal olunur");
     void sock.readMessages([m.key]).catch(() => {});
+    const key = `${e.tenantId}|${jid}`;
+    const run = (txt: string) => { const sk = e.sock ?? sock; return runChat(e, sk, jid, m, txt); };
+    if (batchMs <= 0) return run(text);
+    // Eyni adam dalbadal bir neçə mesaj yazsa, sakitlik olanda hamısı BİR sual kimi cavablanır
+    const cur = batches.get(key);
+    const entry = cur ?? { texts: [], first: Date.now(), timer: undefined as unknown as NodeJS.Timeout };
+    entry.texts.push(text);
+    clearTimeout(entry.timer);
+    const wait = Math.max(0, Math.min(batchMs, BATCH_MAX_MS - (Date.now() - entry.first)));
+    entry.timer = setTimeout(() => {
+      batches.delete(key);
+      void run(entry.texts.join("\n").slice(0, MAX_TEXT)).catch((err) => fail(e, "WA_MESSAGE", err instanceof Error ? err.message : String(err)));
+    }, wait);
+    batches.set(key, entry);
+  }
+
+  async function runChat(e: Entry, sock: WaSocket, jid: string, m: Record<string, any>, text: string) {
+    const { deps } = e;
+    const t = await deps.store.findTenantById(e.tenantId);
+    if (!t?.whatsapp?.enabled) return;
     await handleChat(deps, t, {
       channel: "whatsapp", label: "WhatsApp", chatId: userPart(jid), text, senderName: clip(m.pushName, 60),
       typing: () => sock.sendPresenceUpdate("composing", jid),
@@ -143,6 +173,14 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
         e.sentIds.add(id);
         if (e.sentIds.size > 500) e.sentIds.delete(e.sentIds.values().next().value as string);
         await (e.sock ?? sock).sendMessage(jid, { text: reply }, { messageId: id });
+      },
+      photo: async (url, caption) => {
+        const img = await (deps.imageFetcher ?? fetchImage)(url);
+        if (!img) throw new Error("şəkil yüklənmədi");
+        await sleep(delay(caption));
+        const id = `3EB0${randomBytes(16).toString("hex").toUpperCase()}`;
+        e.sentIds.add(id);
+        await (e.sock ?? sock).sendMessage(jid, { image: img.data, caption }, { messageId: id });
       },
     });
   }
@@ -155,7 +193,7 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
       if (e.sock !== sock) return; // köhnə socketdən gələn hadisə
       void (async () => {
         try {
-          if (u.qr) { e.qr = await QRCode.toDataURL(u.qr, { margin: 1, width: 280 }); if (e.state !== "open") e.state = "qr"; }
+          if (u.qr) { e.qr = await QRCode.toDataURL(u.qr, { margin: 3, scale: 5, errorCorrectionLevel: "M" }); if (e.state !== "open") e.state = "qr"; }
           if (u.connection === "open") await onOpen(e);
           else if (u.connection === "close") await onClose(e, u);
         } catch (err) { fail(e, "WA_EVENT", err instanceof Error ? err.message : String(err)); }
@@ -163,6 +201,7 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     });
     sock.ev.on("messages.upsert", (up: { messages?: Record<string, any>[]; type?: string }) => {
       if (e.sock !== sock) return;
+      if (process.env.WA_DEBUG) console.log(`[whatsapp:debug] ${e.tenantId}: messages.upsert type=${up.type} sayı=${up.messages?.length ?? 0}`);
       for (const m of up.messages ?? []) {
         void onMessage(e, m).catch((err) => fail(e, "WA_MESSAGE", err instanceof Error ? err.message : String(err)));
       }
