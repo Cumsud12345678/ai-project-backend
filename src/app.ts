@@ -1,10 +1,11 @@
 import express from "express";
 import type { Deps } from "./deps.js";
-import { errorHandler, notFound } from "./http.js";
+import { createErrorHandler, notFound } from "./http.js";
 import { loadUser, originCheck } from "./middleware.js";
 import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { tenantRoutes } from "./routes/tenant.js";
+import { recordError } from "./errorlog.js";
 import { widgetRoutes } from "./widget.js";
 
 export function createApp(deps: Deps) {
@@ -24,10 +25,29 @@ export function createApp(deps: Deps) {
 
   app.use(originCheck(deps), loadUser(deps));
   app.use("/auth", authRoutes(deps));
+
+  // Panelin brauzerində baş verən xəta (JS xətası, render xətası). Giriş tələb etmir, amma IP üzrə limitlidir.
+  app.post("/client-errors", async (req, res) => {
+    if (!deps.limiter.hit(`cerr:${req.ip}`, 20, 10 * 60_000)) return void res.status(204).end();
+    const b = (req.body ?? {}) as { message?: unknown; stack?: unknown; page?: unknown };
+    if (typeof b.message === "string" && b.message.trim()) {
+      await recordError(deps.store, {
+        source: "client", message: b.message.slice(0, 400), stack: typeof b.stack === "string" ? b.stack : undefined,
+        path: typeof b.page === "string" ? b.page.slice(0, 200) : undefined, userId: (res.locals.user as { id?: string } | undefined)?.id, code: "CLIENT",
+      });
+    }
+    res.status(204).end();
+  });
+  // Bütün giriş etmiş istifadəçilərə göstərilən elan (admin təyin edir)
+  app.get("/announcement", async (_req, res) => {
+    if (!res.locals.user) return void res.json({ announcement: null });
+    const a = await deps.store.getAnnouncement();
+    res.json({ announcement: a?.active ? { text: a.text, level: a.level } : null });
+  });
   app.use("/tenant", tenantRoutes(deps));
   app.use("/admin", adminRoutes(deps));
 
   app.use(notFound);
-  app.use(errorHandler);
+  app.use(createErrorHandler(deps));
   return app;
 }

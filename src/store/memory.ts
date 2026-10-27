@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type CodeRecord, type FeedbackRecord, type LiveChat, type Session, type Store, type TenantRecord, type User } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type Session, type Store, type TenantRecord, type User } from "./types.js";
 
 /** Test və DB-siz sınaq üçün. Proses bitəndə məlumat itir. */
 export function createMemoryStore(): Store {
@@ -9,6 +9,9 @@ export function createMemoryStore(): Store {
   const tenants = new Map<string, TenantRecord>();
   const live = new Map<string, LiveChat>();
   const feedback: FeedbackRecord[] = [];
+  const errors: ErrorRecord[] = [];
+  const audit: AuditRecord[] = [];
+  let announcement: Announcement | null = null;
   const ck = (email: string, purpose: CodePurpose) => `${email}|${purpose}`;
 
   return {
@@ -88,6 +91,21 @@ export function createMemoryStore(): Store {
       const mine = feedback.filter((f) => f.tenantId === tenantId && f.at >= since);
       return { up: mine.filter((f) => f.rating === 1).length, down: mine.filter((f) => f.rating === -1).length };
     },
+    async addError(e) { errors.push({ ...e, id: randomUUID(), at: e.at ?? new Date() }); if (errors.length > 2000) errors.shift(); },
+    async listErrors({ since, source, limit }) {
+      return errors.filter((e) => (!since || e.at >= since) && (!source || e.source === source)).sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, limit);
+    },
+    async countErrors(since) { return errors.filter((e) => e.at >= since).length; },
+    async deleteErrors({ id, fingerprint }) {
+      const before = errors.length;
+      for (let i = errors.length - 1; i >= 0; i--) if ((id && errors[i]!.id === id) || (fingerprint && errors[i]!.fingerprint === fingerprint)) errors.splice(i, 1);
+      return before - errors.length;
+    },
+    async clearErrors() { const n = errors.length; errors.length = 0; return n; },
+    async addAudit(a) { audit.push({ ...a, id: randomUUID(), at: new Date() }); if (audit.length > 2000) audit.shift(); },
+    async listAudit(limit) { return audit.slice(-limit).reverse(); },
+    async getAnnouncement() { return announcement; },
+    async setAnnouncement(a) { announcement = a; },
     async close() {},
   };
 }

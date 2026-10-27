@@ -9,7 +9,7 @@ import { createMemoryStore } from "../src/store/memory.js";
 export const config: Config = {
   port: 0, mongoUri: "", dbName: "", aiServiceUrl: "http://ai.test", aiServiceToken: "t", publicAdvisorUrl: "https://advisor.test", publicPortalUrl: "https://portal.test",
   adminEmails: ["boss@example.com"], allowedOrigins: ["http://localhost:3001"], cookieSecure: false, sessionDays: 30,
-  smtpUrl: undefined, mailFrom: "x", trustProxy: 1, isProd: false,
+  resendApiKey: undefined, mailFrom: "x", mailReplyTo: undefined, trustProxy: 1, isProd: false,
 };
 
 export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown> };

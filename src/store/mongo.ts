@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { MongoClient, MongoServerError, ObjectId, type Db } from "mongodb";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type CodeRecord, type FeedbackRecord, type LiveChat, type Session, type Store, type TenantRecord, type User } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type Session, type Store, type TenantRecord, type User } from "./types.js";
 
 type UserDoc = Omit<User, "id"> & { _id: ObjectId };
 
@@ -21,6 +22,9 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
   const tenants = db.collection<TenantRecord>("tenants");
   const lives = db.collection<LiveChat>("live_chats");
   const feedbacks = db.collection<FeedbackRecord>("feedback");
+  const errors = db.collection<ErrorRecord>("error_log");
+  const audits = db.collection<AuditRecord>("admin_audit");
+  const settings = db.collection<{ _id: string; value: unknown }>("settings");
 
   await Promise.all([
     users.createIndex({ email: 1 }, { unique: true }),
@@ -36,6 +40,11 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     lives.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 60 * 24 * 3600 }), // 60 gün sonra silinir
     feedbacks.createIndex({ tenantId: 1, at: -1 }),
     feedbacks.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 3600 }), // 90 gün sonra silinir
+    errors.createIndex({ at: -1 }),
+    errors.createIndex({ at: 1 }, { expireAfterSeconds: 30 * 24 * 3600 }), // 30 gün sonra silinir
+    errors.createIndex({ fingerprint: 1 }),
+    audits.createIndex({ at: -1 }),
+    audits.createIndex({ at: 1 }, { expireAfterSeconds: 365 * 24 * 3600 }),
     tenants.createIndex({ "widget.key": 1 }, { unique: true, partialFilterExpression: { "widget.key": { $type: "string" } } }),
   ]);
 
@@ -106,6 +115,27 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async feedbackCounts(tenantId, since) {
       const rows = await feedbacks.aggregate<{ _id: number; n: number }>([{ $match: { tenantId, at: { $gte: since } } }, { $group: { _id: "$rating", n: { $sum: 1 } } }]).toArray();
       return { up: rows.find((r) => r._id === 1)?.n ?? 0, down: rows.find((r) => r._id === -1)?.n ?? 0 };
+    },
+    async addError(e) { await errors.insertOne({ ...e, id: randomUUID(), at: e.at ?? new Date() }); },
+    async listErrors({ since, source, limit }) {
+      const q: Record<string, unknown> = {};
+      if (since) q.at = { $gte: since };
+      if (source) q.source = source;
+      return (await errors.find(q).sort({ at: -1 }).limit(limit).toArray()).map((d) => strip(d) as ErrorRecord);
+    },
+    async countErrors(since) { return errors.countDocuments({ at: { $gte: since } }); },
+    async deleteErrors({ id, fingerprint }) {
+      const or = [id ? { id } : null, fingerprint ? { fingerprint } : null].filter(Boolean) as object[];
+      if (!or.length) return 0;
+      return (await errors.deleteMany({ $or: or })).deletedCount;
+    },
+    async clearErrors() { return (await errors.deleteMany({})).deletedCount; },
+    async addAudit(a) { await audits.insertOne({ ...a, id: randomUUID(), at: new Date() }); },
+    async listAudit(limit) { return (await audits.find({}).sort({ at: -1 }).limit(limit).toArray()).map((d) => strip(d) as AuditRecord); },
+    async getAnnouncement() { const d = await settings.findOne({ _id: "announcement" }); return (d?.value as Announcement | undefined) ?? null; },
+    async setAnnouncement(a) {
+      if (a) await settings.updateOne({ _id: "announcement" }, { $set: { value: a } }, { upsert: true });
+      else await settings.deleteOne({ _id: "announcement" });
     },
     async close() { await client.close(); },
   };

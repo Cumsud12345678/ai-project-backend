@@ -58,6 +58,19 @@ export type LiveChat = {
 };
 export type FeedbackRecord = { tenantId: string; rating: 1 | -1; question: string; answer: string; at: Date };
 
+export type ErrorSource = "api" | "ai" | "mail" | "widget" | "process" | "client" | "job";
+/** Sistem xəta jurnalı: serverdə və ya panelin brauzerində baş verən gözlənilməz xəta. Sirr və şəxsi məlumat yazılmır. */
+export type ErrorRecord = {
+  id: string; at: Date; source: ErrorSource; message: string;
+  /** Eyni səbəbli xətaları qruplaşdırmaq üçün (mənbə + normallaşmış mesaj + yol). */
+  fingerprint: string;
+  code?: string; status?: number; method?: string; path?: string; stack?: string; userId?: string; tenantId?: string;
+};
+/** Admin əməliyyatlarının izi: kim, nəyi, nə vaxt dəyişdi. */
+export type AuditRecord = { id: string; at: Date; actor: string; action: string; target?: string; detail?: string };
+/** Bütün müştərilərə panelin yuxarısında göstərilən elan. */
+export type Announcement = { text: string; level: "info" | "warn" | "critical"; active: boolean; updatedAt: Date; by: string };
+
 export class DuplicateError extends Error {}
 
 export interface Store {
@@ -103,6 +116,18 @@ export interface Store {
   addFeedback(f: FeedbackRecord): Promise<void>;
   feedbackSince(tenantId: string, since: Date, limit: number): Promise<FeedbackRecord[]>;
   feedbackCounts(tenantId: string, since: Date): Promise<{ up: number; down: number }>;
+
+  addError(e: Omit<ErrorRecord, "id" | "at"> & { at?: Date }): Promise<void>;
+  listErrors(opts: { since?: Date; source?: ErrorSource; limit: number }): Promise<ErrorRecord[]>;
+  countErrors(since: Date): Promise<number>;
+  deleteErrors(opts: { id?: string; fingerprint?: string }): Promise<number>;
+  clearErrors(): Promise<number>;
+
+  addAudit(a: Omit<AuditRecord, "id" | "at">): Promise<void>;
+  listAudit(limit: number): Promise<AuditRecord[]>;
+
+  getAnnouncement(): Promise<Announcement | null>;
+  setAnnouncement(a: Announcement | null): Promise<void>;
 
   close(): Promise<void>;
 }

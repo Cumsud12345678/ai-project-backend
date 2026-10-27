@@ -12,8 +12,10 @@ export type Config = {
   allowedOrigins: string[];
   cookieSecure: boolean;
   sessionDays: number;
-  smtpUrl: string | undefined;
+  /** Resend API açarı (https://resend.com/api-keys). Boşdursa email göndərilmir, konsola yazılır (yalnız inkişaf). */
+  resendApiKey: string | undefined;
   mailFrom: string;
+  mailReplyTo: string | undefined;
   trustProxy: number;
   isProd: boolean;
 };
@@ -21,7 +23,8 @@ export type Config = {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const isProd = env.NODE_ENV === "production";
   const missing = ["MONGODB_URI", "AI_SERVICE_URL", "AI_SERVICE_TOKEN"].filter((k) => !env[k]);
-  if (isProd && !env.SMTP_URL) missing.push("SMTP_URL (production-da email göndərmək üçün lazımdır)");
+  if (isProd && !env.RESEND_API_KEY) missing.push("RESEND_API_KEY (production-da email göndərmək üçün lazımdır)");
+  if (isProd && !env.MAIL_FROM) missing.push("MAIL_FROM (Resend-də təsdiqlənmiş domen, məs. Car Advisor <no-reply@senin-saytin.az>)");
   if (missing.length) throw new Error(`Bu mühit dəyişənləri yoxdur: ${missing.join(", ")}`);
 
   const list = (v: string | undefined) => (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -38,8 +41,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     allowedOrigins: list(env.ALLOWED_ORIGINS || "http://localhost:3001"),
     cookieSecure: env.COOKIE_SECURE ? env.COOKIE_SECURE === "1" : isProd,
     sessionDays: Number(env.SESSION_DAYS) || 30,
-    smtpUrl: env.SMTP_URL || undefined,
-    mailFrom: env.MAIL_FROM || "Car Advisor <no-reply@localhost>",
+    resendApiKey: env.RESEND_API_KEY || undefined,
+    mailFrom: env.MAIL_FROM || "Car Advisor <onboarding@resend.dev>",
+    mailReplyTo: env.MAIL_REPLY_TO || undefined,
     trustProxy: env.TRUST_PROXY === undefined ? 1 : Number(env.TRUST_PROXY),
     isProd,
   };

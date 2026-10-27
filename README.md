@@ -17,7 +17,7 @@ npm run dev              # http://localhost:4000
 npm test                 # 39 test (MongoDB lazım deyil, yaddaş store-u ilə)
 ```
 
-Production: `npm run build && npm start`. `NODE_ENV=production` olanda `SMTP_URL` məcburidir.
+Production: `npm run build && npm start`. `NODE_ENV=production` olanda `RESEND_API_KEY` və `MAIL_FROM` məcburidir (Resend-də domen təsdiqlənməlidir).
 
 ## Endpoint-lər
 
@@ -61,6 +61,26 @@ Saytda sağ aşağıda çat düyməsi çıxır. Backend yazmağa ehtiyac yoxdur.
 | `GET /widget.js` | Vidjet scripti (`widget/widget.js`), 5 dəqiqə keşlənir |
 | `GET /widget/:key/config` | Başlıq, salamlama, rəng (yalnız ictimai sahələr) |
 | `POST /widget/:key/chat` `{message, history}` | `{answer, listings}`; portal AI servisini müştəri üçün öz tokeni ilə çağırır |
+
+Düymənin yeri (hamısı ixtiyaridir; panelin "Saytına qoş" səhifəsi bunları özü yazır). Ekran 3 pilləyə bölünür:
+
+| Pillə | Ekran eni | Çat |
+|---|---|---|
+| **lg** (kompüter) | 1024px və çox | sağ aşağıda 380px pəncərə |
+| **md** (planşet) | 768-1023px | sağ aşağıda 380px pəncərə |
+| **sm** (telefon) | 767px və az | tam ekran, arxa fon scroll olunmur |
+
+| Atribut | İzah |
+|---|---|
+| `data-position="left"` | Düymə solda (defolt: sağda) |
+| `data-side` · `data-bottom` | **lg**: yan və aşağı kənardan məsafə, piksellə (defolt 20) |
+| `data-side-md` · `data-bottom-md` | **md**: yazılmasa lg dəyəri |
+| `data-side-sm` · `data-bottom-sm` | **sm**: yazılmasa md dəyəri (köhnə adlar `data-side-mobile` · `data-bottom-mobile` də işləyir) |
+| `data-bp-md` · `data-bp-lg` | Pillələrin başladığı en: md 768, lg 1024 (defolt). Ən az 320 |
+
+Dəyər yalnız rəqəm (0-3000) olmalıdır, yanlış dəyər yazılmamış sayılır (yuxarı pillədən miras alır). Saytın öz CSS-i də eyni nəticəni verir və atributdan üstün gəlir: `[data-car-advisor]{ --ca-side:30px; --ca-bottom:90px; --ca-side-md:..; --ca-bottom-md:..; --ca-side-sm:..; --ca-bottom-sm:..; --ca-z:9999 }`. Yalnız `--ca-side` yazsan, yazılmayan pillələrə də axır. Çat paneli həmişə düymənin 68px üstündə açılır.
+
+Telefon pilləsində çat tam ekran açılır və arxadakı səhifə scroll olunmur. Bağlananda səhifə əvvəlki scroll mövqeyinə qayıdır. Planşet və kompüterdə kilid yoxdur.
 
 Təhlükəsizlik modeli:
 

@@ -1,4 +1,5 @@
 // Statistika: konversiya (söhbətdən müraciətə), CSV ixracı və aylıq e-poçt hesabatı.
+import { recordError } from "./errorlog.js";
 import type { Deps } from "./deps.js";
 import type { TenantRecord } from "./store/types.js";
 
@@ -157,7 +158,7 @@ export async function sendMonthlyReports(deps: Deps, now = new Date()): Promise<
 /** Saatda bir yoxlayır (ayın 1-i işə düşür). Çoxlu server olsa yalnız birində işlədin (REPORTS=off digərlərində). */
 export function startReportScheduler(deps: Deps): () => void {
   if (process.env.REPORTS === "off") return () => {};
-  const tick = () => { sendMonthlyReports(deps).catch((e) => console.warn("[report]", e instanceof Error ? e.message : e)); };
+  const tick = () => { sendMonthlyReports(deps).catch((e) => { console.warn("[report]", e instanceof Error ? e.message : e); void recordError(deps.store, { source: "job", message: `Aylıq hesabat: ${e instanceof Error ? e.message : String(e)}`, code: "REPORT_FAILED" }); }); };
   const first = setTimeout(tick, 60_000);
   const timer = setInterval(tick, 60 * 60_000);
   first.unref?.(); timer.unref?.();
