@@ -1,6 +1,7 @@
 // Müştəri saytına qoyulan çat vidjeti: ictimai script + vidjet açarı ilə işləyən endpoint-lər.
 // Gizli API açarı heç vaxt brauzerə çıxmır: vidjet yalnız ictimai açar (wk_...) göndərir,
 // portal isə həmin müştəri üçün AI servisini öz service tokeni ilə çağırır.
+import { notifyTeam } from "./team.js";
 import { checkBase64Image, imageEnabled } from "./image-input.js";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -327,13 +328,8 @@ export function widgetRoutes(deps: Deps) {
       context: cleanChat(b.chat), messages: text ? [{ from: "visitor", text, at: now }] : [], createdAt: now, updatedAt: now, visitorSeenAt: now,
     };
     await store.createLive(chat);
-    // Sayt sahibinə bildiriş (10 dəqiqədə bir, spam olmasın)
-    if (limiter.hit(`live:mail:${t.tenantId}`, 1, 10 * 60_000)) {
-      try {
-        const owner = await store.findUserById(t.userId);
-        if (owner) await mailer.send(owner.email, `Canlı söhbət: ${t.businessName}`, `Saytınızın çatında ziyarətçi operatorla yazışmaq istəyir.${text ? `\n\nİlk mesaj: ${text.slice(0, 300)}` : ""}\n\nPanelin "Müraciətlər" bölməsində "Canlı söhbət" tabını açın.`);
-      } catch (e) { console.warn("[widget] canlı söhbət bildirişi göndərilmədi:", e instanceof Error ? e.message : e); }
-    }
+    // Sayt sahibinə və komandaya bildiriş (10 dəqiqədə bir, spam olmasın)
+    void notifyTeam(deps, t, `Canlı söhbət: ${t.businessName}`, `Saytınızın çatında ziyarətçi operatorla yazışmaq istəyir.${text ? `\n\nİlk mesaj: ${text.slice(0, 300)}` : ""}\n\nPanelin "Müraciətlər" bölməsində "Canlı söhbət" tabını açın.`);
     hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "start" });
     res.status(201).json({ id: chat.id, token, ...liveView(chat, 0) });
   });

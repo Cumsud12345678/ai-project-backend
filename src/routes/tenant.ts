@@ -1,5 +1,6 @@
 import express, { Router } from "express";
-import { LIVE_MSG, deliverToChannel } from "../channel-live.js";
+import { LIVE_MSG, deliverToChannel, startChannelLive } from "../channel-live.js";
+import { MAX_TEAM, memberTenant, nameOf, tenantFor, validEmail } from "../team.js";
 import type { Deps } from "../deps.js";
 import type { AiResult } from "../ai.js";
 import { HttpError } from "../http.js";
@@ -9,7 +10,7 @@ import { exportCsv, funnel, type ExportKind } from "../stats.js";
 import { hub } from "../hub.js";
 import { makeTicket, wsUrlOf } from "../realtime.js";
 import { currentUser, requireAuth } from "../middleware.js";
-import { DuplicateError, type LiveChat, type TenantRecord } from "../store/types.js";
+import { DuplicateError, type LiveChat, type TenantRecord, type User } from "../store/types.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, logoUrl } from "../widget.js";
 
 const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret", "feedText"];
@@ -45,7 +46,7 @@ const isWaiting = (c: LiveChat) => {
 };
 const liveItem = (c: LiveChat) => {
   const last = c.messages[c.messages.length - 1];
-  return { id: c.id, channel: c.channel?.type ?? null, name: c.name, contact: c.contact, status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt, count: c.messages.length, waiting: isWaiting(c), last: last ? { from: last.from, text: last.text.slice(0, 160), at: last.at } : null };
+  return { id: c.id, channel: c.channel?.type ?? null, assignee: c.assignee ? { id: c.assignee.userId, name: c.assignee.name } : null, name: c.name, contact: c.contact, status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt, count: c.messages.length, waiting: isWaiting(c), last: last ? { from: last.from, text: last.text.slice(0, 160), at: last.at } : null };
 };
 
 export function tenantRoutes(deps: Deps) {
@@ -65,9 +66,55 @@ export function tenantRoutes(deps: Deps) {
     return t;
   };
 
+  /** Sahib və ya komanda üzvü (operator): canlı söhbət marşrutları ikisinə də açıqdır. */
+  const opTenant = async (user: User) => {
+    const x = await tenantFor(store, user);
+    if (!x) throw new HttpError(404, "Əvvəlcə elan mənbəyini qoş", "NO_TENANT");
+    return x;
+  };
+
   r.get("/", async (_req, res) => {
-    const t = await store.findTenantByUser(currentUser(res).id);
-    res.json({ tenant: t ? publicTenant(t) : null, advisorUrl: config.publicAdvisorUrl });
+    const user = currentUser(res);
+    const x = await tenantFor(store, user);
+    if (x?.role === "operator") { // işçi yalnız ad və domen görür
+      const o = x.tenant;
+      return void res.json({ tenant: { tenantId: o.tenantId, businessName: o.businessName, domain: o.domain, config: {}, createdAt: o.createdAt, updatedAt: o.updatedAt, keyRotatedAt: null }, role: "operator", advisorUrl: config.publicAdvisorUrl });
+    }
+    res.json({ tenant: x ? publicTenant(x.tenant) : null, role: "owner", advisorUrl: config.publicAdvisorUrl });
+  });
+
+  // ---- Operator komandası (yalnız sahib) ----
+  r.get("/team", async (_req, res) => {
+    const t = await mine(currentUser(res).id);
+    res.json({ max: MAX_TEAM, members: (t.team ?? []).map((m) => ({ email: m.email, joined: Boolean(m.userId), addedAt: m.addedAt })) });
+  });
+  r.post("/team", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`team:add:${user.id}`, 20, 60 * 60_000)) throw new HttpError(429, "Çox tez-tez dəvət göndərirsən", "RATE_LIMITED");
+    const t = await mine(user.id);
+    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+    if (!validEmail(email)) throw new HttpError(400, "Düzgün e-poçt yaz");
+    if (email === user.email.toLowerCase()) throw new HttpError(400, "Bu sənin öz e-poçtundur");
+    if ((t.team ?? []).length >= MAX_TEAM) throw new HttpError(400, `Ən çox ${MAX_TEAM} operator əlavə edə bilərsən`, "TEAM_FULL");
+    if ((t.team ?? []).some((m) => m.email === email)) throw new HttpError(409, "Bu e-poçt artıq əlavə olunub", "TEAM_EXISTS");
+    const other = await store.findUserByEmail(email);
+    if (other && (await store.findTenantByUser(other.id))) throw new HttpError(409, "Bu istifadəçinin öz hesabı var, onu operator kimi əlavə etmək olmaz", "HAS_OWN_ACCOUNT");
+    if (await store.findTenantByTeamEmail(email)) throw new HttpError(409, "Bu e-poçt başqa hesabın komandasındadır", "IN_OTHER_TEAM");
+    const member = { email, ...(other?.verified && { userId: other.id }), addedAt: new Date() };
+    await store.updateTenant(t.tenantId, { team: [...(t.team ?? []), member] });
+    const panel = config.allowedOrigins[0] ?? "";
+    void deps.mailer.send(email, `${t.businessName}: operator dəvəti`, `${t.businessName} sizi operator kimi əlavə etdi. Müştəri söhbətlərinə cavab vermək üçün bu e-poçtla ${other ? "daxil olun" : "qeydiyyatdan keçin"}:\n${panel}${other ? "/login" : "/register"}\n\nOperator yalnız canlı söhbətləri görür, hesab ayarlarına çıxışı olmur.`).catch(() => {});
+    res.status(201).json({ ok: true });
+  });
+  r.delete("/team/:email", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const email = decodeURIComponent(String(req.params.email)).toLowerCase();
+    const m = (t.team ?? []).find((x) => x.email === email);
+    if (!m) throw new HttpError(404, "Operator tapılmadı");
+    await store.updateTenant(t.tenantId, { team: (t.team ?? []).filter((x) => x.email !== email) });
+    if (m.userId) for (const c of await store.listLive(t.tenantId, "open", 200)) if (c.assignee?.userId === m.userId) await store.pushLive(t.tenantId, c.id, null, { assignee: null }); // götürdüyü söhbətlər sərbəst qalır
+    hub.toOperators(t.tenantId, { t: "live", id: "", kind: "assign" });
+    res.json({ ok: true });
   });
 
   // Yoxlama: heç nə yaratmır, yalnız konfiqurasiyanı və müştəri API-sinə bağlantını sınayır.
@@ -101,6 +148,7 @@ export function tenantRoutes(deps: Deps) {
     const user = currentUser(res);
     const cfg = extractConfig(req.body);
     if (await store.findTenantByUser(user.id)) throw new HttpError(409, "Artıq aktiv mənbən var. Konfiqurasiyanı yeniləyə bilərsən.", "TENANT_EXISTS");
+    if (await memberTenant(store, user)) throw new HttpError(409, "Sən başqa hesabın operatorusan, öz hesabını yaratmaq olmur", "IS_OPERATOR");
     const result = await exclusive(user.id, async () => {
       const created = await ai.createTenant(cfg);
       const now = new Date();
@@ -277,36 +325,89 @@ export function tenantRoutes(deps: Deps) {
 
   // ---- Canlı operator söhbəti ----
   r.get("/live/count", async (_req, res) => {
-    const t = await mine(currentUser(res).id);
+    const { tenant: t } = await opTenant(currentUser(res));
     const open = await store.listLive(t.tenantId, "open", 200);
     res.json({ enabled: Boolean(t.widget?.live?.enabled), open: open.length, waiting: open.filter(isWaiting).length });
   });
   r.get("/live", async (req, res) => {
-    const t = await mine(currentUser(res).id);
+    const { tenant: t } = await opTenant(currentUser(res));
     const status = req.query.status === "closed" ? "closed" : "open";
     const items = (await store.listLive(t.tenantId, status, 100)).map(liveItem);
     res.json({ items });
   });
+  // Komandanın götürdüyü söhbət: "Mən götürürəm" / buraxmaq
+  r.post("/live/:id/claim", async (req, res) => {
+    const user = currentUser(res);
+    const { tenant: t } = await opTenant(user);
+    const chat = await store.getLive(t.tenantId, String(req.params.id));
+    if (!chat || chat.status === "closed") throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
+    await store.pushLive(t.tenantId, chat.id, null, { assignee: { userId: user.id, name: nameOf(user) }, operatorSeenAt: new Date() });
+    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "assign" });
+    res.json({ ok: true });
+  });
+  r.post("/live/:id/release", async (req, res) => {
+    const { tenant: t } = await opTenant(currentUser(res));
+    const chat = await store.getLive(t.tenantId, String(req.params.id));
+    if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
+    await store.pushLive(t.tenantId, chat.id, null, { assignee: null });
+    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "assign" });
+    res.json({ ok: true });
+  });
+
+  // Operator öz tərəfindən yazır: yalnız botla artıq yazışmış Telegram/WhatsApp müştərilərinə (soyuq mesaj yoxdur)
+  r.get("/live/contacts", async (req, res) => {
+    const { tenant: t } = await opTenant(currentUser(res));
+    const list = await store.listChannelSessions(t.tenantId, 60);
+    const items = list.filter((s) => (s.channel === "telegram" ? t.telegram?.enabled : t.whatsapp?.enabled) && (s.channel !== "whatsapp" || s.ref)).slice(0, 30).map((s) => {
+      const last = [...s.history].reverse().find((m) => m.role === "user");
+      return { channel: s.channel, chatId: s.chatId, name: s.name ?? "", last: last ? last.text.slice(0, 120) : "", updatedAt: s.updatedAt };
+    });
+    res.json({ items });
+  });
+  r.post("/live/start", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`live:start:${user.id}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez söhbət başladırsan", "RATE_LIMITED");
+    const { tenant: t } = await opTenant(user);
+    const channel = req.body?.channel === "telegram" ? "telegram" : req.body?.channel === "whatsapp" ? "whatsapp" : null;
+    const chatId = typeof req.body?.chatId === "string" ? req.body.chatId : "";
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (!channel || !chatId || !text || text.length > 1000) throw new HttpError(400, "Kanal, müştəri və 1-1000 simvolluq mesaj lazımdır");
+    const existing = await store.findLiveByChannel(t.tenantId, channel, chatId);
+    if (existing) return void res.json({ id: existing.id, existing: true });
+    const sess = await store.getChannelSession(t.tenantId, channel, chatId);
+    if (!sess) throw new HttpError(404, "Bu müştəri botla yazışmayıb: ona yalnız o yazandan sonra cavab vermək olar", "CONTACT_NOT_FOUND");
+    const who = nameOf(user);
+    const chat = await startChannelLive(deps, t, { channel, chatId, ...(sess.ref && { ref: sess.ref }), name: sess.name ?? "", history: sess.history, quiet: true });
+    try { await deliverToChannel(deps, t, chat, text); }
+    catch {
+      await store.pushLive(t.tenantId, chat.id, { from: "system", text: "closed", at: new Date() }, { status: "closed" });
+      throw new HttpError(502, channel === "telegram" ? "Mesaj Telegram-a göndərilə bilmədi" : "Mesaj WhatsApp-a göndərilə bilmədi", "CHANNEL_SEND_FAILED");
+    }
+    await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date(), by: who }, { operatorSeenAt: new Date(), assignee: { userId: user.id, name: who } });
+    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "start" });
+    res.status(201).json({ id: chat.id });
+  });
+
   r.get("/live/:id", async (req, res) => {
-    const t = await mine(currentUser(res).id);
+    const { tenant: t } = await opTenant(currentUser(res));
     const chat = await store.getLive(t.tenantId, String(req.params.id));
     if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
     const lastAt = (chat.messages[chat.messages.length - 1]?.at ?? chat.createdAt).getTime();
     // "Gördüm" işarəsi yalnız yeni mesaj gələndə yenilənir (operator panelinin təkrar sorğuları sıralamanı pozmasın)
     const c = !chat.operatorSeenAt || chat.operatorSeenAt.getTime() < lastAt ? (await store.pushLive(t.tenantId, chat.id, null, { operatorSeenAt: new Date() })) ?? chat : chat;
-    res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt, channel: c.channel?.type ?? null } });
+    res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt, channel: c.channel?.type ?? null, assignee: c.assignee ?? null } });
   });
   // Real vaxt bağlantısı üçün qısa ömürlü bilet (panel WebSocket-i bununla açır; cookie portalın ünvanına getmir)
   r.post("/live/ws-ticket", async (req, res) => {
     const user = currentUser(res);
     if (!limiter.hit(`live:ticket:${user.id}`, 30, 60_000)) throw new HttpError(429, "Çox tez-tez sorğu", "RATE_LIMITED");
-    await mine(user.id);
+    await opTenant(user);
     res.json({ ticket: makeTicket(deps, user.id), url: wsUrlOf(config.publicPortalUrl) });
   });
   r.post("/live/:id/messages", async (req, res) => {
     const user = currentUser(res);
     if (!limiter.hit(`live:op:${user.id}`, 60, 60_000)) throw new HttpError(429, "Çox tez-tez mesaj göndərirsən", "RATE_LIMITED");
-    const t = await mine(user.id);
+    const { tenant: t } = await opTenant(user);
     const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
     if (!text || text.length > 1000) throw new HttpError(400, "Mesaj 1-1000 simvol olmalıdır");
     const chat = await store.getLive(t.tenantId, String(req.params.id));
@@ -317,15 +418,16 @@ export function tenantRoutes(deps: Deps) {
       try { await deliverToChannel(deps, t, chat, text); }
       catch { throw new HttpError(502, chat.channel.type === "telegram" ? "Mesaj Telegram-a göndərilə bilmədi" : "Mesaj WhatsApp-a göndərilə bilmədi", "CHANNEL_SEND_FAILED"); }
     }
-    const next = await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date() }, { operatorSeenAt: new Date() });
+    const who = nameOf(user);
+    const next = await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date(), by: who }, { operatorSeenAt: new Date(), ...(!chat.assignee && { assignee: { userId: user.id, name: who } }) });
     void mailVisitorReply(deps, t, chat, text); // yalnız ziyarətçi çatdan ayrılıbsa və e-poçt yazıbsa
     const total = next?.messages.length ?? chat.messages.length;
     hub.toChat(chat.id, { t: "new", total });                                   // ziyarətçi dərhal oxuyur
-    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "message" });   // operatorun digər tabları yenilənir
+    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "message" });   // operatorun digər tabları və komanda yenilənir
     res.status(201).json({ total: next?.messages.length ?? chat.messages.length });
   });
   r.post("/live/:id/close", async (req, res) => {
-    const t = await mine(currentUser(res).id);
+    const { tenant: t } = await opTenant(currentUser(res));
     const chat = await store.getLive(t.tenantId, String(req.params.id));
     if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
     if (chat.status === "open") {

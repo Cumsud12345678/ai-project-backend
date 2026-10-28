@@ -5,6 +5,7 @@ import type { Deps } from "./deps.js";
 import { decryptSecret } from "./secrets.js";
 import type { LiveChat, TenantRecord } from "./store/types.js";
 import { hub } from "./hub.js";
+import { notifyTeam } from "./team.js";
 
 /** Operator cavab verməyibsə bot bu müddətdən sonra özü qayıdır (söhbət sonsuza qədər susmasın). */
 export const LIVE_STALE_MS = Number(process.env.CHANNEL_LIVE_STALE_MS) || 12 * 60 * 60_000;
@@ -44,7 +45,7 @@ export async function deliverToChannel(deps: Deps, t: TenantRecord, chat: LiveCh
   }
 }
 
-export async function startChannelLive(deps: Deps, t: TenantRecord, p: { channel: "telegram" | "whatsapp"; chatId: string; ref?: string; name: string; history: { role: "user" | "model"; text: string }[]; /** operatorun görəcəyi ilk mesaj (müştərinin sualı) */ first?: string }): Promise<LiveChat> {
+export async function startChannelLive(deps: Deps, t: TenantRecord, p: { channel: "telegram" | "whatsapp"; chatId: string; ref?: string; name: string; history: { role: "user" | "model"; text: string }[]; /** operatorun görəcəyi ilk mesaj (müştərinin sualı) */ first?: string; /** operator özü başladıb: bildiriş göndərilmir */ quiet?: boolean }): Promise<LiveChat> {
   const now = new Date();
   const chat: LiveChat = {
     id: randomUUID(), tenantId: t.tenantId, tokenHash: randomBytes(16).toString("hex"), // kanal söhbətinə token ilə giriş yoxdur
@@ -53,12 +54,7 @@ export async function startChannelLive(deps: Deps, t: TenantRecord, p: { channel
     channel: { type: p.channel, chatId: p.chatId, ...(p.ref && { ref: p.ref }) },
   };
   await deps.store.createLive(chat);
-  if (deps.limiter.hit(`live:mail:${t.tenantId}`, 1, 10 * 60_000)) {
-    try {
-      const owner = await deps.store.findUserById(t.userId);
-      if (owner) await deps.mailer.send(owner.email, `Canlı söhbət (${p.channel === "telegram" ? "Telegram" : "WhatsApp"}): ${t.businessName}`, `${p.channel === "telegram" ? "Telegram" : "WhatsApp"} kanalında müştəri operatorla yazışmaq istəyir.\n\nPanelin "Müraciətlər" bölməsində "Canlı söhbət" tabını açın.`);
-    } catch { /* bildiriş vacib deyil, söhbət paneldə qalır */ }
-  }
+  if (!p.quiet) void notifyTeam(deps, t, `Canlı söhbət (${p.channel === "telegram" ? "Telegram" : "WhatsApp"}): ${t.businessName}`, `${p.channel === "telegram" ? "Telegram" : "WhatsApp"} kanalında müştəri operatorla yazışmaq istəyir.${p.first ? `\n\nMüştəri: ${p.first.slice(0, 300)}` : ""}\n\nPanelin "Müraciətlər" bölməsində "Canlı söhbət" tabını açın.`);
   hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "start" });
   return chat;
 }

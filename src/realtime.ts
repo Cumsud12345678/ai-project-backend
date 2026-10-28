@@ -2,6 +2,7 @@
 //  - Ziyarətçi: {t:"auth", role:"visitor", key, id, token}: widget açarı + Origin + söhbət tokeni yoxlanır (HTTP ilə eyni qaydalar).
 //  - Operator: {t:"auth", role:"operator", ticket}: panel əvvəlcə giriş edilmiş sessiya ilə qısa ömürlü bilet alır (POST /tenant/live/ws-ticket).
 //  Soket yalnız auth mesajından sonra hadisə alır; 5 saniyədə auth olmasa bağlanır.
+import { tenantFor } from "./team.js";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -106,7 +107,7 @@ export function attachRealtime(server: Server, deps: Deps) {
             if (origin && !config.allowedOrigins.includes(origin)) return void ws.close(4403, "forbidden");
             const userId = readTicket(deps, msg.ticket);
             const user = userId ? await store.findUserById(userId) : null;
-            const tenant = user?.verified ? await store.findTenantByUser(user.id) : null;
+            const tenant = user?.verified ? (await tenantFor(store, user))?.tenant ?? null : null;
             if (!tenant) return void ws.close(4403, "forbidden");
             if (hub.operatorCount(tenant.tenantId) >= MAX_OPERATOR_SOCKETS_PER_TENANT) return void ws.close(4409, "too many");
             role = "operator"; tenantId = tenant.tenantId;

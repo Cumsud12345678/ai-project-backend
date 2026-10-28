@@ -84,6 +84,9 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async deleteCode(email, purpose: CodePurpose) { await codes.deleteOne({ email, purpose }); },
     async deleteCodesForEmail(email) { await codes.deleteMany({ email }); },
 
+    async findTenantByMember(userId) { return strip(await tenants.findOne({ "team.userId": userId })) as TenantRecord | null; },
+    async findTenantByTeamEmail(email) { return strip(await tenants.findOne({ "team.email": email })) as TenantRecord | null; },
+    async listChannelSessions(tenantId, limit) { return (await channelSessions.find({ tenantId }).sort({ updatedAt: -1 }).limit(limit).toArray()).map((d) => strip(d) as ChannelSession); },
     async findTenantByUser(userId) { return strip(await tenants.findOne({ userId })) as TenantRecord | null; },
     async findTenantById(tenantId) { return strip(await tenants.findOne({ tenantId })) as TenantRecord | null; },
     async findTenantByTelegramHook(hook) { return strip(await tenants.findOne({ "telegram.hook": hook })) as TenantRecord | null; },

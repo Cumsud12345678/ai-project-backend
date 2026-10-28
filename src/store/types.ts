@@ -28,6 +28,8 @@ export type WidgetSettings = {
   lastSeenAt?: Date;
 };
 
+export type TeamMember = { email: string; userId?: string; addedAt: Date };
+
 /** Müştərinin aktiv AI tenant-ı. `config` apiSecret olmadan saxlanır. */
 export type TenantRecord = {
   userId: string;
@@ -41,6 +43,8 @@ export type TenantRecord = {
   widget?: WidgetSettings;
   /** Aylıq e-poçt hesabatı: defolt aktivdir (monthly=false ilə söndürülür); lastSent = axırıncı göndərilən dövr ("2026-09"). */
   report?: { monthly?: boolean; lastSent?: string };
+  /** Operator komandası: sahibin dəvət etdiyi işçilər yalnız canlı söhbət qutusunu görür. `userId` işçi qeydiyyatdan keçəndə dolur. */
+  team?: TeamMember[];
   telegram?: TelegramLink | null;
   whatsapp?: WhatsAppLink | null;
 };
@@ -55,10 +59,12 @@ export type ChannelSession = {
   history: { role: "user" | "model"; text: string }[];
   /** Cavab tapılmayıb: növbəti mesaj telefon/e-poçt kimi qəbul edilir və müraciətə çevrilir. */
   pending?: { question: string } | null;
+  /** Müştərinin adı və kanal ünvanı: operator ona özü yaza bilsin */
+  name?: string; ref?: string;
   updatedAt: Date;
 };
 
-export type LiveMessage = { from: "visitor" | "operator" | "system"; text: string; at: Date };
+export type LiveMessage = { from: "visitor" | "operator" | "system"; text: string; at: Date; /** operator mesajını yazan komanda üzvü */ by?: string };
 /** Ziyarətçi ilə operator arasında canlı söhbət. Ziyarətçi yalnız `tokenHash`-ın sahibi olan token ilə oxuya/yaza bilər. */
 export type LiveChat = {
   id: string; tenantId: string; tokenHash: string;
@@ -74,6 +80,8 @@ export type LiveChat = {
   /** Ziyarətçiyə operator cavabı barədə axırıncı e-poçt və göndərilən sayı. */
   notifiedAt?: Date;
   notifyCount?: number;
+  /** Söhbəti götürən operator (null/yoxdur = kimsəyə təyin olunmayıb) */
+  assignee?: { userId: string; name: string } | null;
   /** Telegram/WhatsApp-dan gələn söhbət: operatorun cavabı bu kanala göndərilir, açıq olduqca bot həmin söhbətdə susur. `ref` WhatsApp-da tam JID-dir. */
   channel?: { type: "telegram" | "whatsapp"; chatId: string; ref?: string };
 };
@@ -114,6 +122,8 @@ export interface Store {
   deleteCodesForEmail(email: string): Promise<void>;
 
   findTenantByUser(userId: string): Promise<TenantRecord | null>;
+  findTenantByMember(userId: string): Promise<TenantRecord | null>;
+  findTenantByTeamEmail(email: string): Promise<TenantRecord | null>;
   findTenantById(tenantId: string): Promise<TenantRecord | null>;
   findTenantByWidgetKey(key: string): Promise<TenantRecord | null>;
   findTenantByTelegramHook(hook: string): Promise<TenantRecord | null>;
@@ -121,7 +131,7 @@ export interface Store {
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
   /** Yalnız vidjet loqosunu dəyişir (bütün vidjet sənədini yenidən yazmır). null = sil. */
   setWidgetLogo(tenantId: string, logo: NonNullable<WidgetSettings["logo"]> | null): Promise<void>;
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;
@@ -131,7 +141,7 @@ export interface Store {
   createLive(c: LiveChat): Promise<void>;
   getLive(tenantId: string, id: string): Promise<LiveChat | null>;
   /** Mesaj əlavə edir (ən çox 300) və sahələri yeniləyir; söhbət tapılmasa null. */
-  pushLive(tenantId: string, id: string, msg: LiveMessage | null, patch?: Partial<Pick<LiveChat, "status" | "operatorSeenAt" | "visitorSeenAt" | "name" | "contact">>): Promise<LiveChat | null>;
+  pushLive(tenantId: string, id: string, msg: LiveMessage | null, patch?: Partial<Pick<LiveChat, "status" | "operatorSeenAt" | "visitorSeenAt" | "name" | "contact" | "assignee">>): Promise<LiveChat | null>;
   /** updatedAt-a toxunmadan yalnız izləmə sahələrini yeniləyir */
   patchLive(tenantId: string, id: string, patch: Partial<Pick<LiveChat, "visitorSeenAt" | "notifiedAt" | "notifyCount">>): Promise<void>;
   findLiveByChannel(tenantId: string, type: "telegram" | "whatsapp", chatId: string): Promise<LiveChat | null>;
@@ -144,6 +154,7 @@ export interface Store {
 
   getChannelSession(tenantId: string, channel: ChannelSession["channel"], chatId: string): Promise<ChannelSession | null>;
   saveChannelSession(s: ChannelSession): Promise<void>;
+  listChannelSessions(tenantId: string, limit: number): Promise<ChannelSession[]>;
   deleteChannelSessions(tenantId: string, channel?: ChannelSession["channel"]): Promise<void>;
 
   /** WhatsApp sessiya açarları (hər biri şifrəli sətir). value=null olan açar silinir. */

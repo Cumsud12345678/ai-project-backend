@@ -48,6 +48,9 @@ export function createMemoryStore(): Store {
     async deleteCode(email, purpose) { codes.delete(ck(email, purpose)); },
     async deleteCodesForEmail(email) { for (const [k, c] of codes) if (c.email === email) codes.delete(k); },
 
+    async findTenantByMember(userId) { return [...tenants.values()].find((t) => t.team?.some((m) => m.userId === userId)) ?? null; },
+    async findTenantByTeamEmail(email) { return [...tenants.values()].find((t) => t.team?.some((m) => m.email === email)) ?? null; },
+    async listChannelSessions(tenantId, limit) { return [...sessionsCh.values()].filter((s) => s.tenantId === tenantId).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, limit); },
     async findTenantByUser(userId) { return [...tenants.values()].find((t) => t.userId === userId) ?? null; },
     async findTenantById(tenantId) { return tenants.get(tenantId) ?? null; },
     async findTenantByTelegramHook(hook) { return [...tenants.values()].find((t) => t.telegram?.hook === hook) ?? null; },
