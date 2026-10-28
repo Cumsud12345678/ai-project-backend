@@ -10,6 +10,9 @@ export type AiClient = {
   createTenant(config: object): Promise<AiResult>;
   updateConfig(tenantId: string, config: object): Promise<AiResult>;
   patchProfile(tenantId: string, profile: object): Promise<AiResult>;
+  feedPreview(body: object): Promise<AiResult>;
+  feedStatus(tenantId: string): Promise<AiResult>;
+  feedRefresh(tenantId: string, body: object): Promise<AiResult>;
   rotateKey(tenantId: string): Promise<AiResult>;
   deleteTenant(tenantId: string): Promise<AiResult>;
   usage(tenantId: string): Promise<AiResult>;
@@ -71,6 +74,9 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     testConfig: (config) => request("POST", "/config/test", config),
     createTenant: (config) => request("POST", "/tenants", config),
     updateConfig: (id, config) => request("PUT", `${t(id)}/config`, config),
+    feedPreview: (body) => request("POST", "/feed/preview", body, 60_000),
+    feedStatus: (id) => request("GET", `${t(id)}/feed`),
+    feedRefresh: (id, body) => request("POST", `${t(id)}/feed/refresh`, body, 60_000),
     patchProfile: (id, profile) => request("PATCH", `${t(id)}/profile`, profile),
     rotateKey: (id) => request("POST", `${t(id)}/rotate-key`),
     deleteTenant: (id) => request("DELETE", t(id)),

@@ -12,7 +12,7 @@ import { currentUser, requireAuth } from "../middleware.js";
 import { DuplicateError, type LiveChat, type TenantRecord } from "../store/types.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, logoUrl } from "../widget.js";
 
-const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret"];
+const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret", "feedText"];
 const PROFILE_KEYS = ["language", "tone", "maxResults", "extraInstructions", "logQueries", "mode", "fallbackMessage", "generalKnowledge", "kbAutoRefresh", "imageSearch"];
 
 /** Müştərinin göndərdiyi JSON-dan yalnız tanınan sahələri götürür. */
@@ -24,7 +24,7 @@ function extractConfig(body: unknown): Record<string, unknown> {
 
 /** Bazada saxlanan nüsxədə sirr olmur. */
 function withoutSecrets(cfg: Record<string, unknown>): Record<string, unknown> {
-  const { apiSecret: _drop, ...rest } = cfg;
+  const { apiSecret: _drop, feedText: _feed, ...rest } = cfg; // yüklənmiş fayl portalda saxlanmır (AI servisindədir)
   const source = rest.source as { auth?: Record<string, unknown> } | undefined;
   if (source?.auth) {
     const { value: _v, secret: _s, valueEnv: _e, encryptedValue: _x, ...auth } = source.auth;
@@ -71,6 +71,26 @@ export function tenantRoutes(deps: Deps) {
   });
 
   // Yoxlama: heç nə yaratmır, yalnız konfiqurasiyanı və müştəri API-sinə bağlantını sınayır.
+  // ---- Fayl/link ilə qoşulma (CSV, JSON, XML): API-siz onboarding ----
+  r.post("/feed/preview", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`feedprev:${user.id}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox sınaq oldu, bir neçə dəqiqə sonra yenidən yoxla", "RATE_LIMITED");
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const body = Object.fromEntries(Object.entries(b).filter(([k]) => ["feedText", "url", "format", "itemsPath", "delimiter"].includes(k)));
+    res.json(await ai.feedPreview(body));
+  });
+  r.get("/feed", async (_req, res) => {
+    const t = await mine(currentUser(res).id);
+    res.json(await ai.feedStatus(t.tenantId));
+  });
+  r.post("/feed/refresh", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`feedref:${user.id}`, 10, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez yeniləyirsən, bir az gözlə", "RATE_LIMITED");
+    const t = await mine(user.id);
+    const text = (req.body as { feedText?: unknown } | undefined)?.feedText;
+    res.json(await exclusive(user.id, () => ai.feedRefresh(t.tenantId, typeof text === "string" ? { feedText: text } : {})));
+  });
+
   r.post("/config/test", async (req, res) => {
     const user = currentUser(res);
     if (!limiter.hit(`cfgtest:${user.id}`, 30, 10 * 60_000)) throw new HttpError(429, "Çox sınaq oldu, bir neçə dəqiqə sonra yenidən yoxla", "RATE_LIMITED");
