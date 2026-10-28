@@ -76,7 +76,7 @@ test("config: icazəli saytlar CORS alır, yadlar 403 və CORS başlığı almı
     assert.equal(res.headers.get("access-control-allow-origin"), origin);
     assert.match(res.headers.get("vary") ?? "", /Origin/i);
     const body = (await res.json()) as any;
-    assert.deepEqual(Object.keys(body).sort(), ["color", "contact", "greeting", "imageSearch", "label", "live", "mode", "theme", "title"], "yalnız ictimai sahələr");
+    assert.deepEqual(Object.keys(body).sort(), ["brand", "color", "contact", "greeting", "imageSearch", "label", "live", "mode", "theme", "title"], "yalnız ictimai sahələr");
   }
   for (const origin of ["https://evil.com", "https://motoelan.com.evil.com", "https://evilmotoelan.com"]) {
     const res = await raw(`/widget/${key}/config`, { headers: { origin } });
@@ -263,4 +263,24 @@ test("vidjetdən əvvəl yaranmış tenant üçün ilk açılışda vidjet yarad
   assert.equal(r.status, 200);
   assert.match(r.body.widget.key, /^wk_/);
   assert.equal((await p.store.findTenantByWidgetKey(r.body.widget.key))!.tenantId, t.tenantId);
+});
+
+test("brend yazısı: defolt görünür, yalnız admin söndürə bilir, müştəri özü yox", async () => {
+  const { c, key } = await tenantWithWidget();
+  const cfg = async () => (await site("https://motoelan.com").get(key, "/config")).body;
+  assert.deepEqual((await cfg()).brand, { name: "Car Advisor", url: "https://advisor.example" });
+  const tid = (await c.call("GET", "/tenant")).body.tenant.tenantId as string;
+  assert.equal((await c.call("PATCH", `/admin/tenants/${tid}/branding`, { removed: true })).status, 403, "müştəri özü silə bilməz");
+  // müştəri vidjet ayarlarını saxlayanda bayraq itmir, body-də brandRemoved qəbul edilmir
+  await c.call("PUT", "/tenant/widget", { title: "X", brandRemoved: true });
+  assert.ok((await cfg()).brand, "müştərinin göndərdiyi brandRemoved nəzərə alınmır");
+  const admin = await p.signedIn("boss@example.com");
+  assert.equal((await admin.call("PATCH", `/admin/tenants/${tid}/branding`, { removed: "yes" })).status, 400);
+  assert.equal((await admin.call("PATCH", `/admin/tenants/${tid}/branding`, { removed: true })).status, 200);
+  assert.equal((await cfg()).brand, null);
+  assert.equal((await c.call("GET", "/tenant/widget")).body.brandRemoved, true);
+  await c.call("PUT", "/tenant/widget", { title: "Y" });
+  assert.equal((await cfg()).brand, null, "ayar saxlamaq bayrağı silmir");
+  assert.equal((await admin.call("PATCH", `/admin/tenants/${tid}/branding`, { removed: false })).status, 200);
+  assert.ok((await cfg()).brand);
 });

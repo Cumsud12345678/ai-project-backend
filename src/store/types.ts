@@ -41,6 +41,8 @@ export type TenantRecord = {
   updatedAt: Date;
   keyRotatedAt?: Date;
   widget?: WidgetSettings;
+  /** "Powered by" yazısı vidjetdə defolt görünür; yalnız admin söndürə bilir (ödənişli xidmət). */
+  brandRemoved?: boolean;
   /** Aylıq e-poçt hesabatı: defolt aktivdir (monthly=false ilə söndürülür); lastSent = axırıncı göndərilən dövr ("2026-09"). */
   report?: { monthly?: boolean; lastSent?: string };
   /** Operator komandası: sahibin dəvət etdiyi işçilər yalnız canlı söhbət qutusunu görür. `userId` işçi qeydiyyatdan keçəndə dolur. */
@@ -131,7 +133,7 @@ export interface Store {
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
   /** Yalnız vidjet loqosunu dəyişir (bütün vidjet sənədini yenidən yazmır). null = sil. */
   setWidgetLogo(tenantId: string, logo: NonNullable<WidgetSettings["logo"]> | null): Promise<void>;
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;

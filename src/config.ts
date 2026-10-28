@@ -8,6 +8,9 @@ export type Config = {
   publicAdvisorUrl: string;
   /** Müştəriyə göstərilən portal ünvanı: vidjet scripti buradan yüklənir (<script src=".../widget.js">). */
   publicPortalUrl: string;
+  /** Vidjetdəki "Powered by" yazısı */
+  brandName: string;
+  brandUrl: string;
   adminEmails: string[];
   allowedOrigins: string[];
   cookieSecure: boolean;
@@ -39,6 +42,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     aiServiceToken: env.AI_SERVICE_TOKEN!,
     publicAdvisorUrl: (env.PUBLIC_ADVISOR_URL || aiServiceUrl).replace(/\/+$/, ""),
     publicPortalUrl: (env.PUBLIC_PORTAL_URL || `http://localhost:${Number(env.PORT) || 4000}`).replace(/\/+$/, ""),
+    brandName: (env.BRAND_NAME || "Car Advisor").slice(0, 40),
+    brandUrl: /^https?:\/\//.test(env.BRAND_URL || "") ? env.BRAND_URL! : "",
     adminEmails: list(env.ADMIN_EMAILS).map((e) => e.toLowerCase()),
     allowedOrigins: list(env.ALLOWED_ORIGINS || "http://localhost:3001"),
     cookieSecure: env.COOKIE_SECURE ? env.COOKIE_SECURE === "1" : isProd,

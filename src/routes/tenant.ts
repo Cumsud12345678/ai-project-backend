@@ -482,23 +482,6 @@ export function tenantRoutes(deps: Deps) {
     const d = Number(req.query.days);
     res.json(await funnel(deps, t, Number.isFinite(d) && d > 0 ? Math.min(Math.round(d), 90) : 30));
   });
-  // Analitika: gündəlik trend + bəyənmə nisbəti (pulsuz), mövzu/boşluq təhlili (AI, sahib basanda)
-  r.get("/insights/trend", async (req, res) => {
-    const t = await mine(currentUser(res).id);
-    const d = Number(req.query.days);
-    const days = Number.isFinite(d) && d > 0 ? Math.min(Math.round(d), 90) : 30;
-    const [trend, fb] = await Promise.all([ai.queryTrend(t.tenantId, days), store.feedbackCounts(t.tenantId, new Date(Date.now() - days * 86_400_000)).catch(() => ({ up: 0, down: 0 }))]);
-    res.json({ days, enabled: trend.enabled !== false, daily: trend.daily ?? [], feedback: { up: fb.up, down: fb.down, satisfaction: fb.up + fb.down ? Math.round((fb.up / (fb.up + fb.down)) * 100) : null } });
-  });
-  r.post("/insights/analyze", async (req, res) => {
-    const user = currentUser(res);
-    if (!limiter.hit(`insights:${user.id}`, 6, 60 * 60_000)) throw new HttpError(429, "Təhlil çox tez-tez istənilir, bir az gözləyin", "RATE_LIMITED");
-    const t = await mine(user.id);
-    const d = Number(req.body?.days);
-    const days = Number.isFinite(d) && d > 0 ? Math.min(Math.round(d), 90) : 30;
-    const bad = (await store.feedbackSince(t.tenantId, new Date(Date.now() - days * 86_400_000), 200).catch(() => [])).filter((f) => f.rating === -1 && f.question).slice(0, 20).map((f) => f.question);
-    res.json(await ai.insights(t.tenantId, { days, ...(req.body?.fresh === true && { fresh: true }), disliked: bad }));
-  });
   // CSV ixracı (Excel/Google Sheets)
   r.get("/export/:kind", async (req, res) => {
     const user = currentUser(res);
@@ -582,20 +565,6 @@ export function tenantRoutes(deps: Deps) {
   r.put("/kb/qa/:id", async (req, res) => {
     const user = currentUser(res); kbWrite(user.id);
     res.json(await ai.kbUpdateQa((await mine(user.id)).tenantId, sid(req.params.id), qaBody(req.body)));
-  });
-  // Ssenarilər: ad + nə vaxt işləməli (ifadələr) + addım-addım qayda
-  const procBody = (b: unknown) => {
-    const o = (b && typeof b === "object" ? b : {}) as Record<string, unknown>;
-    const triggers = (Array.isArray(o.triggers) ? o.triggers : []).filter((q): q is string => typeof q === "string" && q.length <= 300).slice(0, 12);
-    return { name: typeof o.name === "string" ? o.name.slice(0, 200) : "", triggers, steps: typeof o.steps === "string" ? o.steps.slice(0, 4000) : "" };
-  };
-  r.post("/kb/proc", async (req, res) => {
-    const user = currentUser(res); kbWrite(user.id);
-    res.status(201).json(await ai.kbAddProc((await mine(user.id)).tenantId, procBody(req.body)));
-  });
-  r.put("/kb/proc/:id", async (req, res) => {
-    const user = currentUser(res); kbWrite(user.id);
-    res.json(await ai.kbUpdateProc((await mine(user.id)).tenantId, sid(req.params.id), procBody(req.body)));
   });
   r.post("/kb/sources/:id/refresh", async (req, res) => {
     const user = currentUser(res); kbWrite(user.id);

@@ -217,7 +217,7 @@ export function widgetRoutes(deps: Deps) {
     // Quraşdırmanın işlədiyini göstərmək üçün: ən çox 10 dəqiqədən bir yazılır
     if (!w.lastSeenAt || Date.now() - new Date(w.lastSeenAt).getTime() > 10 * 60_000) void store.touchWidget(wt.tenantId, new Date()).catch(() => {});
     res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, mode, contact: true, live: Boolean(w.live?.enabled), // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
-      theme: w.theme ?? "light", imageSearch: imageEnabled(wt), ...(w.logo && { logo: logoUrl(deps.config.publicPortalUrl, w) }) });
+      theme: w.theme ?? "light", brand: wt.brandRemoved ? null : { name: deps.config.brandName, url: deps.config.brandUrl }, imageSearch: imageEnabled(wt), ...(w.logo && { logo: logoUrl(deps.config.publicPortalUrl, w) }) });
   });
 
   // Operatorla əlaqə (cavab tapılmayanda): sayt ziyarətçisi telefon/e-poçt qoyur, sayt sahibi panelda görür və e-poçtla xəbər alır.

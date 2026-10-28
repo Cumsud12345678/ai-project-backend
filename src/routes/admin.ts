@@ -33,7 +33,7 @@ export function adminRoutes(deps: Deps) {
         const t = byUser.get(u.id);
         return {
           id: u.id, email: u.email, verified: u.verified, isAdmin: isAdmin(config, u), isOwner: isOwner(config, u), createdAt: u.createdAt,
-          tenant: t ? { mode: modeOf(t.config), balance: balances.get(t.tenantId) ?? null, tenantId: t.tenantId, businessName: t.businessName, domain: t.domain, createdAt: t.createdAt, keyRotatedAt: t.keyRotatedAt ?? null } : null,
+          tenant: t ? { mode: modeOf(t.config), balance: balances.get(t.tenantId) ?? null, tenantId: t.tenantId, businessName: t.businessName, domain: t.domain, createdAt: t.createdAt, keyRotatedAt: t.keyRotatedAt ?? null, brandRemoved: Boolean(t.brandRemoved) } : null,
         };
       }),
     });
@@ -98,6 +98,15 @@ export function adminRoutes(deps: Deps) {
     console.log(`[admin] ${currentUser(res).email} ${tenantId} balansını dəyişdi: ${amount} AZN`);
     if (amount > 0) { const t = await tenantInfo(tenantId); if (t) void notifyTopupDone(deps, t, amount, out.balance?.totalAzn); }
     res.json(out);
+  });
+  // "Powered by" yazısını söndürmək/qaytarmaq (ödənişli xidmət, yalnız admin)
+  r.patch("/tenants/:tenantId/branding", async (req, res) => {
+    const tenantId = await known(req.params.tenantId);
+    const removed = (req.body as { removed?: unknown } | undefined)?.removed;
+    if (typeof removed !== "boolean") throw new HttpError(400, "removed true/false olmalıdır");
+    await store.updateTenant(tenantId, { brandRemoved: removed });
+    void audit(res, "branding.set", tenantId, removed ? "yazı silindi" : "yazı qaytarıldı");
+    res.json({ ok: true, brandRemoved: removed });
   });
   r.patch("/tenants/:tenantId/billing/settings", async (req, res) => {
     const tenantId = await known(req.params.tenantId);
