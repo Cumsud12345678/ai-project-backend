@@ -61,6 +61,8 @@ export type ChannelSession = {
   history: { role: "user" | "model"; text: string }[];
   /** Cavab tapılmayıb: növbəti mesaj telefon/e-poçt kimi qəbul edilir və müraciətə çevrilir. */
   pending?: { question: string } | null;
+  /** AI-nin təklif etdiyi, istifadəçinin BƏLİ/XEYR cavabını gözləyən əməliyyat (yalnız id; məzmun AI serverindədir) */
+  pendingAction?: { id: string } | null;
   /** Müştərinin adı və kanal ünvanı: operator ona özü yaza bilsin */
   name?: string; ref?: string;
   updatedAt: Date;

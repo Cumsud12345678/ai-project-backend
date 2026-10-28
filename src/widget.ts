@@ -2,6 +2,7 @@
 // Gizli API açarı heç vaxt brauzerə çıxmır: vidjet yalnız ictimai açar (wk_...) göndərir,
 // portal isə həmin müştəri üçün AI servisini öz service tokeni ilə çağırır.
 import { notifyTeam } from "./team.js";
+import { publicConfirm } from "./action-card.js";
 import { checkBase64Image, imageEnabled } from "./image-input.js";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -287,13 +288,14 @@ export function widgetRoutes(deps: Deps) {
       .filter((h: any) => h && (h.role === "user" || h.role === "model") && typeof h.text === "string")
       .map((h: any) => ({ role: h.role, text: h.text.slice(0, 2000) }));
     try {
-      const out = await ai.chat(t.tenantId, message.trim(), clean, { sid, identity, ...(image && { image }) });
+      const out = await ai.chat(t.tenantId, message.trim(), clean, { sid, identity, channel: "widget", ...(image && { image }) });
       // Balans azalıb/bitibsə sayt sahibinə email (AI servisi eyni vəziyyət üçün yalnız bir dəfə xəbər verir)
       const notify = out.billing?.notify;
       if (notify === "low" || notify === "empty") void notifyBalance(deps, t, notify, out.billing?.balanceAzn);
       const listings = (Array.isArray(out.listings) ? out.listings : []).slice(0, 10).map(publicListing);
       const sources = (Array.isArray(out.sources) ? out.sources : []).slice(0, 3).map((s: Record<string, unknown>) => ({ title: str(s.title, 120) ?? "", url: httpUrl(s.url) }));
-      res.json({ answer: String(out.answer ?? "").slice(0, 8000), listings, ...(sources.length && { sources }), ...(typeof out.imageNote === "string" && out.imageNote && { imageNote: out.imageNote.slice(0, 200) }), ...(out.unanswered === true && { unanswered: true }), ...(out.identity === "invalid" && { identity: "invalid" }) });
+      const confirm = publicConfirm(out.confirm);
+      res.json({ answer: String(out.answer ?? "").slice(0, 8000), listings, ...(confirm && { confirm }), ...(sources.length && { sources }), ...(typeof out.imageNote === "string" && out.imageNote && { imageNote: out.imageNote.slice(0, 200) }), ...(out.unanswered === true && { unanswered: true }), ...(out.identity === "invalid" && { identity: "invalid" }) });
     } catch (e) {
       // Ziyarətçi müştərinin limit və ya konfiqurasiya məlumatını görməməlidir.
       if (e instanceof AiError) {
@@ -302,6 +304,28 @@ export function widgetRoutes(deps: Deps) {
         if (e.status === 402) throw new HttpError(503, "Çat hazırda cavab vermir", "OFFLINE");
         throw new HttpError(e.status === 429 || e.status === 503 ? 503 : 502, "Çat hazırda cavab verə bilmir, bir azdan yenidən cəhd et", "UNAVAILABLE");
       }
+      throw e;
+    }
+  });
+
+  // ---- Əməliyyat təsdiqi (BƏLİ/XEYR): parametrləri AI serveri saxlayır, brauzer onları dəyişə bilməz ----
+  r.post("/widget/:key/action-confirm", access, async (req, res) => {
+    const t = res.locals.widgetTenant as TenantRecord;
+    const key = t.widget!.key, ip = req.ip ?? "unknown";
+    const b = (req.body ?? {}) as { id?: unknown; decision?: unknown; sid?: unknown; identity?: unknown; vid?: unknown };
+    const vid = typeof b.vid === "string" && /^[a-f0-9]{16,32}$/.test(b.vid) ? b.vid : "";
+    if (!limiter.hit(`w:act:${key}:${vid ? `v:${vid}` : `ip:${ip}`}`, 10, 10 * 60_000) || !limiter.hit(`w:actip:${key}:${ip}`, 30, 10 * 60_000))
+      throw new HttpError(429, "Çox tez-tez cəhd etdiniz, bir az gözləyin", "RATE_LIMITED");
+    if (typeof b.id !== "string" || !/^[0-9a-f]{32}$/.test(b.id) || (b.decision !== "confirm" && b.decision !== "cancel") || typeof b.sid !== "string" || !/^[a-f0-9]{16,32}$/.test(b.sid))
+      throw new HttpError(400, "Sorğu düzgün deyil", "BAD_REQUEST");
+    const identity = typeof b.identity === "string" && b.identity.length <= 1000 && /^v1\.[\w-]+\.[\w-]+$/.test(b.identity) ? b.identity : undefined;
+    try {
+      const out = await ai.actionConfirm(t.tenantId, { id: b.id, decision: b.decision, sid: b.sid, ...(identity && { identity }) });
+      const status = ["done", "failed", "unknown", "cancelled", "expired", "denied"].includes(out.status) ? out.status : "failed";
+      res.json({ status, message: String(out.message ?? "").slice(0, 400) });
+    } catch (e) {
+      if (e instanceof AiError && e.code === "AI_UNREACHABLE") return void res.json({ status: "unknown", message: "Əməliyyatın icra olunub-olunmadığı bəlli deyil. Təkrar etməyin, operatorla yoxlayın." });
+      if (e instanceof AiError) { console.warn(`[widget] action ${t.tenantId}: ${e.status} ${e.message}`); throw new HttpError(503, "Əməliyyat təsdiqlənə bilmədi, əməliyyat icra olunmayıb. Bir az sonra yenidən cəhd edin.", "UNAVAILABLE"); }
       throw e;
     }
   });

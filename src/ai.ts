@@ -18,12 +18,20 @@ export type AiClient = {
   usage(tenantId: string): Promise<AiResult>;
   usageSummary(): Promise<AiResult>;
   listings(tenantId: string, query: string): Promise<AiResult>;
-  chat(tenantId: string, message: string, history: unknown[], opts?: { test?: boolean; sid?: string; identity?: string; /** canlı operator açıqdır: AI operatora ötürmə qərarı verə bilər */ live?: boolean; /** base64 şəkil (şəkilli sual) */ image?: string }): Promise<AiResult>;
+  chat(tenantId: string, message: string, history: unknown[], opts?: { test?: boolean; sid?: string; identity?: string; /** canlı operator açıqdır: AI operatora ötürmə qərarı verə bilər */ live?: boolean; /** base64 şəkil (şəkilli sual) */ image?: string; /** əməliyyat təsdiqi hansı kanaldadır */ channel?: "widget" | "telegram" | "whatsapp" }): Promise<AiResult>;
   privateData(tenantId: string): Promise<AiResult>;
   setPrivateData(tenantId: string, body: object): Promise<AiResult>;
   deletePrivateData(tenantId: string): Promise<AiResult>;
   newIdentitySecret(tenantId: string): Promise<AiResult>;
   testPrivateData(tenantId: string, body: { kind: string; userId: string }): Promise<AiResult>;
+  actions(tenantId: string): Promise<AiResult>;
+  setActions(tenantId: string, body: object): Promise<AiResult>;
+  deleteActions(tenantId: string): Promise<AiResult>;
+  newSigningSecret(tenantId: string): Promise<AiResult>;
+  testAction(tenantId: string, body: object): Promise<AiResult>;
+  actionConfirm(tenantId: string, body: { id: string; decision: "confirm" | "cancel"; sid: string; identity?: string }): Promise<AiResult>;
+  actionLog(tenantId: string): Promise<AiResult>;
+  clearActionLog(tenantId: string): Promise<AiResult>;
   conversations(tenantId: string, query: string): Promise<AiResult>;
   conversation(tenantId: string, sid: string): Promise<AiResult>;
   queries(tenantId: string, query: string): Promise<AiResult>;
@@ -90,11 +98,19 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     usage: (id) => request("GET", `${t(id)}/usage`),
     usageSummary: () => request("GET", "/usage/summary"),
     listings: (id, query) => request("GET", `${t(id)}/listings${query ? `?${query}` : ""}`),
-    chat: (id, message, history, opts) => request("POST", `${t(id)}/chat`, { message, history, ...(opts?.test && { test: true }), ...(opts?.sid && { sid: opts.sid }), ...(opts?.identity && { identity: opts.identity }), ...(opts?.live && { live: true }), ...(opts?.image && { image: { data: opts.image } }) }, 75_000),
+    chat: (id, message, history, opts) => request("POST", `${t(id)}/chat`, { message, history, ...(opts?.test && { test: true }), ...(opts?.sid && { sid: opts.sid }), ...(opts?.identity && { identity: opts.identity }), ...(opts?.live && { live: true }), ...(opts?.image && { image: { data: opts.image } }), ...(opts?.channel && { channel: opts.channel }) }, 75_000),
     privateData: (id) => request("GET", `${t(id)}/private-data`),
     setPrivateData: (id, body) => request("PUT", `${t(id)}/private-data`, body),
     deletePrivateData: (id) => request("DELETE", `${t(id)}/private-data`),
     newIdentitySecret: (id) => request("POST", `${t(id)}/private-data/identity-secret`),
+    actions: (id) => request("GET", `${t(id)}/actions`),
+    setActions: (id, body) => request("PUT", `${t(id)}/actions`, body),
+    deleteActions: (id) => request("DELETE", `${t(id)}/actions`),
+    newSigningSecret: (id) => request("POST", `${t(id)}/actions/signing-secret`),
+    testAction: (id, body) => request("POST", `${t(id)}/actions/test`, body, 20_000),
+    actionConfirm: (id, body) => request("POST", `${t(id)}/actions/confirm`, body, 20_000),
+    actionLog: (id) => request("GET", `${t(id)}/actions/log`),
+    clearActionLog: (id) => request("DELETE", `${t(id)}/actions/log`),
     testPrivateData: (id, body) => request("POST", `${t(id)}/private-data/test`, body, 15_000),
     conversations: (id, query) => request("GET", `${t(id)}/conversations${query ? `?${query}` : ""}`),
     conversation: (id, sid) => request("GET", `${t(id)}/conversations/${encodeURIComponent(sid)}`),

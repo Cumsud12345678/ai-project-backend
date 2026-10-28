@@ -16,7 +16,7 @@ export const config: Config = {
   resendApiKey: undefined, mailFrom: "x", mailReplyTo: undefined, trustProxy: 1, secretKey: "test-secret-key-test-secret-key-0000", isProd: false,
 };
 
-export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown> };
+export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown>; heard?: string };
 
 /** Saxta AI servisi: çağırışları qeyd edir, istənilsə xəta qaytarır. */
 export function fakeAi(): FakeAi {
@@ -37,6 +37,8 @@ export function fakeAi(): FakeAi {
     async usageSummary(...a) { return rec("usageSummary", a, { today: { date: "2026-10-19", requests: 2, tokens: 60 }, thisMonth: { month: "2026-10", requests: 5, tokens: 150 }, lastMonth: { month: "2026-09", requests: 0, tokens: 0 }, daily: [], monthly: [], tenants: [{ tenantId: "tenant-1", requests: 5, tokens: 150 }, { tenantId: "gone", requests: 1, tokens: 1 }] }); },
     async listings(...a) { return rec("listings", a, { count: 0, listings: [] }); },
     async queries(...a) { return rec("queries", a, { enabled: true, retentionDays: 90, total: 1, queries: [{ id: "1", at: "2026-10-17T00:00:00.000Z", message: "toyota", results: 2, tokens: 30, cached: false, error: false }] }); },
+    async queryTrend(...a) { return rec("queryTrend", a, { enabled: true, days: 7, daily: Array.from({ length: 7 }, (_, i) => ({ day: `2026-10-${String(22 + i).padStart(2, "0")}`, total: i, unanswered: i % 2 })) }); },
+    async insights(...a) { return rec("insights", a, { asked: 12, topics: [{ name: "Çatdırılma", count: 8, unanswered: 2, examples: ["çatdırılma var?"] }], gaps: [{ title: "Çatdırılma qaydası", why: "Cavabsız qalıb", count: 2, examples: ["çatdırılma var?"] }], cached: false, analyzedAt: new Date().toISOString() }); },
     async queryStats(...a) { return rec("queryStats", a, { enabled: true, days: 30, total: 1, noResults: 0, errors: 0, cached: 0, top: [{ message: "toyota", count: 1 }], topNoResults: [] }); },
     async conversations(...a) { return rec("conversations", a, { enabled: true, hasMore: false, nextCursor: null, conversations: [{ sid: "aaaaaaaa11", startedAt: "2026-10-17T00:00:00.000Z", lastAt: "2026-10-17T00:01:00.000Z", messages: 2, first: "salam", unanswered: 0, costAzn: 0.01 }] }); },
     async conversation(...a) { return rec("conversation", a, { sid: "aaaaaaaa11", messages: [{ id: "1", at: "2026-10-17T00:00:00.000Z", message: "salam", answer: "Salam!", results: 1 }] }); },
@@ -44,6 +46,14 @@ export function fakeAi(): FakeAi {
     async setPrivateData(...a) { return rec("setPrivateData", a, { configured: true, ready: false, identity: { configured: false } }); },
     async deletePrivateData(...a) { return rec("deletePrivateData", a, { ok: true }); },
     async newIdentitySecret(...a) { return rec("newIdentitySecret", a, { identitySecret: "cais_test" }); },
+    async actions(...a) { return rec("actions", a, { configured: false, items: [], signing: { configured: false } }); },
+    async setActions(...a) { return rec("setActions", a, { configured: true, items: [], signing: { configured: true }, signingSecret: "casig_test" }); },
+    async deleteActions(...a) { return rec("deleteActions", a, { ok: true }); },
+    async newSigningSecret(...a) { return rec("newSigningSecret", a, { signingSecret: "casig_new" }); },
+    async testAction(...a) { return rec("testAction", a, { preview: { method: "POST", url: "https://x", headers: {}, body: null } }); },
+    async actionConfirm(...a) { return rec("actionConfirm", a, { status: "done", message: "Əməliyyat icra olundu." }); },
+    async actionLog(...a) { return rec("actionLog", a, { entries: [] }); },
+    async clearActionLog(...a) { return rec("clearActionLog", a, { ok: true }); },
     async testPrivateData(...a) { return rec("testPrivateData", a, { ok: true, records: [] }); },
     async clearQueries(...a) { return rec("clearQueries", a, { ok: true }); },
     async kbInfo(...a) { return rec("kbInfo", a, { mode: "support", sources: [], limits: { sources: 30, chunks: 2500, fileBytes: 6291456 }, totals: { sources: 0, chunks: 0 } }); },
@@ -51,6 +61,9 @@ export function fakeAi(): FakeAi {
     async kbAddUrl(...a) { return rec("kbAddUrl", a, { source: { id: "s2", status: "processing" } }); },
     async kbAddText(...a) { return rec("kbAddText", a, { source: { id: "s3", status: "processing" } }); },
     async kbRefresh(...a) { return rec("kbRefresh", a, { source: { id: "s2", status: "processing" } }); },
+    async transcribe(...a) { return rec("transcribe", a, { text: this.heard ?? "qara motosiklet axtarıram", unclear: false }); },
+    async kbAddProc(...a) { return rec("kbAddProc", a, { source: { id: "pr1", type: "proc", status: "ready" } }); },
+    async kbUpdateProc(...a) { return rec("kbUpdateProc", a, { source: { id: "pr1", type: "proc", status: "ready" } }); },
     async kbAddQa(...a) { return rec("kbAddQa", a, { source: { id: "qa1", type: "qa", status: "ready" } }); },
     async kbUpdateQa(...a) { return rec("kbUpdateQa", a, { source: { id: "qa1", type: "qa", status: "ready" } }); },
     async kbDelete(...a) { return rec("kbDelete", a, { ok: true }); },

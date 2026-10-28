@@ -7,6 +7,7 @@ import { recordError } from "./errorlog.js";
 import { AUDIO_MAX_SECONDS, checkBufferAudio, imageEnabled, checkBufferImage } from "./image-input.js";
 import { cleanContact } from "./kb.js";
 import type { ChannelSession, TenantRecord } from "./store/types.js";
+import { cardText, parseDecision, publicConfirm } from "./action-card.js";
 import { hub } from "./hub.js";
 import { LIVE_MSG, LIVE_STALE_MS, isBotCmd, isOperatorCmd, liveEnabled, startChannelLive, wantsHuman } from "./channel-live.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, limitsOf, modeOf } from "./widget.js";
@@ -27,6 +28,8 @@ export const MSG = {
   imageFail: "Şəkli oxuya bilmədim (PNG, JPG və ya WebP, kiçik ölçüdə olmalıdır). Başqa şəkil göndərin və ya sualı yazın.",
   voiceLong: `Səsli mesaj çox uzundur (maksimum ${AUDIO_MAX_SECONDS} saniyə). Qısa göndərin və ya sualı yazın.`,
   voiceFail: "Səsli mesajı eşidə bilmədim. Yenidən göndərin və ya sualı yazın.",
+  actionBusy: "Əməliyyat təsdiqi üçün çox cəhd etdiniz, bir az gözləyin.",
+  actionUnknown: "Əməliyyatın icra olunub-olunmadığı bəlli deyil. Təkrar etməyin, operatorla yoxlayın.",
   thanks: "Təşəkkürlər, müraciətiniz qəbul edildi. Operator tezliklə sizinlə əlaqə saxlayacaq.",
 } as const;
 
@@ -165,6 +168,27 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     if (!text && !imgOn) return warn(io.image ? MSG.imageOff : MSG.textOnly);
     if (text.length > MAX_TEXT) return warn(MSG.tooLong);
 
+    // Gözləyən əməliyyat: yalnız TAM "BƏLİ"/"XEYR" cavabı qərar sayılır; başqa mesaj kartı ləğv edir və adi mesaj kimi davam edir
+    if (session.pendingAction && !io.image) {
+      const decision = parseDecision(text);
+      if (decision) {
+        if (!limiter.hit(`${lk}act:${tenant.tenantId}:${chatId}`, 10, 10 * 60_000)) return warn(MSG.actionBusy);
+        let msg: string;
+        try {
+          const r = await ai.actionConfirm(tenant.tenantId, { id: session.pendingAction.id, decision, sid: session.sid });
+          msg = clip(r.message, 400) || MSG.actionUnknown;
+        } catch (e) {
+          if (e instanceof AiError && e.code === "AI_UNREACHABLE") msg = MSG.actionUnknown;
+          else if (e instanceof AiError) { await recordError(store, { source: "channel", message: `${label}: əməliyyat təsdiqi alınmadı (${e.status}) ${e.message}`, tenantId: tenant.tenantId, code: e.code, status: e.status }); await io.send(MSG.offline); return; }
+          else throw e;
+        }
+        await store.saveChannelSession({ ...session, pendingAction: null, updatedAt: new Date() });
+        await io.send(msg);
+        return;
+      }
+      session = { ...session, pendingAction: null };
+    }
+
     // Cavab tapılmayandan sonra gələn mesaj: etibarlı kontaktdırsa müraciət olur, deyilsə adi sual kimi davam edir
     if (session.pending && !imgOn) {
       const contact = cleanContact(text);
@@ -204,7 +228,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     }
     try { void Promise.resolve(io.typing()).catch(() => {}); } catch { /* göstərici vacib deyil */ }
     let out: Record<string, any>;
-    try { out = await ai.chat(tenant.tenantId, text, session.history.slice(-HISTORY_KEEP), { sid: session.sid, ...(liveEnabled(tenant) && { live: true }), ...(image && { image }) }); }
+    try { out = await ai.chat(tenant.tenantId, text, session.history.slice(-HISTORY_KEEP), { sid: session.sid, channel, ...(liveEnabled(tenant) && { live: true }), ...(image && { image }) }); }
     catch (e) {
       if (e instanceof AiError) {
         if (e.status !== 402) await recordError(store, { source: "channel", message: `${label}: AI cavab vermədi (${e.status}) ${e.message}`, tenantId: tenant.tenantId, code: e.code, status: e.status });
@@ -218,11 +242,12 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     const withPhoto = io.photo
       ? (Array.isArray(out.listings) ? out.listings : []).slice(0, 3).map((l: Record<string, unknown>, i: number) => ({ l, i, img: httpUrl(l.image) })).filter((x: { img: string }) => x.img)
       : [];
-    const answer = formatReply(out, new Set(withPhoto.map((x: { i: number }) => x.i)));
+    const card = publicConfirm(out.confirm);
+    const answer = formatReply(out, new Set(withPhoto.map((x: { i: number }) => x.i))) + (card ? `\n\n${cardText(card)}` : "");
     const handoff = out.handoff === true && liveEnabled(tenant);
     const unanswered = out.unanswered === true && !handoff;
     const history = [...session.history, { role: "user" as const, text: `${text}${image ? `${text ? " " : ""}[şəkil${typeof out.imageNote === "string" && out.imageNote ? `: ${out.imageNote}` : ""}]` : ""}`.slice(0, 600) }, { role: "model" as const, text: clip(out.answer, 600) }].slice(-HISTORY_KEEP);
-    await store.saveChannelSession({ ...session, history, pending: unanswered ? { question: text.slice(0, 500) } : null, ...(clip(io.senderName, 80) && { name: clip(io.senderName, 80) }), ...(io.ref && { ref: io.ref }), updatedAt: new Date() });
+    await store.saveChannelSession({ ...session, history, pending: unanswered ? { question: text.slice(0, 500) } : null, pendingAction: card ? { id: card.id } : null, ...(clip(io.senderName, 80) && { name: clip(io.senderName, 80) }), ...(io.ref && { ref: io.ref }), updatedAt: new Date() });
     // AI operatora ötürmə qərarı verdi: söhbət canlı operator qutusuna düşür, bot susur
     if (handoff) await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), name: clip(io.senderName, 80), history, ...(text && { first: text }) });
     await io.send(unanswered ? `${answer}\n\n${MSG.askContact}${liveEnabled(tenant) ? `\n${LIVE_MSG.hint}` : ""}` : answer);
