@@ -22,6 +22,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
   const tenants = db.collection<TenantRecord>("tenants");
   const lives = db.collection<LiveChat>("live_chats");
   const feedbacks = db.collection<FeedbackRecord>("feedback");
+  const clicksCol = db.collection<{ tenantId: string; at: Date }>("clicks");
   const errors = db.collection<ErrorRecord>("error_log");
   const channelSessions = db.collection<ChannelSession>("channel_sessions");
   const waAuth = db.collection<{ tenantId: string; name: string; value: string }>("wa_auth");
@@ -43,6 +44,8 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     lives.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 60 * 24 * 3600 }), // 60 gün sonra silinir
     feedbacks.createIndex({ tenantId: 1, at: -1 }),
     feedbacks.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 3600 }), // 90 gün sonra silinir
+    clicksCol.createIndex({ tenantId: 1, at: -1 }),
+    clicksCol.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 3600 }),
     channelSessions.createIndex({ tenantId: 1, channel: 1, chatId: 1 }, { unique: true }),
     channelSessions.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 14 * 24 * 3600 }), // 14 gün hərəkətsiz qalan söhbət silinir
     tenants.createIndex({ "telegram.hook": 1 }, { unique: true, partialFilterExpression: { "telegram.hook": { $type: "string" } } }),
@@ -134,6 +137,8 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
       const rows = await feedbacks.aggregate<{ _id: number; n: number }>([{ $match: { tenantId, at: { $gte: since } } }, { $group: { _id: "$rating", n: { $sum: 1 } } }]).toArray();
       return { up: rows.find((r) => r._id === 1)?.n ?? 0, down: rows.find((r) => r._id === -1)?.n ?? 0 };
     },
+    async addClick(tenantId, at) { await clicksCol.insertOne({ tenantId, at }); },
+    async countClicks(tenantId, since) { return clicksCol.countDocuments({ tenantId, at: { $gte: since } }); },
     async getChannelSession(tenantId, channel, chatId) { return strip(await channelSessions.findOne({ tenantId, channel, chatId })) as ChannelSession | null; },
     async saveChannelSession(s) { await channelSessions.replaceOne({ tenantId: s.tenantId, channel: s.channel, chatId: s.chatId }, { ...s }, { upsert: true }); },
     async deleteChannelSessions(tenantId, channel) { await channelSessions.deleteMany(channel ? { tenantId, channel } : { tenantId }); },

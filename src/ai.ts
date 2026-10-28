@@ -32,6 +32,7 @@ export type AiClient = {
   testAction(tenantId: string, body: object): Promise<AiResult>;
   actionConfirm(tenantId: string, body: { id: string; decision: "confirm" | "cancel"; sid: string; identity?: string }): Promise<AiResult>;
   actionLog(tenantId: string): Promise<AiResult>;
+  actionStats(tenantId: string, days?: number): Promise<AiResult>;
   clearActionLog(tenantId: string): Promise<AiResult>;
   conversations(tenantId: string, query: string): Promise<AiResult>;
   conversation(tenantId: string, sid: string): Promise<AiResult>;
@@ -112,6 +113,7 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     testAction: (id, body) => request("POST", `${t(id)}/actions/test`, body, 20_000),
     actionConfirm: (id, body) => request("POST", `${t(id)}/actions/confirm`, body, 20_000),
     actionLog: (id) => request("GET", `${t(id)}/actions/log`),
+    actionStats: (id, days) => request("GET", `${t(id)}/actions/stats${days ? `?days=${Math.round(days)}` : ""}`),
     clearActionLog: (id) => request("DELETE", `${t(id)}/actions/log`),
     testPrivateData: (id, body) => request("POST", `${t(id)}/private-data/test`, body, 15_000),
     conversations: (id, query) => request("GET", `${t(id)}/conversations${query ? `?${query}` : ""}`),

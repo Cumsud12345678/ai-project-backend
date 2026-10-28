@@ -20,6 +20,16 @@ export type Funnel = {
   handledRate: number | null;
   /** AI-ın xərci (manat): operatora çatan hər müraciətin təxmini AI dəyəri */
   costAzn: number | null;
+  /** Operatora keçmədən bitən söhbətlər (söhbət - yönəlmə); "həll olundu" demək deyil, təxmini göstəricidir */
+  withoutHandoff: number | null;
+  /** İstifadəçinin təsdiqi ilə icra olunmuş əməliyyatlar (dövr üzrə) */
+  actionsDone: number | null;
+  /** Cavablara 👍/👎 */
+  feedbackUp: number; feedbackDown: number;
+  /** Canlı söhbət qiymətləndirməsi (CSAT) */
+  csatAvg: number | null; csatCount: number;
+  /** Çatdakı məhsul/elan kartına klik sayı */
+  cardClicks: number;
 };
 
 export async function funnel(deps: Deps, t: TenantRecord, days: number): Promise<Funnel> {
@@ -30,7 +40,13 @@ export async function funnel(deps: Deps, t: TenantRecord, days: number): Promise
     deps.store.listLive(t.tenantId, "open", 500),
     deps.store.listLive(t.tenantId, "closed", 500),
     deps.ai.billing(t.tenantId),
-  ])).map(ok) as [Row | null, Row | null, { createdAt: Date }[] | null, { createdAt: Date }[] | null, Row | null];
+  ])).map(ok) as [Row | null, Row | null, { createdAt: Date; csat?: { rating: number } }[] | null, { createdAt: Date; csat?: { rating: number } }[] | null, Row | null];
+  const [acts, fb, clicks] = await Promise.all([
+    deps.ai.actionStats(t.tenantId, days).catch(() => null) as Promise<Row | null>,
+    deps.store.feedbackCounts(t.tenantId, new Date(since)).catch(() => ({ up: 0, down: 0 })),
+    deps.store.countClicks(t.tenantId, new Date(since)).catch(() => 0),
+  ]);
+  const rated = [...(open ?? []), ...(closed ?? [])].filter((c) => c.createdAt.getTime() >= since && c.csat).map((c) => c.csat!.rating);
   const items = ((leads?.items ?? []) as { at: string; handled?: boolean }[]).filter((x) => new Date(x.at).getTime() >= since);
   const live = [...(open ?? []), ...(closed ?? [])].filter((c) => c.createdAt.getTime() >= since).length;
   const total = Number(stats?.total ?? 0), noResults = Number(stats?.noResults ?? 0), errors = Number(stats?.errors ?? 0);
@@ -43,6 +59,11 @@ export async function funnel(deps: Deps, t: TenantRecord, days: number): Promise
     handoffRate: conversations ? pct(handoffs, conversations) : null,
     handledRate: items.length ? pct(items.filter((x) => x.handled).length, items.length) : null,
     costAzn: typeof month === "number" ? month : null,
+    withoutHandoff: conversations === null ? null : Math.max(0, conversations - handoffs),
+    actionsDone: acts && typeof acts.done === "number" ? acts.done : null,
+    feedbackUp: fb.up, feedbackDown: fb.down,
+    csatAvg: rated.length ? Math.round((rated.reduce((a, b) => a + b, 0) / rated.length) * 10) / 10 : null, csatCount: rated.length,
+    cardClicks: clicks,
   };
 }
 

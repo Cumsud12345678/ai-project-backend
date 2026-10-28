@@ -452,7 +452,14 @@ export function tenantRoutes(deps: Deps) {
     const lastAt = (chat.messages[chat.messages.length - 1]?.at ?? chat.createdAt).getTime();
     // "Gördüm" işarəsi yalnız yeni mesaj gələndə yenilənir (operator panelinin təkrar sorğuları sıralamanı pozmasın)
     const c = !chat.operatorSeenAt || chat.operatorSeenAt.getTime() < lastAt ? (await store.pushLive(t.tenantId, chat.id, null, { operatorSeenAt: new Date() })) ?? chat : chat;
-    res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt, channel: c.channel?.type ?? null, assignee: c.assignee ?? null, notes: c.notes ?? [], tags: c.tags ?? [], csat: c.csat ?? null } });
+    // Eyni əlaqə (e-poçt/telefon) və ya eyni Telegram/WhatsApp söhbəti ilə əvvəlki yazışmalar: operator kontekst görsün
+    const same = (o: LiveChat) => o.id !== c.id && ((c.contact && o.contact === c.contact) || (c.channel && o.channel?.type === c.channel.type && o.channel.chatId === c.channel.chatId));
+    const previous = c.contact || c.channel
+      ? [...(await store.listLive(t.tenantId, "closed", 300).catch(() => [])), ...(await store.listLive(t.tenantId, "open", 100).catch(() => []))]
+        .filter(same).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 5)
+        .map((o) => ({ id: o.id, createdAt: o.createdAt, status: o.status, count: o.messages.length, tags: o.tags ?? [], csat: o.csat?.rating ?? null, first: o.messages[0]?.text.slice(0, 120) ?? "" }))
+      : [];
+    res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt, channel: c.channel?.type ?? null, assignee: c.assignee ?? null, notes: c.notes ?? [], tags: c.tags ?? [], csat: c.csat ?? null, page: c.page ?? null, previous } });
   });
   // Real vaxt bağlantısı üçün qısa ömürlü bilet (panel WebSocket-i bununla açır; cookie portalın ünvanına getmir)
   r.post("/live/ws-ticket", async (req, res) => {
@@ -608,6 +615,7 @@ export function tenantRoutes(deps: Deps) {
     actWrite(user.id);
     res.set("cache-control", "no-store").json(await ai.testAction((await mine(user.id)).tenantId, { key: b.key, params: b.params, send: b.send === true, ...(typeof b.userId === "string" && { userId: b.userId }) }));
   });
+  r.get("/actions/stats", async (_req, res) => { res.set("cache-control", "no-store").json(await ai.actionStats((await mine(currentUser(res).id)).tenantId)); });
   r.get("/actions/log", async (_req, res) => { res.set("cache-control", "no-store").json(await ai.actionLog((await mine(currentUser(res).id)).tenantId)); });
   r.delete("/actions/log", async (_req, res) => { const user = currentUser(res); actWrite(user.id); res.json(await ai.clearActionLog((await mine(user.id)).tenantId)); });
 

@@ -8,6 +8,7 @@ export function createMemoryStore(): Store {
   const codes = new Map<string, CodeRecord>();
   const tenants = new Map<string, TenantRecord>();
   const live = new Map<string, LiveChat>();
+  const clicks: { tenantId: string; at: Date }[] = [];
   const feedback: FeedbackRecord[] = [];
   const errors: ErrorRecord[] = [];
   const sessionsCh = new Map<string, ChannelSession>();
@@ -108,6 +109,8 @@ export function createMemoryStore(): Store {
       const mine = feedback.filter((f) => f.tenantId === tenantId && f.at >= since);
       return { up: mine.filter((f) => f.rating === 1).length, down: mine.filter((f) => f.rating === -1).length };
     },
+    async addClick(tenantId, at) { clicks.push({ tenantId, at }); if (clicks.length > 20000) clicks.shift(); },
+    async countClicks(tenantId, since) { return clicks.filter((c) => c.tenantId === tenantId && c.at >= since).length; },
     async getChannelSession(tenantId, channel, chatId) { return sessionsCh.get(`${tenantId}|${channel}|${chatId}`) ?? null; },
     async saveChannelSession(s) { sessionsCh.set(`${s.tenantId}|${s.channel}|${s.chatId}`, s); },
     async deleteChannelSessions(tenantId, channel) { for (const k of [...sessionsCh.keys()]) if (k.startsWith(channel ? `${tenantId}|${channel}|` : `${tenantId}|`)) sessionsCh.delete(k); },

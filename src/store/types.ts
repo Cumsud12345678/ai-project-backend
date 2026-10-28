@@ -103,6 +103,8 @@ export type LiveChat = {
   tags?: string[];
   /** Ziyarətçinin söhbət bağlananda verdiyi qiymət (1-5) */
   csat?: { rating: number; comment?: string; at: Date };
+  /** Ziyarətçinin söhbəti başladığı səhifə (yalnız yol və başlıq, sorğu parametrləri saxlanmır) */
+  page?: { path: string; title?: string };
 };
 export type FeedbackRecord = { tenantId: string; rating: 1 | -1; question: string; answer: string; at: Date };
 
@@ -170,6 +172,9 @@ export interface Store {
   addFeedback(f: FeedbackRecord): Promise<void>;
   feedbackSince(tenantId: string, since: Date, limit: number): Promise<FeedbackRecord[]>;
   feedbackCounts(tenantId: string, since: Date): Promise<{ up: number; down: number }>;
+  /** Çatdakı məhsul/elan kartına klik (saytın yönləndirmə sayğacı) */
+  addClick(tenantId: string, at: Date): Promise<void>;
+  countClicks(tenantId: string, since: Date): Promise<number>;
 
   getChannelSession(tenantId: string, channel: ChannelSession["channel"], chatId: string): Promise<ChannelSession | null>;
   saveChannelSession(s: ChannelSession): Promise<void>;

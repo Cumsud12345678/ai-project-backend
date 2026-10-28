@@ -154,6 +154,16 @@ const liveView = (c: LiveChat, after: number) => ({
   status: c.status, total: c.messages.length,
   messages: c.messages.slice(after).map((m) => ({ from: m.from, text: m.text, at: m.at })),
 });
+/** Səhifə yolu: yalnız "/..." və sorğu/hash olmadan; başlıq qısaldılır. */
+const cleanPage = (v: unknown): { path: string; title?: string } | undefined => {
+  if (!v || typeof v !== "object") return undefined;
+  const o = v as { path?: unknown; title?: unknown };
+  if (typeof o.path !== "string") return undefined;
+  const path = (o.path.split(/[?#]/)[0] ?? "").trim().slice(0, 200);
+  if (!path.startsWith("/") || /[\u0000-\u001f]/.test(path)) return undefined;
+  const title = typeof o.title === "string" ? o.title.replace(/\s+/g, " ").trim().slice(0, 120) : "";
+  return { path, ...(title && { title }) };
+};
 const cleanChat = (v: unknown) => (Array.isArray(v) ? v : []).slice(-10)
   .filter((m: unknown): m is { role: "user" | "model"; text: string } => !!m && typeof m === "object" && ((m as { role?: unknown }).role === "user" || (m as { role?: unknown }).role === "model") && typeof (m as { text?: unknown }).text === "string")
   .map((m) => ({ role: m.role, text: m.text.trim().slice(0, 600) })).filter((m) => m.text);
@@ -356,7 +366,7 @@ export function widgetRoutes(deps: Deps) {
     const now = new Date();
     const chat: LiveChat = {
       id: randomUUID(), tenantId: t.tenantId, tokenHash: sha(token).toString("hex"), name, contact: contact || "", status: "open",
-      context: cleanChat(b.chat), messages: text ? [{ from: "visitor", text, at: now }] : [], createdAt: now, updatedAt: now, visitorSeenAt: now,
+      context: cleanChat(b.chat), ...(cleanPage(b.page) && { page: cleanPage(b.page) }), messages: text ? [{ from: "visitor", text, at: now }] : [], createdAt: now, updatedAt: now, visitorSeenAt: now,
     };
     await store.createLive(chat);
     // Sayt sahibinə və komandaya bildiriş (10 dəqiqədə bir, spam olmasın)
@@ -403,6 +413,14 @@ export function widgetRoutes(deps: Deps) {
     await store.patchLive(t.tenantId, id, { csat: { rating: b.rating, ...(comment && { comment }), at: new Date() } });
     hub.toOperators(t.tenantId, { t: "live", id, kind: "csat" });
     res.status(201).json({ ok: true });
+  });
+
+  // Çatdakı kartın klikləndiyini sayır (hesabat üçün); məzmun saxlanmır
+  r.post("/widget/:key/click", access, async (req, res) => {
+    const t = res.locals.widgetTenant as TenantRecord;
+    if (!limiter.hit(`w:click:${t.widget!.key}:${req.ip ?? "unknown"}`, 60, 60 * 60_000)) return void res.status(204).end();
+    await store.addClick(t.tenantId, new Date());
+    res.status(204).end();
   });
 
   // Cavaba 👍/👎. Sual və cavab mətni yalnız sorğu jurnalı açıqdırsa saxlanır.

@@ -54,6 +54,7 @@ export function fakeAi(): FakeAi {
     async testAction(...a) { return rec("testAction", a, { preview: { method: "POST", url: "https://x", headers: {}, body: null } }); },
     async actionConfirm(...a) { return rec("actionConfirm", a, { status: "done", message: "Əməliyyat icra olundu." }); },
     async actionLog(...a) { return rec("actionLog", a, { entries: [] }); },
+    async actionStats(...a: unknown[]) { return rec("actionStats", a, { items: [], done30: 0 }); },
     async clearActionLog(...a) { return rec("clearActionLog", a, { ok: true }); },
     async testPrivateData(...a) { return rec("testPrivateData", a, { ok: true, records: [] }); },
     async clearQueries(...a) { return rec("clearQueries", a, { ok: true }); },

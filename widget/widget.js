@@ -455,7 +455,10 @@
           kids.push(img);
         }
         kids.push(el("div", null, info));
-        wrap.appendChild(isUrl(l.url) ? el("a", { class: "card", href: l.url, target: "_blank", rel: "noopener noreferrer" }, kids) : el("div", { class: "card" }, kids));
+        var cardEl = isUrl(l.url) ? el("a", { class: "card", href: l.url, target: "_blank", rel: "noopener noreferrer" }, kids) : el("div", { class: "card" }, kids);
+        // Klik sayğacı (hesabat üçün): məzmun göndərilmir, sorğu sadədir (preflight yoxdur)
+        if (isUrl(l.url)) cardEl.addEventListener("click", function () { try { fetch(api + "/click", { method: "POST", keepalive: true }).catch(function () { /* vacib deyil */ }); } catch (e) { /* vacib deyil */ } });
+        wrap.appendChild(cardEl);
       });
       log.appendChild(wrap);
     }
@@ -740,7 +743,7 @@
         var ai = state.messages.filter(function (m) { return !m.live; }).slice(-10).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; });
         go = fetch(api + "/live", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ message: text, chat: ai, vid: visitorId(), contact: mail || undefined }),
+          body: JSON.stringify({ message: text, chat: ai, vid: visitorId(), contact: mail || undefined, page: { path: location.pathname, title: document.title } }),
         }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, d: d }; }); })
           .then(function (r) {
             if (!r.ok) throw new Error(r.d.code || "start");
