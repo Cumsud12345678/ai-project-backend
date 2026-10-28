@@ -16,7 +16,7 @@ export const config: Config = {
   resendApiKey: undefined, mailFrom: "x", mailReplyTo: undefined, trustProxy: 1, secretKey: "test-secret-key-test-secret-key-0000", isProd: false,
 };
 
-export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown>; heard?: string };
+export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown>; nextDraft?: Record<string, unknown>; heard?: string };
 
 /** Saxta AI servisi: çağırışları qeyd edir, istənilsə xəta qaytarır. */
 export function fakeAi(): FakeAi {
@@ -46,6 +46,7 @@ export function fakeAi(): FakeAi {
     async setPrivateData(...a) { return rec("setPrivateData", a, { configured: true, ready: false, identity: { configured: false } }); },
     async deletePrivateData(...a) { return rec("deletePrivateData", a, { ok: true }); },
     async newIdentitySecret(...a) { return rec("newIdentitySecret", a, { identitySecret: "cais_test" }); },
+    async draft(...a) { const o = ai.nextDraft; ai.nextDraft = undefined; return rec("draft", a, o ?? { draft: "Salam, sizə necə kömək edə bilərəm?", usage: { tokens: 20 } }); },
     async actions(...a) { return rec("actions", a, { configured: false, items: [], signing: { configured: false } }); },
     async setActions(...a) { return rec("setActions", a, { configured: true, items: [], signing: { configured: true }, signingSecret: "casig_test" }); },
     async deleteActions(...a) { return rec("deleteActions", a, { ok: true }); },

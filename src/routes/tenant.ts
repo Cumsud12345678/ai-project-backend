@@ -44,9 +44,11 @@ const isWaiting = (c: LiveChat) => {
   const last = c.messages[c.messages.length - 1];
   return c.status === "open" && (!last || last.from === "visitor") && (!c.operatorSeenAt || c.operatorSeenAt < (last?.at ?? c.createdAt));
 };
+import { AiError } from "../ai.js";
+import { parseCanned, parseTags } from "../helpdesk.js";
 const liveItem = (c: LiveChat) => {
   const last = c.messages[c.messages.length - 1];
-  return { id: c.id, channel: c.channel?.type ?? null, assignee: c.assignee ? { id: c.assignee.userId, name: c.assignee.name } : null, name: c.name, contact: c.contact, status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt, count: c.messages.length, waiting: isWaiting(c), last: last ? { from: last.from, text: last.text.slice(0, 160), at: last.at } : null };
+  return { id: c.id, channel: c.channel?.type ?? null, assignee: c.assignee ? { id: c.assignee.userId, name: c.assignee.name } : null, name: c.name, contact: c.contact, status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt, count: c.messages.length, waiting: isWaiting(c), tags: c.tags ?? [], csat: c.csat?.rating ?? null, notes: c.notes?.length ?? 0, last: last ? { from: last.from, text: last.text.slice(0, 160), at: last.at } : null };
 };
 
 export function tenantRoutes(deps: Deps) {
@@ -333,7 +335,8 @@ export function tenantRoutes(deps: Deps) {
     const { tenant: t } = await opTenant(currentUser(res));
     const status = req.query.status === "closed" ? "closed" : "open";
     const items = (await store.listLive(t.tenantId, status, 100)).map(liveItem);
-    res.json({ items });
+    const rated = items.filter((i) => typeof i.csat === "number") as { csat: number }[];
+    res.json({ items, csat: { count: rated.length, avg: rated.length ? Math.round((rated.reduce((a, b) => a + b.csat, 0) / rated.length) * 10) / 10 : null } });
   });
   // Komandanın götürdüyü söhbət: "Mən götürürəm" / buraxmaq
   r.post("/live/:id/claim", async (req, res) => {
@@ -388,6 +391,60 @@ export function tenantRoutes(deps: Deps) {
     res.status(201).json({ id: chat.id });
   });
 
+  // ---- Operator helpdesk: daxili qeydlər, etiketlər, hazır cavablar, AI qaralaması ----
+  const hdChat = async (user: User, id: string) => {
+    const x = await opTenant(user);
+    const chat = await store.getLive(x.tenant.tenantId, id);
+    if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
+    return { t: x.tenant, chat };
+  };
+  r.post("/live/:id/notes", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`live:note:${user.id}`, 40, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez qeyd yazırsan", "RATE_LIMITED");
+    const text = typeof req.body?.text === "string" ? req.body.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, " ").trim() : "";
+    if (!text || text.length > 1000) throw new HttpError(400, "Qeyd 1-1000 simvol olmalıdır");
+    const { t, chat } = await hdChat(user, String(req.params.id));
+    if ((chat.notes?.length ?? 0) >= 50) throw new HttpError(400, "Bir söhbətdə ən çox 50 qeyd ola bilər", "NOTES_FULL");
+    const notes = [...(chat.notes ?? []), { text, by: nameOf(user), at: new Date() }];
+    await store.patchLive(t.tenantId, chat.id, { notes });
+    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "note" });
+    res.status(201).json({ notes });
+  });
+  r.put("/live/:id/tags", async (req, res) => {
+    const user = currentUser(res);
+    const tags = parseTags(req.body?.tags);
+    const { t, chat } = await hdChat(user, String(req.params.id));
+    await store.patchLive(t.tenantId, chat.id, { tags });
+    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "tags" });
+    res.json({ tags });
+  });
+  // Hazır cavablar: hamı oxuyur (operatorlar da), yalnız sahib dəyişir
+  r.get("/canned", async (_req, res) => { const { tenant: t } = await opTenant(currentUser(res)); res.json({ items: t.canned ?? [] }); });
+  r.put("/canned", async (req, res) => {
+    const user = currentUser(res);
+    const t = await mine(user.id);
+    const items = parseCanned(req.body?.items);
+    await store.updateTenant(t.tenantId, { canned: items });
+    res.json({ items });
+  });
+  // AI qaralaması: operator mesajı özü yazır, AI yalnız təklif verir (heç nə ziyarətçiyə avtomatik getmir)
+  r.post("/live/:id/draft", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`live:draft:${user.id}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez qaralama istəyirsən", "RATE_LIMITED");
+    const { t, chat } = await hdChat(user, String(req.params.id));
+    if (!chat.messages.some((m) => m.from === "visitor")) throw new HttpError(400, "Ziyarətçi hələ yazmayıb", "NO_VISITOR_MESSAGE");
+    try {
+      const out = await ai.draft(t.tenantId, {
+        messages: chat.messages.filter((m) => m.from !== "system").slice(-12).map((m) => ({ from: m.from, text: m.text.slice(0, 600) })),
+        context: chat.context.slice(-6).map((m) => ({ role: m.role, text: m.text.slice(0, 400) })),
+      });
+      res.json({ draft: String(out.draft ?? "").slice(0, 1000) });
+    } catch (e) {
+      if (e instanceof AiError) throw new HttpError(e.status === 402 ? 402 : 502, e.status === 402 ? "Balans bitib, AI qaralaması mümkün deyil" : "AI qaralama hazırlaya bilmədi, bir az sonra yenidən cəhd et", e.code ?? "AI_FAILED");
+      throw e;
+    }
+  });
+
   r.get("/live/:id", async (req, res) => {
     const { tenant: t } = await opTenant(currentUser(res));
     const chat = await store.getLive(t.tenantId, String(req.params.id));
@@ -395,7 +452,7 @@ export function tenantRoutes(deps: Deps) {
     const lastAt = (chat.messages[chat.messages.length - 1]?.at ?? chat.createdAt).getTime();
     // "Gördüm" işarəsi yalnız yeni mesaj gələndə yenilənir (operator panelinin təkrar sorğuları sıralamanı pozmasın)
     const c = !chat.operatorSeenAt || chat.operatorSeenAt.getTime() < lastAt ? (await store.pushLive(t.tenantId, chat.id, null, { operatorSeenAt: new Date() })) ?? chat : chat;
-    res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt, channel: c.channel?.type ?? null, assignee: c.assignee ?? null } });
+    res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt, channel: c.channel?.type ?? null, assignee: c.assignee ?? null, notes: c.notes ?? [], tags: c.tags ?? [], csat: c.csat ?? null } });
   });
   // Real vaxt bağlantısı üçün qısa ömürlü bilet (panel WebSocket-i bununla açır; cookie portalın ünvanına getmir)
   r.post("/live/ws-ticket", async (req, res) => {

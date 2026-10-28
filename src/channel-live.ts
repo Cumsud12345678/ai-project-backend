@@ -1,5 +1,6 @@
 // Telegram/WhatsApp-da operatora keçid: müştəri "/operator" yazır → söhbət paneldəki "Canlı söhbət" siyahısına düşür, bot həmin söhbətdə susur,
 // operatorun cavabı həmin kanala gedir. Operator bitirəndə (və ya müştəri "/bot" yazanda) bot geri qayıdır.
+import { liveOpenNow } from "./helpdesk.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Deps } from "./deps.js";
 import { decryptSecret } from "./secrets.js";
@@ -30,7 +31,7 @@ export const LIVE_MSG = {
   failed: "Operatorun mesajı sizə çatdırıla bilmədi.",
 } as const;
 
-export const liveEnabled = (t: TenantRecord) => Boolean(t.widget?.live?.enabled);
+export const liveEnabled = (t: TenantRecord) => liveOpenNow(t);
 
 /** Operatorun mesajını müştərinin kanalına göndərir. Alınmasa xəta atır. */
 export async function deliverToChannel(deps: Deps, t: TenantRecord, chat: LiveChat, text: string): Promise<void> {

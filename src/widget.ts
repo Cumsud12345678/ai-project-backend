@@ -3,6 +3,7 @@
 // portal isə həmin müştəri üçün AI servisini öz service tokeni ilə çağırır.
 import { notifyTeam } from "./team.js";
 import { publicConfirm } from "./action-card.js";
+import { liveOpenNow, parseHours, parseProactive } from "./helpdesk.js";
 import { checkBase64Image, imageEnabled } from "./image-input.js";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -113,7 +114,12 @@ export function parseWidgetPatch(body: unknown, current: WidgetSettings): Widget
   if (b.live !== undefined) {
     const l = (b.live && typeof b.live === "object" ? b.live : null) as Record<string, unknown> | null;
     if (!l || typeof l.enabled !== "boolean") throw new HttpError(400, "live.enabled true/false olmalıdır");
-    next.live = { enabled: l.enabled };
+    if (l.csat !== undefined && typeof l.csat !== "boolean") throw new HttpError(400, "live.csat true/false olmalıdır");
+    next.live = { enabled: l.enabled, csat: l.csat !== undefined ? l.csat : current.live?.csat, hours: l.hours !== undefined ? parseHours(l.hours) : current.live?.hours ?? null };
+    if (next.live.csat === undefined) delete next.live.csat;
+  }
+  if (b.proactive !== undefined) {
+    next.proactive = parseProactive(b.proactive);
   }
   if (b.limits !== undefined) {
     const l = (b.limits && typeof b.limits === "object" ? b.limits : null) as Record<string, unknown> | null;
@@ -217,7 +223,7 @@ export function widgetRoutes(deps: Deps) {
     const mode = modeOf(wt.config);
     // Quraşdırmanın işlədiyini göstərmək üçün: ən çox 10 dəqiqədən bir yazılır
     if (!w.lastSeenAt || Date.now() - new Date(w.lastSeenAt).getTime() > 10 * 60_000) void store.touchWidget(wt.tenantId, new Date()).catch(() => {});
-    res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, mode, contact: true, live: Boolean(w.live?.enabled), // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
+    res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, mode, contact: true, live: liveOpenNow(wt), csat: w.live?.csat !== false, proactive: w.proactive?.enabled ? w.proactive.rules.map((r) => ({ id: r.id, text: r.text, delaySec: r.delaySec, match: r.match })) : [], // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
       theme: w.theme ?? "light", brand: wt.brandRemoved ? null : { name: deps.config.brandName, url: deps.config.brandUrl }, imageSearch: imageEnabled(wt), ...(w.logo && { logo: logoUrl(deps.config.publicPortalUrl, w) }) });
   });
 
@@ -335,6 +341,7 @@ export function widgetRoutes(deps: Deps) {
   r.post("/widget/:key/live", access, async (req, res) => {
     const t = res.locals.widgetTenant as TenantRecord;
     if (!t.widget?.live?.enabled) throw new HttpError(404, "Canlı söhbət söndürülüb", "LIVE_OFF");
+    if (!liveOpenNow(t)) throw new HttpError(409, "Operatorlar hazırda işləmir, əlaqə qoyun", "OUTSIDE_HOURS");
     const key = t.widget.key, ip = req.ip ?? "unknown";
     if (!limiter.hit(`w:live:${key}:${ip}`, 5, 10 * 60_000) || !limiter.hit(`w:liveday:${key}:${ip}`, 20, 24 * 60 * 60_000) || !limiter.hit(`w:livekey:${key}`, 200, 60 * 60_000))
       throw new HttpError(429, "Çox sayda söhbət başladıldı, bir az sonra yenidən cəhd et", "RATE_LIMITED");
@@ -379,6 +386,23 @@ export function widgetRoutes(deps: Deps) {
       return void res.json(liveView(next ?? chat, after));
     }
     res.json(liveView(chat, after));
+  });
+
+  // Söhbət bağlananda ziyarətçinin qiyməti (1-5): yalnız bağlı söhbət, token sahibi, bir dəfə
+  r.post("/widget/:key/live/:id/csat", access, async (req, res) => {
+    const t = res.locals.widgetTenant as TenantRecord;
+    const b = req.body ?? {};
+    const id = String(req.params.id ?? "");
+    const chat = id.length <= 60 ? await store.getLive(t.tenantId, id) : null;
+    if (!chat || !sameToken(b.token, chat.tokenHash)) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
+    if (!limiter.hit(`w:csat:${id}`, 12, 60 * 60_000)) throw new HttpError(429, "Çox tez-tez sorğu", "RATE_LIMITED");
+    if (chat.status !== "closed") throw new HttpError(409, "Söhbət hələ bağlanmayıb", "LIVE_OPEN");
+    if (chat.csat) throw new HttpError(409, "Qiymət artıq verilib", "CSAT_DONE");
+    if (typeof b.rating !== "number" || !Number.isInteger(b.rating) || b.rating < 1 || b.rating > 5) throw new HttpError(400, "Qiymət 1-5 arası tam ədəd olmalıdır");
+    const comment = typeof b.comment === "string" ? b.comment.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 300) : "";
+    await store.patchLive(t.tenantId, id, { csat: { rating: b.rating, ...(comment && { comment }), at: new Date() } });
+    hub.toOperators(t.tenantId, { t: "live", id, kind: "csat" });
+    res.status(201).json({ ok: true });
   });
 
   // Cavaba 👍/👎. Sual və cavab mətni yalnız sorğu jurnalı açıqdırsa saxlanır.

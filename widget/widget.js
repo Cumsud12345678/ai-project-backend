@@ -123,9 +123,9 @@
   var L = (function () {
     var lang = ((document.documentElement.lang || navigator.language || "az") + "").slice(0, 2).toLowerCase();
     var T = {
-      az: { poweredBy: "Hazırlayan:", actYes: "Təsdiq et", actExpired: "Bu təsdiqin vaxtı keçib. Əməliyyatı yenidən istəyin.", actUnknown: "Əməliyyatın icra olunub-olunmadığı bəlli deyil. Təkrar etməyin, operatorla yoxlayın.", actFail: "Təsdiqlənə bilmədi, əməliyyat icra olunmayıb. Yenidən cəhd edin.", actWait: "Gözləyin…", actCheck: "Əməliyyatı yoxlayın:", src: "Mənbə:", offline: "Çat hazırda cavab vermir. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", contact: "Operatorla əlaqə", name: "Adınız (ixtiyari)", cont: "Telefon və ya e-poçt", send: "Göndər", ok: "Təşəkkürlər! Müraciətiniz qəbul edildi, tezliklə sizinlə əlaqə saxlayacağıq.", bad: "Düzgün telefon nömrəsi və ya e-poçt yazın", fail: "Göndərilə bilmədi, bir azdan yenidən cəhd edin", cancel: "Ləğv et", fresh: "Yeni söhbət", toDark: "Gecə rejimi", toLight: "Gündüz rejimi", photoAdd: "Şəkil əlavə et", photoDel: "Şəkli sil", photoBad: "Şəkil oxuna bilmədi. PNG, JPG və ya WebP seçin.", photoSent: "Şəkil göndərildi", live: "Operatorla canlı yaz", liveStart: "Operatora qoşuldunuz. Mesajınızı yazın, cavab gələndə burada görəcəksiniz.", opTyping: "Operator yazır…", liveMailPh: "E-poçt (ixtiyari)", liveMailHint: "Çatdan çıxsanız, operatorun cavabını e-poçtla göndərək.", liveBack: "AI-a qayıt", liveWait: "Operator hələ cavab verməyib. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", liveEnd: "Operator söhbəti bitirdi. Yeni sual yazsanız, yenidən AI cavab verəcək.", liveFail: "Mesaj göndərilmədi, yenidən cəhd edin", livePh: "Operatora mesaj yazın…", op: "Operator", up: "Cavab faydalı idi", down: "Cavab faydalı deyildi", thanks: "Təşəkkürlər!", limit: "Bu gün üçün sual limitinə çatdınız. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", busy: "Çat hazırda çox yüklüdür. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq." },
-      en: { poweredBy: "Powered by", actYes: "Confirm", actExpired: "This confirmation has expired. Please ask for the action again.", actUnknown: "It is not known whether the action was carried out. Do not repeat it; check with an operator.", actFail: "Could not confirm; the action was not carried out. Please try again.", actWait: "Please wait…", actCheck: "Please check the action:", src: "Source:", offline: "The chat can't answer right now. Leave your contact and we'll get back to you.", contact: "Contact an operator", name: "Your name (optional)", cont: "Phone or email", send: "Send", ok: "Thank you! Your request was received, we'll contact you soon.", bad: "Enter a valid phone number or email", fail: "Could not send, please try again shortly", cancel: "Cancel", fresh: "New chat", toDark: "Night mode", toLight: "Day mode", photoAdd: "Attach a photo", photoDel: "Remove photo", photoBad: "Couldn't read the image. Choose PNG, JPG or WebP.", photoSent: "Photo sent", live: "Chat with an operator", liveStart: "You are connected to an operator. Type your message, replies will appear here.", opTyping: "Operator is typing…", liveMailPh: "Email (optional)", liveMailHint: "If you leave the chat, we will email you the operator's reply.", liveBack: "Back to AI", liveWait: "The operator has not replied yet. Leave your contact and we'll get back to you.", liveEnd: "The operator ended the chat. Write a new question and the AI will answer again.", liveFail: "Message not sent, please try again", livePh: "Message the operator…", op: "Operator", up: "Helpful answer", down: "Not helpful", thanks: "Thanks!", limit: "You have reached today's question limit. Leave your contact and we'll get back to you.", busy: "The chat is very busy right now. Leave your contact and we'll get back to you." },
-      ru: { poweredBy: "Работает на", actYes: "Подтвердить", actExpired: "Срок подтверждения истёк. Запросите действие заново.", actUnknown: "Неизвестно, выполнено ли действие. Не повторяйте его, уточните у оператора.", actFail: "Не удалось подтвердить, действие не выполнено. Попробуйте ещё раз.", actWait: "Подождите…", actCheck: "Проверьте действие:", src: "Источник:", offline: "Чат сейчас не может ответить. Оставьте контакт, и мы свяжемся с вами.", contact: "Связаться с оператором", name: "Ваше имя (необязательно)", cont: "Телефон или e-mail", send: "Отправить", ok: "Спасибо! Ваше обращение принято, мы скоро свяжемся с вами.", bad: "Введите корректный телефон или e-mail", fail: "Не удалось отправить, попробуйте позже", cancel: "Отмена", fresh: "Новый чат", toDark: "Ночной режим", toLight: "Дневной режим", photoAdd: "Прикрепить фото", photoDel: "Убрать фото", photoBad: "Не удалось прочитать изображение. Выберите PNG, JPG или WebP.", photoSent: "Фото отправлено", live: "Написать оператору", liveStart: "Вы подключены к оператору. Напишите сообщение, ответ появится здесь.", opTyping: "Оператор печатает…", liveMailPh: "E-mail (необязательно)", liveMailHint: "Если вы выйдете из чата, мы отправим ответ оператора на e-mail.", liveBack: "Назад к ИИ", liveWait: "Оператор пока не ответил. Оставьте контакт, и мы свяжемся с вами.", liveEnd: "Оператор завершил чат. Напишите новый вопрос, и снова ответит ИИ.", liveFail: "Сообщение не отправлено, попробуйте ещё раз", livePh: "Сообщение оператору…", op: "Оператор", up: "Ответ полезен", down: "Ответ не полезен", thanks: "Спасибо!", limit: "Вы достигли лимита вопросов на сегодня. Оставьте контакт, и мы свяжемся с вами.", busy: "Чат сейчас сильно загружен. Оставьте контакт, и мы свяжемся с вами." },
+      az: { poweredBy: "Hazırlayan:", csatQ: "Operatorun xidmətini qiymətləndirin", proClose: "Bağla", actYes: "Təsdiq et", actExpired: "Bu təsdiqin vaxtı keçib. Əməliyyatı yenidən istəyin.", actUnknown: "Əməliyyatın icra olunub-olunmadığı bəlli deyil. Təkrar etməyin, operatorla yoxlayın.", actFail: "Təsdiqlənə bilmədi, əməliyyat icra olunmayıb. Yenidən cəhd edin.", actWait: "Gözləyin…", actCheck: "Əməliyyatı yoxlayın:", src: "Mənbə:", offline: "Çat hazırda cavab vermir. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", contact: "Operatorla əlaqə", name: "Adınız (ixtiyari)", cont: "Telefon və ya e-poçt", send: "Göndər", ok: "Təşəkkürlər! Müraciətiniz qəbul edildi, tezliklə sizinlə əlaqə saxlayacağıq.", bad: "Düzgün telefon nömrəsi və ya e-poçt yazın", fail: "Göndərilə bilmədi, bir azdan yenidən cəhd edin", cancel: "Ləğv et", fresh: "Yeni söhbət", toDark: "Gecə rejimi", toLight: "Gündüz rejimi", photoAdd: "Şəkil əlavə et", photoDel: "Şəkli sil", photoBad: "Şəkil oxuna bilmədi. PNG, JPG və ya WebP seçin.", photoSent: "Şəkil göndərildi", live: "Operatorla canlı yaz", liveStart: "Operatora qoşuldunuz. Mesajınızı yazın, cavab gələndə burada görəcəksiniz.", opTyping: "Operator yazır…", liveMailPh: "E-poçt (ixtiyari)", liveMailHint: "Çatdan çıxsanız, operatorun cavabını e-poçtla göndərək.", liveBack: "AI-a qayıt", liveWait: "Operator hələ cavab verməyib. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", liveEnd: "Operator söhbəti bitirdi. Yeni sual yazsanız, yenidən AI cavab verəcək.", liveFail: "Mesaj göndərilmədi, yenidən cəhd edin", livePh: "Operatora mesaj yazın…", op: "Operator", up: "Cavab faydalı idi", down: "Cavab faydalı deyildi", thanks: "Təşəkkürlər!", limit: "Bu gün üçün sual limitinə çatdınız. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", busy: "Çat hazırda çox yüklüdür. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq." },
+      en: { poweredBy: "Powered by", csatQ: "Please rate the operator's help", proClose: "Close", actYes: "Confirm", actExpired: "This confirmation has expired. Please ask for the action again.", actUnknown: "It is not known whether the action was carried out. Do not repeat it; check with an operator.", actFail: "Could not confirm; the action was not carried out. Please try again.", actWait: "Please wait…", actCheck: "Please check the action:", src: "Source:", offline: "The chat can't answer right now. Leave your contact and we'll get back to you.", contact: "Contact an operator", name: "Your name (optional)", cont: "Phone or email", send: "Send", ok: "Thank you! Your request was received, we'll contact you soon.", bad: "Enter a valid phone number or email", fail: "Could not send, please try again shortly", cancel: "Cancel", fresh: "New chat", toDark: "Night mode", toLight: "Day mode", photoAdd: "Attach a photo", photoDel: "Remove photo", photoBad: "Couldn't read the image. Choose PNG, JPG or WebP.", photoSent: "Photo sent", live: "Chat with an operator", liveStart: "You are connected to an operator. Type your message, replies will appear here.", opTyping: "Operator is typing…", liveMailPh: "Email (optional)", liveMailHint: "If you leave the chat, we will email you the operator's reply.", liveBack: "Back to AI", liveWait: "The operator has not replied yet. Leave your contact and we'll get back to you.", liveEnd: "The operator ended the chat. Write a new question and the AI will answer again.", liveFail: "Message not sent, please try again", livePh: "Message the operator…", op: "Operator", up: "Helpful answer", down: "Not helpful", thanks: "Thanks!", limit: "You have reached today's question limit. Leave your contact and we'll get back to you.", busy: "The chat is very busy right now. Leave your contact and we'll get back to you." },
+      ru: { poweredBy: "Работает на", csatQ: "Оцените помощь оператора", proClose: "Закрыть", actYes: "Подтвердить", actExpired: "Срок подтверждения истёк. Запросите действие заново.", actUnknown: "Неизвестно, выполнено ли действие. Не повторяйте его, уточните у оператора.", actFail: "Не удалось подтвердить, действие не выполнено. Попробуйте ещё раз.", actWait: "Подождите…", actCheck: "Проверьте действие:", src: "Источник:", offline: "Чат сейчас не может ответить. Оставьте контакт, и мы свяжемся с вами.", contact: "Связаться с оператором", name: "Ваше имя (необязательно)", cont: "Телефон или e-mail", send: "Отправить", ok: "Спасибо! Ваше обращение принято, мы скоро свяжемся с вами.", bad: "Введите корректный телефон или e-mail", fail: "Не удалось отправить, попробуйте позже", cancel: "Отмена", fresh: "Новый чат", toDark: "Ночной режим", toLight: "Дневной режим", photoAdd: "Прикрепить фото", photoDel: "Убрать фото", photoBad: "Не удалось прочитать изображение. Выберите PNG, JPG или WebP.", photoSent: "Фото отправлено", live: "Написать оператору", liveStart: "Вы подключены к оператору. Напишите сообщение, ответ появится здесь.", opTyping: "Оператор печатает…", liveMailPh: "E-mail (необязательно)", liveMailHint: "Если вы выйдете из чата, мы отправим ответ оператора на e-mail.", liveBack: "Назад к ИИ", liveWait: "Оператор пока не ответил. Оставьте контакт, и мы свяжемся с вами.", liveEnd: "Оператор завершил чат. Напишите новый вопрос, и снова ответит ИИ.", liveFail: "Сообщение не отправлено, попробуйте ещё раз", livePh: "Сообщение оператору…", op: "Оператор", up: "Ответ полезен", down: "Ответ не полезен", thanks: "Спасибо!", limit: "Вы достигли лимита вопросов на сегодня. Оставьте контакт, и мы свяжемся с вами.", busy: "Чат сейчас сильно загружен. Оставьте контакт, и мы свяжемся с вами." },
     };
     return T[lang] || T.az;
   })();
@@ -232,6 +232,13 @@
     ".cform .row button{flex:1;border-radius:8px;padding:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--border2);background:var(--bg);color:var(--fg)}",
     ".cform .row button.go{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}",
     ".cform .row button:disabled{opacity:.5;cursor:default}",
+    ".csat{align-self:flex-start;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px 12px;font-size:13px;color:var(--fg);display:flex;flex-direction:column;gap:6px}",
+    ".csat .stars{display:flex;gap:4px}",
+    ".csat .stars button{border:0;background:none;font-size:24px;line-height:1;cursor:pointer;color:var(--muted);padding:2px}",
+    ".csat .stars button:hover,.csat .stars button:focus-visible{color:#f59e0b}",
+    ".pro{position:fixed;bottom:calc(var(--cy) + 68px);" + position + ":var(--cx);max-width:min(260px,calc(100vw - 2 * var(--cx)));background:var(--bg);color:var(--fg);border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.22);z-index:var(--ca-z);animation:hintIn .35s ease both;display:flex;align-items:flex-start}",
+    ".pro .prot{border:0;background:none;color:inherit;font-size:14px;font-weight:600;text-align:left;cursor:pointer;padding:12px 4px 12px 14px;line-height:1.35}",
+    ".pro .prox{border:0;background:none;color:var(--muted);font-size:18px;cursor:pointer;padding:6px 10px;line-height:1}",
     ".acard{align-self:flex-start;max-width:92%;background:var(--bg);border:1px solid var(--accent-t);border-radius:12px;padding:10px 12px;font-size:13px;color:var(--fg);display:flex;flex-direction:column;gap:6px}",
     ".acard b{font-size:14px}",
     ".acard .ad{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;color:var(--muted)}",
@@ -284,9 +291,9 @@
     ".send{border:0;border-radius:10px;background:var(--accent);color:var(--accent-fg);padding:0 14px;height:38px;font-size:14px;font-weight:600;cursor:pointer}",
     ".send:disabled{opacity:.5;cursor:default}",
     // Cari pillənin məsafələri --cx/--cy-yə yazılır (lg defolt, sonra md, sonra sm). Sm-də çat tam ekrandır.
-    ".launcher,.panel,.hint{--cx:var(--ca-side);--cy:var(--ca-bottom)}",
-    "@media " + MQ_MD + "{.launcher,.panel,.hint{--cx:var(--ca-side-md);--cy:var(--ca-bottom-md)}}",
-    "@media " + MQ_SM + "{.launcher,.panel,.hint{--cx:var(--ca-side-m,var(--ca-side-sm));--cy:var(--ca-bottom-m,var(--ca-bottom-sm))}.panel{inset:0;width:100%;max-width:none;height:100%;max-height:none;border-radius:0;border:0}}",
+    ".launcher,.panel,.hint,.pro{--cx:var(--ca-side);--cy:var(--ca-bottom)}",
+    "@media " + MQ_MD + "{.launcher,.panel,.hint,.pro{--cx:var(--ca-side-md);--cy:var(--ca-bottom-md)}}",
+    "@media " + MQ_SM + "{.launcher,.panel,.hint,.pro{--cx:var(--ca-side-m,var(--ca-side-sm));--cy:var(--ca-bottom-m,var(--ca-bottom-sm))}.panel{inset:0;width:100%;max-width:none;height:100%;max-height:none;border-radius:0;border:0}}",
   ].join("");
 
   var ICON_CHAT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
@@ -662,6 +669,21 @@
       clearTimeout(pollTimer); clearTimeout(noReplyTimer); wsClose();
       state.live = null; save(); updateLiveUi();
     }
+    // Söhbət bitəndən sonra 1-5 ulduz qiyməti (yalnız operator cavab veribsə)
+    function csatBox(id, token) {
+      var box = el("div", { class: "csat" }, [el("div", { text: L.csatQ })]);
+      var row = el("div", { class: "stars" });
+      for (var i = 1; i <= 5; i++) (function (n) {
+        var b = el("button", { type: "button", "aria-label": String(n), text: "\u2605" });
+        b.addEventListener("click", function () {
+          Array.prototype.forEach.call(row.children, function (x) { x.disabled = true; });
+          fetch(api + "/live/" + id + "/csat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: token, rating: n }) }).catch(function () { /* qiymət vacib deyil */ });
+          box.textContent = ""; box.appendChild(el("div", { text: L.thanks }));
+        });
+        row.appendChild(b);
+      })(i);
+      box.appendChild(row); log.appendChild(box);
+    }
     function applyLive(d) {
       var gotOperator = false;
       var list = d.messages || [];
@@ -681,7 +703,11 @@
         if (!state.open && state.live && d.total > (state.live.seen || 0)) launcher.classList.add("dot"); // yalnız oxunmamış cavab
       }
       if (state.live) { state.live.after = d.total; if (state.open) state.live.seen = d.total; }
-      if (d.status === "closed") dropLive(); else save();
+      if (d.status === "closed") {
+        var lv0 = state.live;
+        if (lv0 && lv0.id && cfg.csat !== false && state.messages.some(function (m) { return m.live && m.role === "operator"; })) csatBox(lv0.id, lv0.token);
+        dropLive();
+      } else save();
       newBtn.hidden = false;
       scroll();
     }
@@ -759,6 +785,7 @@
 
     function setOpen(v) {
       state.open = !!v;
+      if (state.open) proHide();
       if (state.open && state.live && state.live.after) state.live.seen = state.live.after;
       panel.classList.toggle("open", state.open);
       launcher.setAttribute("aria-expanded", String(state.open));
@@ -882,10 +909,37 @@
         return normPath(pat) === path;
       });
     };
+
+    // ---------- proaktiv mesajlar: ziyarətçi yazmadan, şərtə görə balon ----------
+    var proRules = Array.isArray(cfg.proactive) ? cfg.proactive : [];
+    var proEl = null, proTimers = [], PRO_KEY = STORE + "_pro";
+    function proMem() { try { return JSON.parse(sessionStorage.getItem(PRO_KEY) || "{}") || {}; } catch (e) { return {}; } }
+    function proMark(id) { try { var m = proMem(); m[id] = Date.now(); sessionStorage.setItem(PRO_KEY, JSON.stringify(m)); } catch (e) { /* məxfi rejim */ } }
+    function proHide() { if (proEl) { proEl.remove(); proEl = null; } }
+    function proShow(text, id) {
+      text = String(text || "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 140);
+      if (!text || state.open || proEl || state.live || state.messages.length > 0) return;
+      var t = el("button", { class: "prot", type: "button", text: text });
+      var x = el("button", { class: "prox", type: "button", "aria-label": L.proClose, text: "\u00d7" });
+      proEl = el("div", { class: "pro", role: "status" }, [t, x]);
+      root.appendChild(proEl); proMark(id);
+      t.addEventListener("click", function () { proHide(); state.messages.push({ role: "model", text: text }); save(); setOpen(true); render(); });
+      x.addEventListener("click", function () { proHide(); });
+    }
+    function schedulePro(path, visible) {
+      proTimers.forEach(clearTimeout); proTimers = []; proHide();
+      if (!visible || !proRules.length) return;
+      var mem = proMem();
+      proRules.forEach(function (r) {
+        if (mem[r.id] || !pathMatches(String(r.match || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean), path)) return;
+        proTimers.push(setTimeout(function () { proShow(r.text, r.id); }, Math.max(3, Number(r.delaySec) || 10) * 1000));
+      });
+    }
     var shown = true;
     function applyRoute() {
       var path = normPath(location.pathname);
       var ok = (!showOn || pathMatches(showOn, path)) && !(hideOn && pathMatches(hideOn, path));
+      schedulePro(path, ok);
       if (ok === shown) return;
       shown = ok;
       host.style.display = ok ? "" : "none";
@@ -893,7 +947,7 @@
     }
     var onRoute = function () { setTimeout(applyRoute, 0); };
     var restore = [];
-    if (showOn || hideOn) {
+    if (showOn || hideOn || proRules.length) {
       ["pushState", "replaceState"].forEach(function (fn) {
         var orig = history[fn];
         if (typeof orig !== "function") return;
@@ -910,8 +964,11 @@
       open: function () { setOpen(true); },
       close: function () { setOpen(false); },
       toggle: function () { setOpen(!state.open); },
+      // Saytın öz şərti üçün (məs. səbətdə məhsul qalıb): CarAdvisor.proactive("Sifarişi tamamlamaqda kömək edək?"); 30 dəqiqədə bir dəfə
+      proactive: function (text) { var m = proMem(); if (m.api && Date.now() - m.api < 30 * 60000) return; proShow(text, "api"); },
       // Vidjeti tam silir (məs. React komponentinin useEffect təmizləməsində). Skript yenidən yüklənsə yenidən qurulur.
       destroy: function () {
+        proTimers.forEach(clearTimeout); proHide();
         if (state.open) setOpen(false);
         window.removeEventListener("popstate", onRoute); window.removeEventListener("hashchange", onRoute);
         restore.forEach(function (f) { f(); });

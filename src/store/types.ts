@@ -5,6 +5,12 @@ export type Session = { tokenHash: string; userId: string; expiresAt: Date };
 export type CodePurpose = "verify" | "reset";
 export type CodeRecord = { email: string; purpose: CodePurpose; codeHash: string; expiresAt: Date; attempts: number; sentAt: Date };
 
+/** Həftənin 7 günü (0 = bazar, JS getDay). null = həmin gün işləmir. Saat "HH:MM", gecəni keçən aralıq yoxdur. */
+export type WorkHours = { tz: string; days: ({ from: string; to: string } | null)[] };
+export type ProactiveRule = { id: string; text: string; /** səhifədə neçə saniyə qaldıqdan sonra */ delaySec: number; /** yol şablonu: "/", "/products/*", "*" (vergüllə) */ match: string };
+export type LiveNote = { text: string; by: string; at: Date };
+export type CannedReply = { id: string; title: string; text: string };
+
 /** Müştəri saytına qoyulan çat vidjetinin ayarları. `key` ictimaidir (brauzerdə görünür), sirr deyil. */
 export type WidgetSettings = {
   key: string;
@@ -23,7 +29,9 @@ export type WidgetSettings = {
   /** Çat istifadə limitləri (0 = limitsiz). Olmayanda defolt: ziyarətçi başına gündə 30 mesaj, sayt üzrə limitsiz. */
   limits?: { perVisitorDay: number; siteHour: number };
   /** Canlı operator söhbəti: ziyarətçi operatorla panel vasitəsilə yazışır. Defolt: söndürülüb (operator panelə baxmalıdır). */
-  live?: { enabled: boolean };
+  live?: { enabled: boolean; /** Söhbət bağlananda ziyarətçidən 1-5 qiymət istənir (defolt: aktiv) */ csat?: boolean; /** İşçi saatları: kənarda canlı operator düyməsi gizlənir, əlaqə forması göstərilir */ hours?: WorkHours | null };
+  /** Proaktiv mesajlar: ziyarətçi yazmadan, şərtə görə çat düyməsinin yanında qısa təklif göstərilir. */
+  proactive?: { enabled: boolean; rules: ProactiveRule[] };
   /** Vidjet scriptinin müştəri saytında son dəfə yükləndiyi vaxt (quraşdırmanın işlədiyini göstərir). */
   lastSeenAt?: Date;
 };
@@ -49,6 +57,8 @@ export type TenantRecord = {
   team?: TeamMember[];
   telegram?: TelegramLink | null;
   whatsapp?: WhatsAppLink | null;
+  /** Hazır cavablar: operatorlar söhbətdə bir kliklə mesaja əlavə edir */
+  canned?: CannedReply[];
 };
 
 /** Müştərinin Telegram botu. Token şifrələnmiş saxlanır, panelə qayıtmır. `hook` webhook ünvanındakı təsadüfi hissədir, `secret` Telegram-ın hər sorğuya qoyduğu başlıqdır. */
@@ -88,6 +98,11 @@ export type LiveChat = {
   assignee?: { userId: string; name: string } | null;
   /** Telegram/WhatsApp-dan gələn söhbət: operatorun cavabı bu kanala göndərilir, açıq olduqca bot həmin söhbətdə susur. `ref` WhatsApp-da tam JID-dir. */
   channel?: { type: "telegram" | "whatsapp"; chatId: string; ref?: string };
+  /** Daxili qeydlər: yalnız komanda görür, ziyarətçiyə getmir */
+  notes?: LiveNote[];
+  tags?: string[];
+  /** Ziyarətçinin söhbət bağlananda verdiyi qiymət (1-5) */
+  csat?: { rating: number; comment?: string; at: Date };
 };
 export type FeedbackRecord = { tenantId: string; rating: 1 | -1; question: string; answer: string; at: Date };
 
@@ -135,7 +150,7 @@ export interface Store {
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
   /** Yalnız vidjet loqosunu dəyişir (bütün vidjet sənədini yenidən yazmır). null = sil. */
   setWidgetLogo(tenantId: string, logo: NonNullable<WidgetSettings["logo"]> | null): Promise<void>;
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved" | "canned">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;
@@ -147,7 +162,7 @@ export interface Store {
   /** Mesaj əlavə edir (ən çox 300) və sahələri yeniləyir; söhbət tapılmasa null. */
   pushLive(tenantId: string, id: string, msg: LiveMessage | null, patch?: Partial<Pick<LiveChat, "status" | "operatorSeenAt" | "visitorSeenAt" | "name" | "contact" | "assignee">>): Promise<LiveChat | null>;
   /** updatedAt-a toxunmadan yalnız izləmə sahələrini yeniləyir */
-  patchLive(tenantId: string, id: string, patch: Partial<Pick<LiveChat, "visitorSeenAt" | "notifiedAt" | "notifyCount">>): Promise<void>;
+  patchLive(tenantId: string, id: string, patch: Partial<Pick<LiveChat, "visitorSeenAt" | "notifiedAt" | "notifyCount" | "notes" | "tags" | "csat">>): Promise<void>;
   findLiveByChannel(tenantId: string, type: "telegram" | "whatsapp", chatId: string): Promise<LiveChat | null>;
   listLive(tenantId: string, status: "open" | "closed", limit: number): Promise<LiveChat[]>;
   deleteLiveForTenant(tenantId: string): Promise<void>;
