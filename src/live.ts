@@ -23,6 +23,7 @@ const T = {
   az: { subject: (b: string) => `${b}: operator sizə cavab verdi`, intro: "Saytdakı canlı söhbətdə operator sizə cavab yazdı:", more: "Daha çox mesaj ola bilər. Söhbətə qayıtmaq üçün saytı açın:", foot: "Bu məktub saytda canlı söhbətdə e-poçtunuzu yazdığınız üçün göndərilib. Bu sizə aid deyilsə, məktuba məhəl qoymayın." },
   en: { subject: (b: string) => `${b}: an operator replied to you`, intro: "An operator replied to you in the live chat on the website:", more: "There may be more messages. Open the website to continue the chat:", foot: "You received this because you entered your email in the live chat. If this is not for you, please ignore it." },
   ru: { subject: (b: string) => `${b}: оператор ответил вам`, intro: "Оператор ответил вам в онлайн-чате на сайте:", more: "Возможно, есть и другие сообщения. Откройте сайт, чтобы продолжить чат:", foot: "Вы получили это письмо, потому что указали e-mail в онлайн-чате. Если оно не для вас, просто проигнорируйте его." },
+  tr: { subject: (b: string) => `${b}: operatör size yanıt verdi`, intro: "Sitedeki canlı sohbette operatör size yanıt yazdı:", more: "Başka mesajlar da olabilir. Sohbete dönmek için siteyi açın:", foot: "Bu e-postayı canlı sohbette e-postanızı girdiğiniz için aldınız. Size ait değilse lütfen dikkate almayın." },
 } as const;
 
 const siteUrl = (domain: string) => `https://${String(domain).replace(/^https?:\/\//i, "").replace(/\/.*$/, "")}`;
