@@ -19,7 +19,8 @@ export function createApp(deps: Deps) {
     next();
   });
   const smallJson = express.json({ limit: "200kb" });
-  app.use((req, res, next) => (req.path === "/tenant/kb/files" ? next() : smallJson(req, res, next))); // fayl yükləmə öz limitini qoyur
+  const imageJson = express.json({ limit: "3.5mb" }); // şəkilli sual (base64) yalnız vidjet çatında
+  app.use((req, res, next) => (req.path === "/tenant/kb/files" ? next() : /^\/widget\/[^/]+\/chat$/.test(req.path) ? imageJson(req, res, next) : smallJson(req, res, next))); // fayl yükləmə öz limitini qoyur
   app.get("/health", (_req, res) => { res.json({ ok: true }); });
 
   // Müştəri saytlarından çağırılan ictimai vidjet route-ları (öz CORS/origin yoxlaması var).

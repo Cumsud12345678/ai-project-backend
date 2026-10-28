@@ -74,6 +74,8 @@ export type LiveChat = {
   /** Ziyarətçiyə operator cavabı barədə axırıncı e-poçt və göndərilən sayı. */
   notifiedAt?: Date;
   notifyCount?: number;
+  /** Telegram/WhatsApp-dan gələn söhbət: operatorun cavabı bu kanala göndərilir, açıq olduqca bot həmin söhbətdə susur. `ref` WhatsApp-da tam JID-dir. */
+  channel?: { type: "telegram" | "whatsapp"; chatId: string; ref?: string };
 };
 export type FeedbackRecord = { tenantId: string; rating: 1 | -1; question: string; answer: string; at: Date };
 
@@ -129,9 +131,10 @@ export interface Store {
   createLive(c: LiveChat): Promise<void>;
   getLive(tenantId: string, id: string): Promise<LiveChat | null>;
   /** Mesaj əlavə edir (ən çox 300) və sahələri yeniləyir; söhbət tapılmasa null. */
-  pushLive(tenantId: string, id: string, msg: LiveMessage | null, patch?: Partial<Pick<LiveChat, "status" | "operatorSeenAt" | "name" | "contact">>): Promise<LiveChat | null>;
+  pushLive(tenantId: string, id: string, msg: LiveMessage | null, patch?: Partial<Pick<LiveChat, "status" | "operatorSeenAt" | "visitorSeenAt" | "name" | "contact">>): Promise<LiveChat | null>;
   /** updatedAt-a toxunmadan yalnız izləmə sahələrini yeniləyir */
   patchLive(tenantId: string, id: string, patch: Partial<Pick<LiveChat, "visitorSeenAt" | "notifiedAt" | "notifyCount">>): Promise<void>;
+  findLiveByChannel(tenantId: string, type: "telegram" | "whatsapp", chatId: string): Promise<LiveChat | null>;
   listLive(tenantId: string, status: "open" | "closed", limit: number): Promise<LiveChat[]>;
   deleteLiveForTenant(tenantId: string): Promise<void>;
 

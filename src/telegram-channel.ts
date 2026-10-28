@@ -2,6 +2,7 @@
 // Panel marşrutları: /tenant/channels/telegram (token qoşmaq/çıxarmaq). İctimai marşrut: POST /telegram/:hook (yalnız Telegram).
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { Router } from "express";
+import { IMAGE_MAX_BYTES } from "./image-input.js";
 import { MAX_TEXT, clip, dedupe, formatReply, handleChat } from "./channel-chat.js";
 import type { Deps } from "./deps.js";
 import { recordError } from "./errorlog.js";
@@ -16,7 +17,7 @@ const HOOK_RE = /^[a-f0-9]{24}$/;
 
 export { formatReply };
 
-type Update = { update_id?: number; message?: { text?: string; chat?: { id?: number; type?: string }; from?: { first_name?: string; username?: string; is_bot?: boolean } } };
+type Update = { update_id?: number; message?: { text?: string; caption?: string; photo?: { file_id?: string; file_size?: number; width?: number; height?: number }[]; chat?: { id?: number; type?: string }; from?: { first_name?: string; username?: string; is_bot?: boolean } } };
 
 /** Bir Telegram yeniləməsini emal edir. Xətalar yuxarıda jurnala yazılır, Telegram-a həmişə 200 qayıdır. */
 export async function processUpdate(deps: Deps, tenant: TenantRecord, update: Update): Promise<void> {
@@ -27,16 +28,27 @@ export async function processUpdate(deps: Deps, tenant: TenantRecord, update: Up
   if (typeof update.update_id === "number" && dedupe(`${tenant.tenantId}:${update.update_id}`)) return;
   const token = decryptSecret(link.tokenEnc, config.secretKey);
   const chatId = String(msg.chat.id);
-  const text = typeof msg.text === "string" ? msg.text.trim() : "";
-  const run = (txt: string) => handleChat(deps, tenant, {
-    channel: "telegram", label: "Telegram", chatId, text: txt,
+  const photos = Array.isArray(msg.photo) ? msg.photo.filter((p) => typeof p?.file_id === "string") : [];
+  const text = (typeof msg.text === "string" ? msg.text : typeof msg.caption === "string" ? msg.caption : "").trim();
+  // Ölçülərdən 2MB-a sığan ən böyüyü seçilir (Telegram şəkli artıq sıxılıb, adətən 1280px)
+  const pick = [...photos].sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0)).find((p) => (p.file_size ?? 0) <= IMAGE_MAX_BYTES) ?? null;
+  const run = (txt: string, withImage = false) => handleChat(deps, tenant, {
+    channel: "telegram", label: "Telegram", chatId, text: txt, ref: chatId,
     senderName: [msg.from?.first_name, msg.from?.username ? `@${msg.from.username}` : ""].filter(Boolean).join(" "),
     send: (t) => telegram.sendMessage(token, chatId, t),
     photo: (url, caption) => telegram.sendPhoto(token, chatId, url, caption),
     typing: () => telegram.sendChatAction(token, chatId),
     reset: /^\/start(\s|@|$)/i.test(txt),
+    ...(photos.length && { image: { load: async () => (withImage && pick ? telegram.downloadFile(token, pick.file_id!, IMAGE_MAX_BYTES) : null) } }),
   });
   const batchMs = deps.telegramBatchMs ?? 4000;
+  const bkey = `${tenant.tenantId}|${chatId}`;
+  if (photos.length) {
+    // Şəkil dərhal cavablanır; gözləyən mətnlər başlığa qatılır
+    const pending = tgBatches.get(bkey);
+    if (pending) { clearTimeout(pending.timer); tgBatches.delete(bkey); }
+    return run([...(pending?.texts ?? []), text].filter(Boolean).join("\n").slice(0, MAX_TEXT), true);
+  }
   if (batchMs <= 0 || !text || text.startsWith("/")) return run(text);
   // Dalbadal mesajlar: sakitlik olanda hamısı bir sual kimi cavablanır
   const key = `${tenant.tenantId}|${chatId}`;

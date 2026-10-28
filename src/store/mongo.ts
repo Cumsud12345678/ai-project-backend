@@ -39,6 +39,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     tenants.createIndex({ tenantId: 1 }, { unique: true }),
     lives.createIndex({ id: 1 }, { unique: true }),
     lives.createIndex({ tenantId: 1, status: 1, updatedAt: -1 }),
+    lives.createIndex({ tenantId: 1, "channel.type": 1, "channel.chatId": 1, status: 1 }, { sparse: true }),
     lives.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 60 * 24 * 3600 }), // 60 gün sonra silinir
     feedbacks.createIndex({ tenantId: 1, at: -1 }),
     feedbacks.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 3600 }), // 90 gün sonra silinir
@@ -114,6 +115,9 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
       return only ? (strip(only) as LiveChat) : null;
     },
     async patchLive(tenantId, id, patch) { await lives.updateOne({ tenantId, id }, { $set: patch }); },
+    async findLiveByChannel(tenantId, type, chatId) {
+      return strip(await lives.findOne({ tenantId, status: "open", "channel.type": type, "channel.chatId": chatId }, { sort: { updatedAt: -1 } })) as LiveChat | null;
+    },
     async listLive(tenantId, status, limit) {
       return (await lives.find({ tenantId, status }).sort({ updatedAt: -1 }).limit(limit).toArray()).map((d) => strip(d) as LiveChat);
     },

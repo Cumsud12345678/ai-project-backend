@@ -1,4 +1,5 @@
 import express, { Router } from "express";
+import { LIVE_MSG, deliverToChannel } from "../channel-live.js";
 import type { Deps } from "../deps.js";
 import type { AiResult } from "../ai.js";
 import { HttpError } from "../http.js";
@@ -12,7 +13,7 @@ import { DuplicateError, type LiveChat, type TenantRecord } from "../store/types
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, logoUrl } from "../widget.js";
 
 const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret"];
-const PROFILE_KEYS = ["language", "tone", "maxResults", "extraInstructions", "logQueries", "mode", "fallbackMessage", "generalKnowledge", "kbAutoRefresh"];
+const PROFILE_KEYS = ["language", "tone", "maxResults", "extraInstructions", "logQueries", "mode", "fallbackMessage", "generalKnowledge", "kbAutoRefresh", "imageSearch"];
 
 /** Müştərinin göndərdiyi JSON-dan yalnız tanınan sahələri götürür. */
 function extractConfig(body: unknown): Record<string, unknown> {
@@ -44,7 +45,7 @@ const isWaiting = (c: LiveChat) => {
 };
 const liveItem = (c: LiveChat) => {
   const last = c.messages[c.messages.length - 1];
-  return { id: c.id, name: c.name, contact: c.contact, status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt, count: c.messages.length, waiting: isWaiting(c), last: last ? { from: last.from, text: last.text.slice(0, 160), at: last.at } : null };
+  return { id: c.id, channel: c.channel?.type ?? null, name: c.name, contact: c.contact, status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt, count: c.messages.length, waiting: isWaiting(c), last: last ? { from: last.from, text: last.text.slice(0, 160), at: last.at } : null };
 };
 
 export function tenantRoutes(deps: Deps) {
@@ -273,7 +274,7 @@ export function tenantRoutes(deps: Deps) {
     const lastAt = (chat.messages[chat.messages.length - 1]?.at ?? chat.createdAt).getTime();
     // "Gördüm" işarəsi yalnız yeni mesaj gələndə yenilənir (operator panelinin təkrar sorğuları sıralamanı pozmasın)
     const c = !chat.operatorSeenAt || chat.operatorSeenAt.getTime() < lastAt ? (await store.pushLive(t.tenantId, chat.id, null, { operatorSeenAt: new Date() })) ?? chat : chat;
-    res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt } });
+    res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt, channel: c.channel?.type ?? null } });
   });
   // Real vaxt bağlantısı üçün qısa ömürlü bilet (panel WebSocket-i bununla açır; cookie portalın ünvanına getmir)
   r.post("/live/ws-ticket", async (req, res) => {
@@ -291,6 +292,11 @@ export function tenantRoutes(deps: Deps) {
     const chat = await store.getLive(t.tenantId, String(req.params.id));
     if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
     if (chat.status === "closed") throw new HttpError(409, "Söhbət bağlanıb", "LIVE_CLOSED");
+    // Kanal (Telegram/WhatsApp) söhbətində əvvəlcə çatdırılır: alınmasa mesaj yazılmır, operator xətanı görür
+    if (chat.channel) {
+      try { await deliverToChannel(deps, t, chat, text); }
+      catch { throw new HttpError(502, chat.channel.type === "telegram" ? "Mesaj Telegram-a göndərilə bilmədi" : "Mesaj WhatsApp-a göndərilə bilmədi", "CHANNEL_SEND_FAILED"); }
+    }
     const next = await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date() }, { operatorSeenAt: new Date() });
     void mailVisitorReply(deps, t, chat, text); // yalnız ziyarətçi çatdan ayrılıbsa və e-poçt yazıbsa
     const total = next?.messages.length ?? chat.messages.length;
@@ -306,6 +312,7 @@ export function tenantRoutes(deps: Deps) {
       await store.pushLive(t.tenantId, chat.id, { from: "system", text: "closed", at: new Date() }, { status: "closed", operatorSeenAt: new Date() });
       hub.toChat(chat.id, { t: "new", total: chat.messages.length + 1 });
       hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "close" });
+      if (chat.channel) void deliverToChannel(deps, t, chat, LIVE_MSG.back).catch(() => {}); // bot geri qayıtdı xəbəri (alınmasa vacib deyil)
     }
     res.json({ ok: true });
   });
@@ -422,6 +429,20 @@ export function tenantRoutes(deps: Deps) {
     if (typeof text !== "string" || text.trim().length < 20) throw new HttpError(400, "Mətn ən azı 20 simvol olmalıdır");
     const t = await mine(user.id);
     res.status(202).json(await ai.kbAddText(t.tenantId, typeof title === "string" ? title.slice(0, 160) : "", text));
+  });
+  // Sual-cavab cütləri: yoxlamanı AI servisi edir, burada yalnız forma və tip
+  const qaBody = (b: unknown) => {
+    const o = (b ?? {}) as { questions?: unknown; answer?: unknown };
+    const questions = Array.isArray(o.questions) ? o.questions.filter((q): q is string => typeof q === "string").slice(0, 12).map((q) => q.slice(0, 300)) : [];
+    return { questions, answer: typeof o.answer === "string" ? o.answer.slice(0, 3000) : "" };
+  };
+  r.post("/kb/qa", async (req, res) => {
+    const user = currentUser(res); kbWrite(user.id);
+    res.status(201).json(await ai.kbAddQa((await mine(user.id)).tenantId, qaBody(req.body)));
+  });
+  r.put("/kb/qa/:id", async (req, res) => {
+    const user = currentUser(res); kbWrite(user.id);
+    res.json(await ai.kbUpdateQa((await mine(user.id)).tenantId, sid(req.params.id), qaBody(req.body)));
   });
   r.post("/kb/sources/:id/refresh", async (req, res) => {
     const user = currentUser(res); kbWrite(user.id);

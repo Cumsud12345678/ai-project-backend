@@ -1,6 +1,7 @@
 // Müştəri saytına qoyulan çat vidjeti: ictimai script + vidjet açarı ilə işləyən endpoint-lər.
 // Gizli API açarı heç vaxt brauzerə çıxmır: vidjet yalnız ictimai açar (wk_...) göndərir,
 // portal isə həmin müştəri üçün AI servisini öz service tokeni ilə çağırır.
+import { checkBase64Image, imageEnabled } from "./image-input.js";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Router, type RequestHandler } from "express";
@@ -215,7 +216,7 @@ export function widgetRoutes(deps: Deps) {
     // Quraşdırmanın işlədiyini göstərmək üçün: ən çox 10 dəqiqədən bir yazılır
     if (!w.lastSeenAt || Date.now() - new Date(w.lastSeenAt).getTime() > 10 * 60_000) void store.touchWidget(wt.tenantId, new Date()).catch(() => {});
     res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, mode, contact: true, live: Boolean(w.live?.enabled), // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
-      theme: w.theme ?? "light", ...(w.logo && { logo: logoUrl(deps.config.publicPortalUrl, w) }) });
+      theme: w.theme ?? "light", imageSearch: imageEnabled(wt), ...(w.logo && { logo: logoUrl(deps.config.publicPortalUrl, w) }) });
   });
 
   // Operatorla əlaqə (cavab tapılmayanda): sayt ziyarətçisi telefon/e-poçt qoyur, sayt sahibi panelda görür və e-poçtla xəbər alır.
@@ -267,21 +268,31 @@ export function widgetRoutes(deps: Deps) {
     }
     if (lim.siteHour > 0 && !limiter.hit(`w:key:${key}`, lim.siteHour, 60 * 60_000)) throw new HttpError(429, "Çat müvəqqəti məşğuldur, bir azdan yenidən cəhd et", "BUSY");
 
-    const { message, history, sid: sidRaw, identity: identityRaw } = req.body ?? {};
+    const { message: msgRaw, history, sid: sidRaw, identity: identityRaw, image: imageRaw } = req.body ?? {};
+    // Şəkilli sual: yalnız sahib açıbsa; ziyarətçi başına 10 dəqiqədə 6, sayt üzrə saatda 200 (xərc və sui-istifadə qoruması)
+    let image: string | undefined;
+    if (imageRaw !== undefined && imageRaw !== null && imageRaw !== "") {
+      if (!imageEnabled(t)) throw new HttpError(400, "Şəkillə axtarış bu saytda söndürülüb", "IMAGE_OFF");
+      if (!limiter.hit(`w:img:${key}:${who}`, 6, 10 * 60_000) || !limiter.hit(`w:imgkey:${key}`, 200, 60 * 60_000))
+        throw new HttpError(429, "Çox şəkil göndərdin, bir az gözləyib yenidən cəhd et", "RATE_LIMITED");
+      image = checkBase64Image(imageRaw) ?? undefined;
+      if (!image) throw new HttpError(400, "Şəkil oxuna bilmədi (PNG, JPG və ya WebP, ən çox 2MB)", "BAD_IMAGE");
+    }
+    const message = typeof msgRaw === "string" ? msgRaw : image && msgRaw === undefined ? "" : msgRaw;
     const identity = typeof identityRaw === "string" && identityRaw.length <= 1000 && /^v1\.[\w-]+\.[\w-]+$/.test(identityRaw) ? identityRaw : undefined; // imzanı AI servisi yoxlayır; burada yalnız format
     const sid = typeof sidRaw === "string" && /^[a-f0-9]{16,32}$/.test(sidRaw) ? sidRaw : undefined;
-    if (typeof message !== "string" || !message.trim() || message.length > 500) throw new HttpError(400, "Mesaj 1-500 simvol olmalıdır");
+    if (typeof message !== "string" || (!message.trim() && !image) || message.length > 500) throw new HttpError(400, "Mesaj 1-500 simvol olmalıdır");
     const clean = (Array.isArray(history) ? history : []).slice(-10)
       .filter((h: any) => h && (h.role === "user" || h.role === "model") && typeof h.text === "string")
       .map((h: any) => ({ role: h.role, text: h.text.slice(0, 2000) }));
     try {
-      const out = await ai.chat(t.tenantId, message.trim(), clean, { sid, identity });
+      const out = await ai.chat(t.tenantId, message.trim(), clean, { sid, identity, ...(image && { image }) });
       // Balans azalıb/bitibsə sayt sahibinə email (AI servisi eyni vəziyyət üçün yalnız bir dəfə xəbər verir)
       const notify = out.billing?.notify;
       if (notify === "low" || notify === "empty") void notifyBalance(deps, t, notify, out.billing?.balanceAzn);
       const listings = (Array.isArray(out.listings) ? out.listings : []).slice(0, 10).map(publicListing);
       const sources = (Array.isArray(out.sources) ? out.sources : []).slice(0, 3).map((s: Record<string, unknown>) => ({ title: str(s.title, 120) ?? "", url: httpUrl(s.url) }));
-      res.json({ answer: String(out.answer ?? "").slice(0, 8000), listings, ...(sources.length && { sources }), ...(out.unanswered === true && { unanswered: true }), ...(out.identity === "invalid" && { identity: "invalid" }) });
+      res.json({ answer: String(out.answer ?? "").slice(0, 8000), listings, ...(sources.length && { sources }), ...(typeof out.imageNote === "string" && out.imageNote && { imageNote: out.imageNote.slice(0, 200) }), ...(out.unanswered === true && { unanswered: true }), ...(out.identity === "invalid" && { identity: "invalid" }) });
     } catch (e) {
       // Ziyarətçi müştərinin limit və ya konfiqurasiya məlumatını görməməlidir.
       if (e instanceof AiError) {

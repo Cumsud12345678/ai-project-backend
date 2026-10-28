@@ -48,6 +48,8 @@ export function fakeAi(): FakeAi {
     async kbAddUrl(...a) { return rec("kbAddUrl", a, { source: { id: "s2", status: "processing" } }); },
     async kbAddText(...a) { return rec("kbAddText", a, { source: { id: "s3", status: "processing" } }); },
     async kbRefresh(...a) { return rec("kbRefresh", a, { source: { id: "s2", status: "processing" } }); },
+    async kbAddQa(...a) { return rec("kbAddQa", a, { source: { id: "qa1", type: "qa", status: "ready" } }); },
+    async kbUpdateQa(...a) { return rec("kbUpdateQa", a, { source: { id: "qa1", type: "qa", status: "ready" } }); },
     async kbDelete(...a) { return rec("kbDelete", a, { ok: true }); },
     async kbUnanswered(...a) { return rec("kbUnanswered", a, { total: 0, items: [] }); },
     async kbDeleteUnanswered(...a) { return rec("kbDeleteUnanswered", a, { ok: true }); },
@@ -73,7 +75,7 @@ export function fakeAi(): FakeAi {
   return ai;
 }
 
-export type FakeWaSocket = WaSocket & { sent: { jid: string; text: string; id?: string }[]; images: { jid: string; bytes: number; caption: string }[]; presence: string[]; read: number; loggedOut: boolean; ended: boolean; emit(event: string, arg: unknown): void; tenantId: string };
+export type FakeWaSocket = WaSocket & { media?: Buffer | null; sent: { jid: string; text: string; id?: string }[]; images: { jid: string; bytes: number; caption: string }[]; presence: string[]; read: number; loggedOut: boolean; ended: boolean; emit(event: string, arg: unknown): void; tenantId: string };
 /** Saxta WhatsApp: socketlər yadda saxlanır, hadisələr əl ilə göndərilir. */
 export function fakeWhatsApp(batchMs = 0) {
   const sockets: FakeWaSocket[] = [];
@@ -87,6 +89,7 @@ export function fakeWhatsApp(batchMs = 0) {
         async sendMessage(jid, c, o) { if ("image" in c) { s.images.push({ jid, bytes: c.image.length, caption: c.caption }); return { key: { id: o?.messageId } }; } s.sent.push({ jid, text: c.text, id: o?.messageId }); return { key: { id: o?.messageId } }; },
         async sendPresenceUpdate(t) { s.presence.push(t); },
         async readMessages() { s.read++; },
+        async downloadMedia() { return s.media ?? null; },
         async logout() { s.loggedOut = true; },
         end() { s.ended = true; },
         emit: (e, a) => { ev.emit(e, a); },
@@ -98,16 +101,17 @@ export function fakeWhatsApp(batchMs = 0) {
   return { manager, sockets, last: () => sockets[sockets.length - 1]! };
 }
 
-export type FakeTelegram = TelegramApi & { sent: { token: string; chatId: string; text: string }[]; hooks: Map<string, { url: string; secret: string }>; actions: number; photos: { chatId: string; url: string; caption: string }[]; failPhoto?: boolean; badToken?: string; failSend?: boolean };
+export type FakeTelegram = TelegramApi & { sent: { token: string; chatId: string; text: string }[]; hooks: Map<string, { url: string; secret: string }>; actions: number; files: Map<string, Buffer>; photos: { chatId: string; url: string; caption: string }[]; failPhoto?: boolean; badToken?: string; failSend?: boolean };
 /** Saxta Telegram: göndərilən mesajları və webhook-ları yadda saxlayır. */
 export function fakeTelegram(): FakeTelegram {
   const tg: FakeTelegram = {
-    sent: [], photos: [], hooks: new Map(), actions: 0,
+    sent: [], photos: [], files: new Map(), hooks: new Map(), actions: 0,
     async getMe(token) { if (token === tg.badToken) throw new TelegramError(401, "Unauthorized"); return { id: Number(token.split(":")[0]), username: `bot_${token.split(":")[0]}` }; },
     async setWebhook(token, o) { tg.hooks.set(token, o); },
     async deleteWebhook(token) { tg.hooks.delete(token); },
     async sendMessage(token, chatId, text) { if (tg.failSend) throw new TelegramError(500, "boom"); tg.sent.push({ token, chatId, text }); },
     async sendPhoto(_t, chatId, url, caption) { if (tg.failPhoto) throw new TelegramError(400, "bad url"); tg.photos.push({ chatId, url, caption }); },
+    async downloadFile(_t, fileId) { return tg.files.get(fileId) ?? null; },
     async sendChatAction() { tg.actions++; },
   };
   return tg;

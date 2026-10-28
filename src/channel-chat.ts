@@ -4,8 +4,11 @@ import { AiError } from "./ai.js";
 import { notifyBalance } from "./billing.js";
 import type { Deps } from "./deps.js";
 import { recordError } from "./errorlog.js";
+import { imageEnabled, checkBufferImage } from "./image-input.js";
 import { cleanContact } from "./kb.js";
 import type { ChannelSession, TenantRecord } from "./store/types.js";
+import { hub } from "./hub.js";
+import { LIVE_MSG, LIVE_STALE_MS, isBotCmd, isOperatorCmd, liveEnabled, startChannelLive } from "./channel-live.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, limitsOf, modeOf } from "./widget.js";
 
 export const MAX_TEXT = 500;
@@ -20,6 +23,8 @@ export const MSG = {
   busy: "Çat müvəqqəti məşğuldur, bir azdan yenidən yazın.",
   offline: "Çat hazırda cavab verə bilmir. Bir az sonra yenidən yazın.",
   askContact: "Bu sualın cavabını tapa bilmədim. İstəsəniz operator sizinlə əlaqə saxlasın: telefon nömrənizi və ya e-poçtunuzu yazın.",
+  imageOff: "Şəkil qəbul edə bilmirəm. Sualınızı yazın.",
+  imageFail: "Şəkli oxuya bilmədim (PNG, JPG və ya WebP, kiçik ölçüdə olmalıdır). Başqa şəkil göndərin və ya sualı yazın.",
   thanks: "Təşəkkürlər, müraciətiniz qəbul edildi. Operator tezliklə sizinlə əlaqə saxlayacaq.",
 } as const;
 
@@ -75,10 +80,14 @@ export type ChatIO = {
   send(text: string): Promise<unknown>;
   /** Şəkil + başlıq göndərir; alınmasa xəta atır (çağıran mətnə keçir). Yoxdursa şəkil göndərilmir. */
   photo?(url: string, caption: string): Promise<unknown>;
+  /** Mesajda şəkil varsa: baytları yükləyən funksiya (null = yüklənmədi). Mətn (başlıq) text-dədir. */
+  image?: { load(): Promise<Buffer | null> };
   /** "yazır..." göstəricisi (alınmasa da davam edilir) */
   typing(): Promise<unknown> | void;
   /** Söhbəti sıfırlayıb salamlama göndərmək (/start) */
   reset?: boolean;
+  /** Kanalın daxili ünvanı (WhatsApp-da tam JID): operator cavabı bununla çatdırılır */
+  ref?: string;
 };
 
 /** Bir daxil olan mətn mesajını emal edir. Eyni söhbət üzrə ardıcıl işləyir. */
@@ -96,16 +105,42 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     let session: ChannelSession = (await store.getChannelSession(tenant.tenantId, channel, chatId)) ?? { tenantId: tenant.tenantId, channel, chatId, sid: randomBytes(12).toString("hex"), history: [], updatedAt: new Date() };
     if (Date.now() - new Date(session.updatedAt).getTime() > SESSION_IDLE_MS) session = { ...session, sid: randomBytes(12).toString("hex"), history: [], pending: null };
 
+    // Operatorla canlı yazışma: açıq canlı söhbət varsa bot susur, mesaj operatora gedir
+    const liveNow = await store.findLiveByChannel(tenant.tenantId, channel, chatId);
+    if (liveNow && Date.now() - liveNow.updatedAt.getTime() > LIVE_STALE_MS) {
+      await store.pushLive(tenant.tenantId, liveNow.id, { from: "system", text: "closed", at: new Date() }, { status: "closed" });
+      hub.toOperators(tenant.tenantId, { t: "live", id: liveNow.id, kind: "close" });
+    } else if (liveNow) {
+      if (isBotCmd(text)) {
+        await store.pushLive(tenant.tenantId, liveNow.id, { from: "system", text: "closed", at: new Date() }, { status: "closed" });
+        hub.toOperators(tenant.tenantId, { t: "live", id: liveNow.id, kind: "close" });
+        await io.send(LIVE_MSG.back);
+        return;
+      }
+      const body = clip(text, 1000) || (io.image ? "[şəkil]" : "");
+      if (!body) return;
+      if (!limiter.hit(`${lk}liverate:${tenant.tenantId}:${chatId}`, 20, 60_000)) return;
+      await store.pushLive(tenant.tenantId, liveNow.id, { from: "visitor", text: body, at: new Date() }, { visitorSeenAt: new Date(), ...(!liveNow.name && io.senderName ? { name: clip(io.senderName, 80) } : {}) });
+      hub.toOperators(tenant.tenantId, { t: "live", id: liveNow.id, kind: "message" });
+      return;
+    } else if (isOperatorCmd(text) && !io.reset) {
+      if (!liveEnabled(tenant)) { await io.send(LIVE_MSG.off); return; }
+      await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), name: clip(io.senderName, 80), history: session.history });
+      await io.send(LIVE_MSG.on);
+      return;
+    }
+
     if (io.reset) {
       await store.saveChannelSession({ ...session, history: [], pending: null, updatedAt: new Date() });
       await io.send(greeting);
       return;
     }
-    if (!text) return warn(MSG.textOnly);
+    const imgOn = Boolean(io.image) && imageEnabled(tenant);
+    if (!text && !imgOn) return warn(io.image ? MSG.imageOff : MSG.textOnly);
     if (text.length > MAX_TEXT) return warn(MSG.tooLong);
 
     // Cavab tapılmayandan sonra gələn mesaj: etibarlı kontaktdırsa müraciət olur, deyilsə adi sual kimi davam edir
-    if (session.pending) {
+    if (session.pending && !imgOn) {
       const contact = cleanContact(text);
       if (contact) {
         const name = clip(io.senderName, 80);
@@ -132,9 +167,18 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     if (lim.perVisitorDay > 0 && !limiter.hit(`${lk}day:${tenant.tenantId}:${chatId}`, lim.perVisitorDay, 24 * 60 * 60_000)) return warn(MSG.dayLimit);
     if (lim.siteHour > 0 && !limiter.hit(`${lk}hour:${tenant.tenantId}`, lim.siteHour, 60 * 60_000)) return warn(MSG.busy);
 
+    // Şəkil: ayrıca limit (ziyarətçi başına 10 dəqiqədə 6, sayt üzrə saatda 200), sonra yüklənir və yoxlanır
+    let image: string | undefined;
+    if (imgOn) {
+      if (!limiter.hit(`${lk}img:${tenant.tenantId}:${chatId}`, 6, 10 * 60_000) || !limiter.hit(`${lk}imgsite:${tenant.tenantId}`, 200, 60 * 60_000)) return warn(MSG.slowDown);
+      let buf: Buffer | null = null;
+      try { buf = await io.image!.load(); } catch { buf = null; }
+      image = checkBufferImage(buf) ?? undefined;
+      if (!image) return warn(MSG.imageFail);
+    }
     try { void Promise.resolve(io.typing()).catch(() => {}); } catch { /* göstərici vacib deyil */ }
     let out: Record<string, any>;
-    try { out = await ai.chat(tenant.tenantId, text, session.history.slice(-HISTORY_KEEP), { sid: session.sid }); }
+    try { out = await ai.chat(tenant.tenantId, text, session.history.slice(-HISTORY_KEEP), { sid: session.sid, ...(image && { image }) }); }
     catch (e) {
       if (e instanceof AiError) {
         if (e.status !== 402) await recordError(store, { source: "channel", message: `${label}: AI cavab vermədi (${e.status}) ${e.message}`, tenantId: tenant.tenantId, code: e.code, status: e.status });
@@ -150,9 +194,9 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       : [];
     const answer = formatReply(out, new Set(withPhoto.map((x: { i: number }) => x.i)));
     const unanswered = out.unanswered === true;
-    const history = [...session.history, { role: "user" as const, text: text.slice(0, 600) }, { role: "model" as const, text: clip(out.answer, 600) }].slice(-HISTORY_KEEP);
+    const history = [...session.history, { role: "user" as const, text: `${text}${image ? `${text ? " " : ""}[şəkil${typeof out.imageNote === "string" && out.imageNote ? `: ${out.imageNote}` : ""}]` : ""}`.slice(0, 600) }, { role: "model" as const, text: clip(out.answer, 600) }].slice(-HISTORY_KEEP);
     await store.saveChannelSession({ ...session, history, pending: unanswered ? { question: text.slice(0, 500) } : null, updatedAt: new Date() });
-    await io.send(unanswered ? `${answer}\n\n${MSG.askContact}` : answer);
+    await io.send(unanswered ? `${answer}\n\n${MSG.askContact}${liveEnabled(tenant) ? `\n${LIVE_MSG.hint}` : ""}` : answer);
     // Şəkilli elanlar ayrıca göndərilir; alınmayan olarsa mətn kimi
     for (const { l, img } of withPhoto) {
       const caption = listingText(l);

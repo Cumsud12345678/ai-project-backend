@@ -15,6 +15,8 @@ export type WaSocket = {
   sendMessage(jid: string, content: { text: string } | { image: Buffer; caption: string }, opts?: { messageId?: string }): Promise<unknown>;
   sendPresenceUpdate(type: "composing" | "paused", jid?: string): Promise<unknown>;
   readMessages(keys: unknown[]): Promise<unknown>;
+  /** Gələn şəkilli mesajın baytlarını yükləyir (yoxdursa şəkil qəbul edilmir) */
+  downloadMedia?(message: unknown): Promise<Buffer | null>;
   logout(): Promise<unknown>;
   end(err?: Error): void;
 };
@@ -46,6 +48,13 @@ export function extractText(message: Record<string, any> | null | undefined): st
   if (typeof t === "string") return t;
   if (MEDIA_KEYS.some((k) => m[k])) return "";
   return undefined;
+}
+
+/** Mesajda şəkil varsa onun obyektini (başlıq: caption), yoxdursa null qaytarır */
+export function imageOf(message: Record<string, any> | null | undefined): { caption?: string; fileLength?: unknown } | null {
+  if (!message) return null;
+  const m = message.ephemeralMessage?.message ?? message.viewOnceMessage?.message ?? message;
+  return m.imageMessage && typeof m.imageMessage === "object" ? m.imageMessage : null;
 }
 
 export type WhatsAppManager = ReturnType<typeof createWhatsAppManager>;
@@ -130,7 +139,8 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
       return;
     }
     if (!wl.enabled) return dbg(e, jid, "köməkçi söndürülüb");
-    const text = extractText(m.message);
+    const img = imageOf(m.message);
+    const text = img ? (typeof img.caption === "string" ? img.caption : "") : extractText(m.message);
     if (text === undefined) return dbg(e, jid, `mətn deyil (${Object.keys(m.message ?? {}).join(",") || "boş"})`);
     const ts = Number(m.messageTimestamp?.low ?? m.messageTimestamp ?? 0) * 1000;
     if (ts && Date.now() - ts > STALE_MSG_MS) return dbg(e, jid, "köhnə mesaj");
@@ -145,7 +155,13 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     dbg(e, jid, "emal olunur");
     void sock.readMessages([m.key]).catch(() => {});
     const key = `${e.tenantId}|${jid}`;
-    const run = (txt: string) => { const sk = e.sock ?? sock; return runChat(e, sk, jid, m, txt); };
+    const run = (txt: string, withImage = false) => { const sk = e.sock ?? sock; return runChat(e, sk, jid, m, txt, withImage); };
+    if (img) {
+      // Şəkil dərhal cavablanır; gözləyən mətnlər başlığa qatılır
+      const pend = batches.get(key);
+      if (pend) { clearTimeout(pend.timer); batches.delete(key); }
+      return run([...(pend?.texts ?? []), text].filter(Boolean).join("\n").slice(0, MAX_TEXT), true);
+    }
     if (batchMs <= 0) return run(text);
     // Eyni adam dalbadal bir neçə mesaj yazsa, sakitlik olanda hamısı BİR sual kimi cavablanır
     const cur = batches.get(key);
@@ -160,13 +176,14 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     batches.set(key, entry);
   }
 
-  async function runChat(e: Entry, sock: WaSocket, jid: string, m: Record<string, any>, text: string) {
+  async function runChat(e: Entry, sock: WaSocket, jid: string, m: Record<string, any>, text: string, withImage = false) {
     const { deps } = e;
     const t = await deps.store.findTenantById(e.tenantId);
     if (!t?.whatsapp?.enabled) return;
     await handleChat(deps, t, {
-      channel: "whatsapp", label: "WhatsApp", chatId: userPart(jid), text, senderName: clip(m.pushName, 60),
+      channel: "whatsapp", label: "WhatsApp", chatId: userPart(jid), ref: jid, text, senderName: clip(m.pushName, 60),
       typing: () => sock.sendPresenceUpdate("composing", jid),
+      ...(withImage && { image: { load: async () => (sock.downloadMedia ? sock.downloadMedia(m) : null) } }),
       send: async (reply) => {
         await sleep(delay(reply));
         const id = `3EB0${randomBytes(16).toString("hex").toUpperCase()}`;
@@ -260,6 +277,14 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     },
     /** Proses bağlananda socketlər qapadılır (logout olmadan: sessiya qalır). */
     async shutdown() { for (const e of [...entries.values()]) await wipe(e, false); },
+    /** Operator panelindən yazılan mesajı nömrəyə göndərir (bot öz mesajını "sahib yazdı" saymasın deyə sentIds-ə yazılır). */
+    async sendText(tenantId: string, jid: string, text: string) {
+      const e = entries.get(tenantId);
+      if (!e?.sock || e.state !== "open" || !PRIVATE_JID.test(jid)) throw new Error("WA_NOT_CONNECTED");
+      const id = `3EB0${randomBytes(16).toString("hex").toUpperCase()}`;
+      e.sentIds.add(id);
+      await e.sock.sendMessage(jid, { text }, { messageId: id });
+    },
     link,
   };
 }

@@ -173,3 +173,16 @@ test("overview elan rejimində: nəticəsiz sorğular diqqət siyahısındadır,
     assert.ok(!p.ai.calls.slice(before).some((x) => x.fn === "kbInfo" || x.fn === "kbUnanswered"));
   } finally { p.ai.queryStats = orig; }
 });
+
+test("sual-cavab cütləri: yaradılır, yenilənir, yalnız öz sahibinin hesabına gedir", async () => {
+  const c = await p.signedIn(`qa${Date.now()}@example.com`);
+  assert.equal((await c.call("POST", "/tenant", { config: { businessName: "Kontakt", domain: "kontakt.az", profile: { mode: "support" }, source: { type: "rest" } } })).status, 201);
+  const made = await c.call("POST", "/tenant/kb/qa", { questions: ["Çatdırılma neçə günə olur", 5, "Nə vaxt çatır"], answer: "2 iş günü." });
+  assert.equal(made.status, 201);
+  const call1 = p.ai.calls.filter((x) => x.fn === "kbAddQa").at(-1)!;
+  assert.deepEqual((call1.args[1] as { questions: string[] }).questions, ["Çatdırılma neçə günə olur", "Nə vaxt çatır"], "mətn olmayan sual atılır");
+  assert.equal((await c.call("PUT", "/tenant/kb/qa/qa-12345678", { questions: ["Yeni sual burada"], answer: "Yeni cavab" })).status, 200);
+  assert.equal(p.ai.calls.filter((x) => x.fn === "kbUpdateQa").at(-1)!.args[1], "qa-12345678");
+  const anon = p.client();
+  assert.equal((await anon.call("POST", "/tenant/kb/qa", { questions: ["x y z"], answer: "cavab" })).status, 401);
+});

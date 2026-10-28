@@ -15,7 +15,7 @@ export type AiClient = {
   usage(tenantId: string): Promise<AiResult>;
   usageSummary(): Promise<AiResult>;
   listings(tenantId: string, query: string): Promise<AiResult>;
-  chat(tenantId: string, message: string, history: unknown[], opts?: { test?: boolean; sid?: string; identity?: string }): Promise<AiResult>;
+  chat(tenantId: string, message: string, history: unknown[], opts?: { test?: boolean; sid?: string; identity?: string; /** base64 şəkil (şəkilli sual) */ image?: string }): Promise<AiResult>;
   privateData(tenantId: string): Promise<AiResult>;
   setPrivateData(tenantId: string, body: object): Promise<AiResult>;
   deletePrivateData(tenantId: string): Promise<AiResult>;
@@ -30,6 +30,8 @@ export type AiClient = {
   kbAddFile(tenantId: string, file: { name: string; mime: string; data: string }): Promise<AiResult>;
   kbAddUrl(tenantId: string, url: string, crawl: boolean): Promise<AiResult>;
   kbAddText(tenantId: string, title: string, text: string): Promise<AiResult>;
+  kbAddQa(tenantId: string, body: { questions: string[]; answer: string }): Promise<AiResult>;
+  kbUpdateQa(tenantId: string, sourceId: string, body: { questions: string[]; answer: string }): Promise<AiResult>;
   kbRefresh(tenantId: string, sourceId: string): Promise<AiResult>;
   kbDelete(tenantId: string, sourceId: string): Promise<AiResult>;
   kbUnanswered(tenantId: string): Promise<AiResult>;
@@ -75,7 +77,7 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     usage: (id) => request("GET", `${t(id)}/usage`),
     usageSummary: () => request("GET", "/usage/summary"),
     listings: (id, query) => request("GET", `${t(id)}/listings${query ? `?${query}` : ""}`),
-    chat: (id, message, history, opts) => request("POST", `${t(id)}/chat`, { message, history, ...(opts?.test && { test: true }), ...(opts?.sid && { sid: opts.sid }), ...(opts?.identity && { identity: opts.identity }) }, 75_000),
+    chat: (id, message, history, opts) => request("POST", `${t(id)}/chat`, { message, history, ...(opts?.test && { test: true }), ...(opts?.sid && { sid: opts.sid }), ...(opts?.identity && { identity: opts.identity }), ...(opts?.image && { image: { data: opts.image } }) }, 75_000),
     privateData: (id) => request("GET", `${t(id)}/private-data`),
     setPrivateData: (id, body) => request("PUT", `${t(id)}/private-data`, body),
     deletePrivateData: (id) => request("DELETE", `${t(id)}/private-data`),
@@ -90,6 +92,8 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     kbAddFile: (id, file) => request("POST", `${t(id)}/kb/files`, file, 60_000),
     kbAddUrl: (id, url, crawl) => request("POST", `${t(id)}/kb/urls`, { url, crawl }),
     kbAddText: (id, title, text) => request("POST", `${t(id)}/kb/texts`, { title, text }),
+    kbAddQa: (id, body) => request("POST", `${t(id)}/kb/qa`, body),
+    kbUpdateQa: (id, sid, body) => request("PUT", `${t(id)}/kb/qa/${encodeURIComponent(sid)}`, body),
     kbRefresh: (id, sid) => request("POST", `${t(id)}/kb/sources/${encodeURIComponent(sid)}/refresh`),
     kbDelete: (id, sid) => request("DELETE", `${t(id)}/kb/sources/${encodeURIComponent(sid)}`),
     kbUnanswered: (id) => request("GET", `${t(id)}/kb/unanswered`),
