@@ -4,7 +4,7 @@ import { AiError } from "./ai.js";
 import { notifyBalance } from "./billing.js";
 import type { Deps } from "./deps.js";
 import { recordError } from "./errorlog.js";
-import { imageEnabled, checkBufferImage } from "./image-input.js";
+import { AUDIO_MAX_SECONDS, checkBufferAudio, imageEnabled, checkBufferImage } from "./image-input.js";
 import { cleanContact } from "./kb.js";
 import type { ChannelSession, TenantRecord } from "./store/types.js";
 import { hub } from "./hub.js";
@@ -25,6 +25,8 @@ export const MSG = {
   askContact: "Bu sualın cavabını tapa bilmədim. İstəsəniz operator sizinlə əlaqə saxlasın: telefon nömrənizi və ya e-poçtunuzu yazın.",
   imageOff: "Şəkil qəbul edə bilmirəm. Sualınızı yazın.",
   imageFail: "Şəkli oxuya bilmədim (PNG, JPG və ya WebP, kiçik ölçüdə olmalıdır). Başqa şəkil göndərin və ya sualı yazın.",
+  voiceLong: `Səsli mesaj çox uzundur (maksimum ${AUDIO_MAX_SECONDS} saniyə). Qısa göndərin və ya sualı yazın.`,
+  voiceFail: "Səsli mesajı eşidə bilmədim. Yenidən göndərin və ya sualı yazın.",
   thanks: "Təşəkkürlər, müraciətiniz qəbul edildi. Operator tezliklə sizinlə əlaqə saxlayacaq.",
 } as const;
 
@@ -82,6 +84,8 @@ export type ChatIO = {
   photo?(url: string, caption: string): Promise<unknown>;
   /** Mesajda şəkil varsa: baytları yükləyən funksiya (null = yüklənmədi). Mətn (başlıq) text-dədir. */
   image?: { load(): Promise<Buffer | null> };
+  /** Səsli mesaj: yüklənib mətnə çevrilir, sonra adi yazılı mesaj kimi işlənir. seconds məlumdursa uzunluq yoxlanır. */
+  audio?: { seconds?: number; load(): Promise<Buffer | null> };
   /** "yazır..." göstəricisi (alınmasa da davam edilir) */
   typing(): Promise<unknown> | void;
   /** Söhbəti sıfırlayıb salamlama göndərmək (/start) */
@@ -94,12 +98,34 @@ export type ChatIO = {
 export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promise<void> {
   const { store, ai, limiter, mailer } = deps;
   const { channel, chatId, label } = io;
-  const text = io.text.trim();
+  let text = io.text.trim();
   const lk = `${channel}:`;
   // Eyni mesajda xəbərdarlıq spamı olmasın: dəqiqədə ən çox 1 xəbərdarlıq
   const warn = async (m: string) => { if (limiter.hit(`${lk}warn:${tenant.tenantId}:${chatId}`, 1, 60_000)) await io.send(m); };
 
   return serial(`${tenant.tenantId}:${channel}:${chatId}`, async () => {
+    // Səsli mesaj əvvəlcə mətnə çevrilir: sonrakı bütün axın (limit, canlı operator, AI) adi mətnlə işləyir
+    if (io.audio) {
+      if (typeof io.audio.seconds === "number" && io.audio.seconds > AUDIO_MAX_SECONDS) return warn(MSG.voiceLong);
+      if (!limiter.hit(`${lk}voice:${tenant.tenantId}:${chatId}`, 6, 10 * 60_000) || !limiter.hit(`${lk}voicesite:${tenant.tenantId}`, 200, 60 * 60_000)) return warn(MSG.slowDown);
+      let buf: Buffer | null = null;
+      try { buf = await io.audio.load(); } catch { buf = null; }
+      const b64 = checkBufferAudio(buf);
+      if (!b64) return warn(MSG.voiceFail);
+      try { void Promise.resolve(io.typing()).catch(() => {}); } catch { /* göstərici vacib deyil */ }
+      let heard = "";
+      try { const r = await ai.transcribe(tenant.tenantId, b64); heard = typeof r.text === "string" ? r.text.trim() : ""; }
+      catch (e) {
+        if (e instanceof AiError) {
+          if (e.status !== 402) await recordError(store, { source: "channel", message: `${label}: səs mətnə çevrilmədi (${e.status}) ${e.message}`, tenantId: tenant.tenantId, code: e.code, status: e.status });
+          await io.send(MSG.offline);
+          return;
+        }
+        throw e;
+      }
+      if (!heard) return warn(MSG.voiceFail);
+      text = clip(`${text ? `${text} ` : ""}${heard}`, MAX_TEXT);
+    }
     const mode = modeOf(tenant.config);
     const greeting = tenant.widget?.greeting || (mode === "support" ? DEFAULT_GREETING_SUPPORT : DEFAULT_GREETING);
     let session: ChannelSession = (await store.getChannelSession(tenant.tenantId, channel, chatId)) ?? { tenantId: tenant.tenantId, channel, chatId, sid: randomBytes(12).toString("hex"), history: [], updatedAt: new Date() };

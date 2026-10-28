@@ -105,7 +105,7 @@ test("mesaj: AI cavabı göndərilir, qrup/status/köhnə/təkrar mesaj nəzər�
 
 test("media mesajına 'yalnız yazı' deyilir; LID ünvanı da işləyir", async () => {
   const c = await tenant(); const s = await connect(c);
-  s.emit("messages.upsert", incoming(USER, null, { media: "audioMessage" }));
+  s.emit("messages.upsert", incoming(USER, null, { media: "videoMessage" }));
   assert.ok(await waitFor(() => s.sent.length === 1)); assert.match(s.sent[0]!.text, /yalnız yazılı/);
   s.emit("messages.upsert", incoming("1234567890@lid", "salam"));
   assert.ok(await waitFor(() => s.sent.length === 2)); assert.equal(s.sent[1]!.jid, "1234567890@lid");

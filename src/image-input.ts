@@ -16,6 +16,14 @@ export function checkBase64Image(raw: unknown): string | null {
   return buf.length <= IMAGE_MAX_BYTES && sniffImage(buf) ? b64 : null;
 }
 
+export const AUDIO_MAX_BYTES = 2_000_000;
+export const AUDIO_MAX_SECONDS = 60;
+/** Səs qeydi baytları: boş olmasın, ölçü həddini aşmasın. Tipi AI servisi baytlardan təyin edir. */
+export function checkBufferAudio(buf: Buffer | null | undefined): string | null {
+  if (!buf || buf.length < 16 || buf.length > AUDIO_MAX_BYTES) return null;
+  return buf.toString("base64");
+}
+
 export function checkBufferImage(buf: Buffer | null | undefined): string | null {
   if (!buf || buf.length === 0 || buf.length > IMAGE_MAX_BYTES || !sniffImage(buf)) return null;
   return buf.toString("base64");

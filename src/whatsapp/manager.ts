@@ -57,6 +57,13 @@ export function imageOf(message: Record<string, any> | null | undefined): { capt
   return m.imageMessage && typeof m.imageMessage === "object" ? m.imageMessage : null;
 }
 
+/** Mesajda səs (səsli qeyd və ya audio fayl) varsa onun obyektini (seconds: müddət), yoxdursa null qaytarır */
+export function audioOf(message: Record<string, any> | null | undefined): { seconds?: unknown } | null {
+  if (!message) return null;
+  const m = message.ephemeralMessage?.message ?? message.viewOnceMessage?.message ?? message;
+  return m.audioMessage && typeof m.audioMessage === "object" ? m.audioMessage : null;
+}
+
 export type WhatsAppManager = ReturnType<typeof createWhatsAppManager>;
 
 export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan əvvəl "yazır..." gözləməsi (ms) */ delay?: (text: string) => number; reconnectMs?: (attempt: number) => number; /** ardıcıl mesajları birləşdirmək üçün sakitlik gözləməsi (ms), 0 = söndürülüb */ batchMs?: number } = {}) {
@@ -140,6 +147,7 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     }
     if (!wl.enabled) return dbg(e, jid, "köməkçi söndürülüb");
     const img = imageOf(m.message);
+    const aud = audioOf(m.message);
     const text = img ? (typeof img.caption === "string" ? img.caption : "") : extractText(m.message);
     if (text === undefined) return dbg(e, jid, `mətn deyil (${Object.keys(m.message ?? {}).join(",") || "boş"})`);
     const ts = Number(m.messageTimestamp?.low ?? m.messageTimestamp ?? 0) * 1000;
@@ -155,7 +163,14 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     dbg(e, jid, "emal olunur");
     void sock.readMessages([m.key]).catch(() => {});
     const key = `${e.tenantId}|${jid}`;
-    const run = (txt: string, withImage = false) => { const sk = e.sock ?? sock; return runChat(e, sk, jid, m, txt, withImage); };
+    const run = (txt: string, withImage = false, audio?: { seconds?: number }) => { const sk = e.sock ?? sock; return runChat(e, sk, jid, m, txt, withImage, audio); };
+    if (aud) {
+      // Səsli mesaj dərhal işlənir (mətnə çevrilir); gözləyən mətnlər səsin mətninə qatılır
+      const pend = batches.get(key);
+      if (pend) { clearTimeout(pend.timer); batches.delete(key); }
+      const secs = Number(aud.seconds);
+      return run((pend?.texts ?? []).join("\n").slice(0, MAX_TEXT), false, { ...(Number.isFinite(secs) && secs > 0 && { seconds: secs }) });
+    }
     if (img) {
       // Şəkil dərhal cavablanır; gözləyən mətnlər başlığa qatılır
       const pend = batches.get(key);
@@ -176,13 +191,14 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     batches.set(key, entry);
   }
 
-  async function runChat(e: Entry, sock: WaSocket, jid: string, m: Record<string, any>, text: string, withImage = false) {
+  async function runChat(e: Entry, sock: WaSocket, jid: string, m: Record<string, any>, text: string, withImage = false, audio?: { seconds?: number }) {
     const { deps } = e;
     const t = await deps.store.findTenantById(e.tenantId);
     if (!t?.whatsapp?.enabled) return;
     await handleChat(deps, t, {
       channel: "whatsapp", label: "WhatsApp", chatId: userPart(jid), ref: jid, text, senderName: clip(m.pushName, 60),
       typing: () => sock.sendPresenceUpdate("composing", jid),
+      ...(audio && { audio: { ...(audio.seconds && { seconds: audio.seconds }), load: async () => (sock.downloadMedia ? sock.downloadMedia(m) : null) } }),
       ...(withImage && { image: { load: async () => (sock.downloadMedia ? sock.downloadMedia(m) : null) } }),
       send: async (reply) => {
         await sleep(delay(reply));

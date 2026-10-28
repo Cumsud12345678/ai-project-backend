@@ -31,7 +31,9 @@ export async function createBaileysSocket(o: { tenantId: string; deps: Deps }): 
   const out = sock as unknown as WaSocket;
   // Şəkil yükləmə: ölçü həddindən böyükdürsə heç endirilmir
   out.downloadMedia = async (m) => {
-    const len = Number((m as any)?.message?.imageMessage?.fileLength?.low ?? (m as any)?.message?.imageMessage?.fileLength ?? 0);
+    const msg = (m as any)?.message?.ephemeralMessage?.message ?? (m as any)?.message?.viewOnceMessage?.message ?? (m as any)?.message;
+    const media = msg?.imageMessage ?? msg?.audioMessage;
+    const len = Number(media?.fileLength?.low ?? media?.fileLength ?? 0);
     if (len > 2_000_000) return null;
     const buf = await downloadMediaMessage(m as any, "buffer", {}, { logger: quiet as any, reuploadRequest: sock.updateMediaMessage });
     return Buffer.isBuffer(buf) ? buf : null;
