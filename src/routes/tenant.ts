@@ -583,6 +583,20 @@ export function tenantRoutes(deps: Deps) {
     const user = currentUser(res); kbWrite(user.id);
     res.json(await ai.kbUpdateQa((await mine(user.id)).tenantId, sid(req.params.id), qaBody(req.body)));
   });
+  // Ssenarilər: ad + nə vaxt işləməli (ifadələr) + addım-addım qayda
+  const procBody = (b: unknown) => {
+    const o = (b && typeof b === "object" ? b : {}) as Record<string, unknown>;
+    const triggers = (Array.isArray(o.triggers) ? o.triggers : []).filter((q): q is string => typeof q === "string" && q.length <= 300).slice(0, 12);
+    return { name: typeof o.name === "string" ? o.name.slice(0, 200) : "", triggers, steps: typeof o.steps === "string" ? o.steps.slice(0, 4000) : "" };
+  };
+  r.post("/kb/proc", async (req, res) => {
+    const user = currentUser(res); kbWrite(user.id);
+    res.status(201).json(await ai.kbAddProc((await mine(user.id)).tenantId, procBody(req.body)));
+  });
+  r.put("/kb/proc/:id", async (req, res) => {
+    const user = currentUser(res); kbWrite(user.id);
+    res.json(await ai.kbUpdateProc((await mine(user.id)).tenantId, sid(req.params.id), procBody(req.body)));
+  });
   r.post("/kb/sources/:id/refresh", async (req, res) => {
     const user = currentUser(res); kbWrite(user.id);
     res.status(202).json(await ai.kbRefresh((await mine(user.id)).tenantId, sid(req.params.id)));

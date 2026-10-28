@@ -186,3 +186,16 @@ test("sual-cavab cütləri: yaradılır, yenilənir, yalnız öz sahibinin hesab
   const anon = p.client();
   assert.equal((await anon.call("POST", "/tenant/kb/qa", { questions: ["x y z"], answer: "cavab" })).status, 401);
 });
+
+test("ssenari: yaradılır və yenilənir, sahib olmayan 401, uzun mətn kəsilir", async () => {
+  const c = await p.signedIn("proc1@example.com");
+  assert.equal((await c.call("POST", "/tenant", { config: { businessName: "Kontakt", domain: "kontakt.az", profile: { mode: "support" }, source: { type: "rest" } } })).status, 201);
+  const r = await c.call("POST", "/tenant/kb/proc", { name: "Qaytarma", triggers: ["qaytarmaq istəyirəm", 5, "x".repeat(400)], steps: "1. Soruş\n2. Göndər" });
+  assert.equal(r.status, 201);
+  const call = p.ai.calls.find((x) => x.fn === "kbAddProc")!;
+  assert.deepEqual((call.args[1] as any).triggers, ["qaytarmaq istəyirəm"], "yalnız düzgün ifadələr ötürülür");
+  assert.equal((await c.call("PUT", "/tenant/kb/proc/proc-id-12345", { name: "Qaytarma 2", triggers: ["a b c"], steps: "x".repeat(5000) })).status, 200);
+  assert.equal(((p.ai.calls.filter((x) => x.fn === "kbUpdateProc").at(-1)!.args[2]) as any).steps.length, 4000);
+  assert.equal((await c.call("PUT", "/tenant/kb/proc/kısa", { name: "x" })).status, 400, "yanlış id");
+  assert.equal((await p.client().call("POST", "/tenant/kb/proc", { name: "x" })).status, 401);
+});

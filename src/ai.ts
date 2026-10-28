@@ -28,6 +28,9 @@ export type AiClient = {
   conversation(tenantId: string, sid: string): Promise<AiResult>;
   queries(tenantId: string, query: string): Promise<AiResult>;
   queryStats(tenantId: string, days?: number): Promise<AiResult>;
+  queryTrend(tenantId: string, days?: number): Promise<AiResult>;
+  /** Sualları mövzulara bölür və biliyə nə əlavə olunmalı olduğunu təklif edir (AI, balansdan çıxılır) */
+  insights(tenantId: string, body: { days?: number; fresh?: boolean; disliked?: string[] }): Promise<AiResult>;
   clearQueries(tenantId: string): Promise<AiResult>;
   kbInfo(tenantId: string): Promise<AiResult>;
   kbAddFile(tenantId: string, file: { name: string; mime: string; data: string }): Promise<AiResult>;
@@ -35,6 +38,8 @@ export type AiClient = {
   kbAddText(tenantId: string, title: string, text: string): Promise<AiResult>;
   /** Səsli mesajı mətnə çevirir (base64 audio). Xərc müştərinin balansından çıxılır. */
   transcribe(tenantId: string, audio: string): Promise<AiResult>;
+  kbAddProc(tenantId: string, body: { name: string; triggers: string[]; steps: string }): Promise<AiResult>;
+  kbUpdateProc(tenantId: string, sourceId: string, body: { name: string; triggers: string[]; steps: string }): Promise<AiResult>;
   kbAddQa(tenantId: string, body: { questions: string[]; answer: string }): Promise<AiResult>;
   kbUpdateQa(tenantId: string, sourceId: string, body: { questions: string[]; answer: string }): Promise<AiResult>;
   kbRefresh(tenantId: string, sourceId: string): Promise<AiResult>;
@@ -94,6 +99,8 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     conversations: (id, query) => request("GET", `${t(id)}/conversations${query ? `?${query}` : ""}`),
     conversation: (id, sid) => request("GET", `${t(id)}/conversations/${encodeURIComponent(sid)}`),
     queries: (id, query) => request("GET", `${t(id)}/queries${query ? `?${query}` : ""}`),
+    queryTrend: (id, days) => request("GET", `${t(id)}/queries/trend${days ? `?days=${days}` : ""}`),
+    insights: (id, body) => request("POST", `${t(id)}/insights`, body, 75_000),
     queryStats: (id, days) => request("GET", `${t(id)}/queries/stats${days ? `?days=${days}` : ""}`),
     clearQueries: (id) => request("DELETE", `${t(id)}/queries`),
     kbInfo: (id) => request("GET", `${t(id)}/kb`),
@@ -101,6 +108,8 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     kbAddUrl: (id, url, crawl) => request("POST", `${t(id)}/kb/urls`, { url, crawl }),
     kbAddText: (id, title, text) => request("POST", `${t(id)}/kb/texts`, { title, text }),
     transcribe: (id, audio) => request("POST", `${t(id)}/transcribe`, { audio: { data: audio } }, 60_000),
+    kbAddProc: (id, body) => request("POST", `${t(id)}/kb/proc`, body),
+    kbUpdateProc: (id, sid, body) => request("PUT", `${t(id)}/kb/proc/${encodeURIComponent(sid)}`, body),
     kbAddQa: (id, body) => request("POST", `${t(id)}/kb/qa`, body),
     kbUpdateQa: (id, sid, body) => request("PUT", `${t(id)}/kb/qa/${encodeURIComponent(sid)}`, body),
     kbRefresh: (id, sid) => request("POST", `${t(id)}/kb/sources/${encodeURIComponent(sid)}/refresh`),
