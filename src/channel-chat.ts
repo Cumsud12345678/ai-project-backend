@@ -8,7 +8,7 @@ import { imageEnabled, checkBufferImage } from "./image-input.js";
 import { cleanContact } from "./kb.js";
 import type { ChannelSession, TenantRecord } from "./store/types.js";
 import { hub } from "./hub.js";
-import { LIVE_MSG, LIVE_STALE_MS, isBotCmd, isOperatorCmd, liveEnabled, startChannelLive } from "./channel-live.js";
+import { LIVE_MSG, LIVE_STALE_MS, isBotCmd, isOperatorCmd, liveEnabled, startChannelLive, wantsHuman } from "./channel-live.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, limitsOf, modeOf } from "./widget.js";
 
 export const MAX_TEXT = 500;
@@ -123,9 +123,9 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       await store.pushLive(tenant.tenantId, liveNow.id, { from: "visitor", text: body, at: new Date() }, { visitorSeenAt: new Date(), ...(!liveNow.name && io.senderName ? { name: clip(io.senderName, 80) } : {}) });
       hub.toOperators(tenant.tenantId, { t: "live", id: liveNow.id, kind: "message" });
       return;
-    } else if (isOperatorCmd(text) && !io.reset) {
+    } else if ((isOperatorCmd(text) || (liveEnabled(tenant) && wantsHuman(text))) && !io.reset) {
       if (!liveEnabled(tenant)) { await io.send(LIVE_MSG.off); return; }
-      await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), name: clip(io.senderName, 80), history: session.history });
+      await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), name: clip(io.senderName, 80), history: session.history, ...(!isOperatorCmd(text) && { first: text }) });
       await io.send(LIVE_MSG.on);
       return;
     }
@@ -178,7 +178,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     }
     try { void Promise.resolve(io.typing()).catch(() => {}); } catch { /* göstərici vacib deyil */ }
     let out: Record<string, any>;
-    try { out = await ai.chat(tenant.tenantId, text, session.history.slice(-HISTORY_KEEP), { sid: session.sid, ...(image && { image }) }); }
+    try { out = await ai.chat(tenant.tenantId, text, session.history.slice(-HISTORY_KEEP), { sid: session.sid, ...(liveEnabled(tenant) && { live: true }), ...(image && { image }) }); }
     catch (e) {
       if (e instanceof AiError) {
         if (e.status !== 402) await recordError(store, { source: "channel", message: `${label}: AI cavab vermədi (${e.status}) ${e.message}`, tenantId: tenant.tenantId, code: e.code, status: e.status });
@@ -193,9 +193,12 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       ? (Array.isArray(out.listings) ? out.listings : []).slice(0, 3).map((l: Record<string, unknown>, i: number) => ({ l, i, img: httpUrl(l.image) })).filter((x: { img: string }) => x.img)
       : [];
     const answer = formatReply(out, new Set(withPhoto.map((x: { i: number }) => x.i)));
-    const unanswered = out.unanswered === true;
+    const handoff = out.handoff === true && liveEnabled(tenant);
+    const unanswered = out.unanswered === true && !handoff;
     const history = [...session.history, { role: "user" as const, text: `${text}${image ? `${text ? " " : ""}[şəkil${typeof out.imageNote === "string" && out.imageNote ? `: ${out.imageNote}` : ""}]` : ""}`.slice(0, 600) }, { role: "model" as const, text: clip(out.answer, 600) }].slice(-HISTORY_KEEP);
     await store.saveChannelSession({ ...session, history, pending: unanswered ? { question: text.slice(0, 500) } : null, updatedAt: new Date() });
+    // AI operatora ötürmə qərarı verdi: söhbət canlı operator qutusuna düşür, bot susur
+    if (handoff) await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), name: clip(io.senderName, 80), history, ...(text && { first: text }) });
     await io.send(unanswered ? `${answer}\n\n${MSG.askContact}${liveEnabled(tenant) ? `\n${LIVE_MSG.hint}` : ""}` : answer);
     // Şəkilli elanlar ayrıca göndərilir; alınmayan olarsa mətn kimi
     for (const { l, img } of withPhoto) {

@@ -1,6 +1,6 @@
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
-import { isBotCmd, isOperatorCmd } from "../src/channel-live.js";
+import { isBotCmd, isOperatorCmd, wantsHuman } from "../src/channel-live.js";
 import { startPortal } from "./helpers.js";
 
 let p: Awaited<ReturnType<typeof startPortal>>;
@@ -112,4 +112,40 @@ test("WhatsApp: /operator → canlı söhbət, operator cavabı nömrəyə gedir
   await c.call("POST", `/tenant/live/${item.id}/close`);
   msg("sağ olun", `CL${n}C`);
   assert.ok(await waitFor(() => chatCalls().length === before + 1));
+});
+
+test("wantsHuman: açıq insan istəyi tutulur, mobil operator və uzun/əlaqəsiz mətn tutulmur", () => {
+  for (const t of ["operatora qoş məni", "insanla danışmaq istəyirəm", "menecerlə danışım", "I want to talk to a human", "хочу поговорить с оператором", "adminlə danışa bilərəm?"]) assert.ok(wantsHuman(t), t);
+  for (const t of ["Azercell operator tarifləri", "salam", "çatdırılma neçə günə olur", "operator", "x".repeat(200) + " operatora qoş"]) assert.ok(!wantsHuman(t), t);
+});
+
+test("Telegram: AI handoff qərarı verəndə söhbət avtomatik operatora keçir (live:true göndərilir), sual operatora görünür", async () => {
+  const { c, token, say } = await setup();
+  p.ai.nextChat = { answer: "Operator tezliklə yazacaq.", listings: [], unanswered: true, handoff: true, usage: { tokens: 5 } };
+  await say("sifarişimlə bağlı problem var, çox əsəbiyəm");
+  assert.ok(await waitFor(() => p.telegram.sent.some((s) => s.token === token && /Operator tezliklə/.test(s.text))));
+  const sentChat = chatCalls().at(-1)!;
+  assert.equal((sentChat.args[3] as { live?: boolean }).live, true);
+  assert.ok(!/telefon nömrənizi/.test(p.telegram.sent.at(-1)!.text), "əlaqə formu təklif olunmamalıdır");
+  const items = (await c.call("GET", "/tenant/live?status=open")).body.items;
+  assert.equal(items.length, 1);
+  const chat = (await c.call("GET", `/tenant/live/${items[0].id}`)).body.chat;
+  assert.equal(chat.messages[0].text, "sifarişimlə bağlı problem var, çox əsəbiyəm");
+  assert.ok(chat.context.length >= 2);
+  const n = chatCalls().length;
+  await say("hələ də gözləyirəm");
+  await waitFor(() => false, 100);
+  assert.equal(chatCalls().length, n, "bot susmalıdır");
+});
+
+test("Telegram: 'insanla danışmaq istəyirəm' modelsiz (0 token) operatora keçir; canlı söhbət söndürülübsə adi sual kimi gedir", async () => {
+  const a = await setup();
+  const n = chatCalls().length;
+  await a.say("insanla danışmaq istəyirəm");
+  assert.ok(await waitFor(() => p.telegram.sent.some((s) => s.token === a.token && /Operatora qoşulursunuz/.test(s.text))));
+  assert.equal(chatCalls().length, n);
+  const b = await setup(false);
+  await b.say("insanla danışmaq istəyirəm");
+  assert.ok(await waitFor(() => chatCalls().length === n + 1));
+  assert.equal((chatCalls().at(-1)!.args[3] as { live?: boolean }).live, undefined);
 });

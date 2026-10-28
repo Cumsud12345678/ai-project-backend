@@ -10,6 +10,15 @@ import { hub } from "./hub.js";
 export const LIVE_STALE_MS = Number(process.env.CHANNEL_LIVE_STALE_MS) || 12 * 60 * 60_000;
 
 export const isOperatorCmd = (t: string) => /^\/?(operator|оператор|insan)(@\w+)?$/i.test(t.trim());
+/** Müştəri açıq şəkildə insanla danışmaq istəyir ("operatora qoş", "insanla danışım", "talk to a human", "хочу поговорить с оператором"). Qısa mesaj + hədəf söz + niyyət sözü. */
+export function wantsHuman(t: string): boolean {
+  const s = t.trim().toLowerCase();
+  if (!s || s.length > 100) return false;
+  if (/mobil|azercell|bakcell|\bnar\b/.test(s)) return false;
+  const target = /(operator|оператор|insan|\badam\b|canlı dəstək|canli destek|menecer|manager|менеджер|\badmin|human|real person|живой|человек|\bagent\b)/.test(s);
+  const intent = /(danış|danis|yaz|qoş|qos|bağla|bagla|istəyir|isteyir|lazım|lazim|çağır|cagir|speak|talk|connect|transfer|chat with|need|want|свяж|соедин|поговор|хочу|нужен|позов)/.test(s);
+  return target && intent;
+}
 export const isBotCmd = (t: string) => /^\/(bot|ai)(@\w+)?$/i.test(t.trim());
 
 export const LIVE_MSG = {
@@ -35,12 +44,12 @@ export async function deliverToChannel(deps: Deps, t: TenantRecord, chat: LiveCh
   }
 }
 
-export async function startChannelLive(deps: Deps, t: TenantRecord, p: { channel: "telegram" | "whatsapp"; chatId: string; ref?: string; name: string; history: { role: "user" | "model"; text: string }[] }): Promise<LiveChat> {
+export async function startChannelLive(deps: Deps, t: TenantRecord, p: { channel: "telegram" | "whatsapp"; chatId: string; ref?: string; name: string; history: { role: "user" | "model"; text: string }[]; /** operatorun görəcəyi ilk mesaj (müştərinin sualı) */ first?: string }): Promise<LiveChat> {
   const now = new Date();
   const chat: LiveChat = {
     id: randomUUID(), tenantId: t.tenantId, tokenHash: randomBytes(16).toString("hex"), // kanal söhbətinə token ilə giriş yoxdur
     name: p.name.slice(0, 80), contact: p.channel === "whatsapp" && /^\d{7,15}$/.test(p.chatId) ? `+${p.chatId}` : "", status: "open",
-    context: p.history.slice(-10), messages: [], createdAt: now, updatedAt: now, visitorSeenAt: now,
+    context: p.history.slice(-10), messages: p.first ? [{ from: "visitor", text: p.first.slice(0, 1000), at: now }] : [], createdAt: now, updatedAt: now, visitorSeenAt: now,
     channel: { type: p.channel, chatId: p.chatId, ...(p.ref && { ref: p.ref }) },
   };
   await deps.store.createLive(chat);
