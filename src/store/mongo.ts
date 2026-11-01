@@ -95,13 +95,14 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async findTenantByTelegramHook(hook) { return strip(await tenants.findOne({ "telegram.hook": hook })) as TenantRecord | null; },
     async findTenantByWidgetKey(key) { return strip(await tenants.findOne({ "widget.key": key })) as TenantRecord | null; },
     // Siyahılarda loqonun baytları oxunmur (hər biri onlarla KB): yalnız tək hesab oxunanda gəlir. Bu nəticədən widget-i bazaya geri yazmayın.
-    async listTenants(limit) { return (await tenants.find().project({ "widget.logo.data": 0 }).limit(limit).toArray()).map((d) => strip(d) as TenantRecord); },
+    async listTenants(limit) { return (await tenants.find().project({ "widget.logo.data": 0, "widget.avatar.data": 0 }).limit(limit).toArray()).map((d) => strip(d) as TenantRecord); },
     async createTenant(t) {
       try { await tenants.insertOne({ ...t }); } catch (e) { throw isDup(e) ? new DuplicateError("tenant") : e; }
     },
     async updateTenant(tenantId, patch) { await tenants.updateOne({ tenantId }, { $set: { ...patch, updatedAt: new Date() } }); },
-    async setWidgetLogo(tenantId, logo) {
-      await tenants.updateOne({ tenantId, widget: { $exists: true } }, logo ? { $set: { "widget.logo": logo, updatedAt: new Date() } } : { $unset: { "widget.logo": "" }, $set: { updatedAt: new Date() } });
+    async setWidgetLogo(tenantId, logo, kind = "logo") {
+      const f = `widget.${kind}`;
+      await tenants.updateOne({ tenantId, widget: { $exists: true } }, logo ? { $set: { [f]: logo, updatedAt: new Date() } } : { $unset: { [f]: "" }, $set: { updatedAt: new Date() } });
     },
     async touchWidget(tenantId, at) { await tenants.updateOne({ tenantId, widget: { $exists: true } }, { $set: { "widget.lastSeenAt": at } }); },
     async deleteTenant(tenantId) {

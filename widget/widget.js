@@ -119,15 +119,17 @@
   }
   // Brauzerin dil məlumatından asılı olmasın deyə rəqəmlər özümüz formatlanır: 1900 -> "1 900".
   var fmt = function (n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " "); };
+  var T_EN = null;
   // Yeni mətnlər (mənbələr, əlaqə forması): səhifənin dilinə görə az / en / ru
   var L = (function () {
     var lang = ((document.documentElement.lang || navigator.language || "az") + "").slice(0, 2).toLowerCase();
     var T = {
-      az: { poweredBy: "Hazırlayan:", csatQ: "Operatorun xidmətini qiymətləndirin", proClose: "Bağla", actYes: "Təsdiq et", actExpired: "Bu təsdiqin vaxtı keçib. Əməliyyatı yenidən istəyin.", actUnknown: "Əməliyyatın icra olunub-olunmadığı bəlli deyil. Təkrar etməyin, operatorla yoxlayın.", actFail: "Təsdiqlənə bilmədi, əməliyyat icra olunmayıb. Yenidən cəhd edin.", actWait: "Gözləyin…", actCheck: "Əməliyyatı yoxlayın:", src: "Mənbə:", offline: "Çat hazırda cavab vermir. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", contact: "Operatorla əlaqə", name: "Adınız (ixtiyari)", cont: "Telefon və ya e-poçt", send: "Göndər", ok: "Təşəkkürlər! Müraciətiniz qəbul edildi, tezliklə sizinlə əlaqə saxlayacağıq.", bad: "Düzgün telefon nömrəsi və ya e-poçt yazın", fail: "Göndərilə bilmədi, bir azdan yenidən cəhd edin", cancel: "Ləğv et", fresh: "Yeni söhbət", toDark: "Gecə rejimi", toLight: "Gündüz rejimi", photoAdd: "Şəkil əlavə et", photoDel: "Şəkli sil", photoBad: "Şəkil oxuna bilmədi. PNG, JPG və ya WebP seçin.", photoSent: "Şəkil göndərildi", live: "Operatorla canlı yaz", liveStart: "Operatora qoşuldunuz. Mesajınızı yazın, cavab gələndə burada görəcəksiniz.", opTyping: "Operator yazır…", liveMailPh: "E-poçt (ixtiyari)", liveMailHint: "Çatdan çıxsanız, operatorun cavabını e-poçtla göndərək.", liveBack: "AI-a qayıt", liveWait: "Operator hələ cavab verməyib. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", liveEnd: "Operator söhbəti bitirdi. Yeni sual yazsanız, yenidən AI cavab verəcək.", liveFail: "Mesaj göndərilmədi, yenidən cəhd edin", livePh: "Operatora mesaj yazın…", op: "Operator", up: "Cavab faydalı idi", down: "Cavab faydalı deyildi", thanks: "Təşəkkürlər!", limit: "Bu gün üçün sual limitinə çatdınız. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", busy: "Çat hazırda çox yüklüdür. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq." , ph: "Mesajınızı yazın…", msgLabel: "Mesaj" },
-      en: { poweredBy: "Powered by", csatQ: "Please rate the operator's help", proClose: "Close", actYes: "Confirm", actExpired: "This confirmation has expired. Please ask for the action again.", actUnknown: "It is not known whether the action was carried out. Do not repeat it; check with an operator.", actFail: "Could not confirm; the action was not carried out. Please try again.", actWait: "Please wait…", actCheck: "Please check the action:", src: "Source:", offline: "The chat can't answer right now. Leave your contact and we'll get back to you.", contact: "Contact an operator", name: "Your name (optional)", cont: "Phone or email", send: "Send", ok: "Thank you! Your request was received, we'll contact you soon.", bad: "Enter a valid phone number or email", fail: "Could not send, please try again shortly", cancel: "Cancel", fresh: "New chat", toDark: "Night mode", toLight: "Day mode", photoAdd: "Attach a photo", photoDel: "Remove photo", photoBad: "Couldn't read the image. Choose PNG, JPG or WebP.", photoSent: "Photo sent", live: "Chat with an operator", liveStart: "You are connected to an operator. Type your message, replies will appear here.", opTyping: "Operator is typing…", liveMailPh: "Email (optional)", liveMailHint: "If you leave the chat, we will email you the operator's reply.", liveBack: "Back to AI", liveWait: "The operator has not replied yet. Leave your contact and we'll get back to you.", liveEnd: "The operator ended the chat. Write a new question and the AI will answer again.", liveFail: "Message not sent, please try again", livePh: "Message the operator…", op: "Operator", up: "Helpful answer", down: "Not helpful", thanks: "Thanks!", limit: "You have reached today's question limit. Leave your contact and we'll get back to you.", busy: "The chat is very busy right now. Leave your contact and we'll get back to you." , ph: "Type your message…", msgLabel: "Message" },
-      ru: { poweredBy: "Работает на", csatQ: "Оцените помощь оператора", proClose: "Закрыть", actYes: "Подтвердить", actExpired: "Срок подтверждения истёк. Запросите действие заново.", actUnknown: "Неизвестно, выполнено ли действие. Не повторяйте его, уточните у оператора.", actFail: "Не удалось подтвердить, действие не выполнено. Попробуйте ещё раз.", actWait: "Подождите…", actCheck: "Проверьте действие:", src: "Источник:", offline: "Чат сейчас не может ответить. Оставьте контакт, и мы свяжемся с вами.", contact: "Связаться с оператором", name: "Ваше имя (необязательно)", cont: "Телефон или e-mail", send: "Отправить", ok: "Спасибо! Ваше обращение принято, мы скоро свяжемся с вами.", bad: "Введите корректный телефон или e-mail", fail: "Не удалось отправить, попробуйте позже", cancel: "Отмена", fresh: "Новый чат", toDark: "Ночной режим", toLight: "Дневной режим", photoAdd: "Прикрепить фото", photoDel: "Убрать фото", photoBad: "Не удалось прочитать изображение. Выберите PNG, JPG или WebP.", photoSent: "Фото отправлено", live: "Написать оператору", liveStart: "Вы подключены к оператору. Напишите сообщение, ответ появится здесь.", opTyping: "Оператор печатает…", liveMailPh: "E-mail (необязательно)", liveMailHint: "Если вы выйдете из чата, мы отправим ответ оператора на e-mail.", liveBack: "Назад к ИИ", liveWait: "Оператор пока не ответил. Оставьте контакт, и мы свяжемся с вами.", liveEnd: "Оператор завершил чат. Напишите новый вопрос, и снова ответит ИИ.", liveFail: "Сообщение не отправлено, попробуйте ещё раз", livePh: "Сообщение оператору…", op: "Оператор", up: "Ответ полезен", down: "Ответ не полезен", thanks: "Спасибо!", limit: "Вы достигли лимита вопросов на сегодня. Оставьте контакт, и мы свяжемся с вами.", busy: "Чат сейчас сильно загружен. Оставьте контакт, и мы свяжемся с вами." , ph: "Напишите сообщение…", msgLabel: "Сообщение" },
-      tr: { poweredBy: "Sağlayan:", csatQ: "Operatörün yardımını değerlendirin", proClose: "Kapat", actYes: "Onayla", actExpired: "Bu onayın süresi doldu. İşlemi yeniden isteyin.", actUnknown: "İşlemin gerçekleştirilip gerçekleştirilmediği belli değil. Tekrarlamayın, operatörle kontrol edin.", actFail: "Onaylanamadı, işlem gerçekleştirilmedi. Lütfen tekrar deneyin.", actWait: "Lütfen bekleyin…", actCheck: "İşlemi kontrol edin:", src: "Kaynak:", offline: "Sohbet şu anda yanıt veremiyor. İsterseniz iletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", contact: "Operatörle iletişim", name: "Adınız (isteğe bağlı)", cont: "Telefon veya e-posta", send: "Gönder", ok: "Teşekkürler! Başvurunuz alındı, kısa süre içinde sizinle iletişime geçeceğiz.", bad: "Geçerli bir telefon numarası veya e-posta yazın", fail: "Gönderilemedi, birazdan tekrar deneyin", cancel: "İptal", fresh: "Yeni sohbet", toDark: "Gece modu", toLight: "Gündüz modu", photoAdd: "Fotoğraf ekle", photoDel: "Fotoğrafı kaldır", photoBad: "Görsel okunamadı. PNG, JPG veya WebP seçin.", photoSent: "Fotoğraf gönderildi", live: "Operatörle canlı yaz", liveStart: "Operatöre bağlandınız. Mesajınızı yazın, yanıt geldiğinde burada göreceksiniz.", opTyping: "Operatör yazıyor…", liveMailPh: "E-posta (isteğe bağlı)", liveMailHint: "Sohbetten çıkarsanız operatörün yanıtını e-postayla gönderelim.", liveBack: "AI'a dön", liveWait: "Operatör henüz yanıt vermedi. İsterseniz iletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", liveEnd: "Operatör sohbeti bitirdi. Yeni bir soru yazarsanız yine AI yanıt verecek.", liveFail: "Mesaj gönderilemedi, tekrar deneyin", livePh: "Operatöre mesaj yazın…", op: "Operatör", up: "Yanıt faydalıydı", down: "Faydalı değildi", thanks: "Teşekkürler!", limit: "Bugünkü soru sınırına ulaştınız. İletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", busy: "Sohbet şu anda çok yoğun. İletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", ph: "Mesajınızı yazın…", msgLabel: "Mesaj" }
+      az: { menu: "Əlavə imkanlar", soundOff: "Səsi bağla", soundOn: "Səsi aç", emoji: "Emoji", sendL: "Göndər", months: ["Yanvar","Fevral","Mart","Aprel","May","İyun","İyul","Avqust","Sentyabr","Oktyabr","Noyabr","Dekabr"], poweredBy: "Hazırlayan:", csatQ: "Operatorun xidmətini qiymətləndirin", proClose: "Bağla", actYes: "Təsdiq et", actExpired: "Bu təsdiqin vaxtı keçib. Əməliyyatı yenidən istəyin.", actUnknown: "Əməliyyatın icra olunub-olunmadığı bəlli deyil. Təkrar etməyin, operatorla yoxlayın.", actFail: "Təsdiqlənə bilmədi, əməliyyat icra olunmayıb. Yenidən cəhd edin.", actWait: "Gözləyin…", actCheck: "Əməliyyatı yoxlayın:", src: "Mənbə:", offline: "Çat hazırda cavab vermir. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", contact: "Operatorla əlaqə", name: "Adınız (ixtiyari)", cont: "Telefon və ya e-poçt", send: "Göndər", ok: "Təşəkkürlər! Müraciətiniz qəbul edildi, tezliklə sizinlə əlaqə saxlayacağıq.", bad: "Düzgün telefon nömrəsi və ya e-poçt yazın", fail: "Göndərilə bilmədi, bir azdan yenidən cəhd edin", cancel: "Ləğv et", fresh: "Yeni söhbət", toDark: "Gecə rejimi", toLight: "Gündüz rejimi", photoAdd: "Şəkil əlavə et", photoDel: "Şəkli sil", photoBad: "Şəkil oxuna bilmədi. PNG, JPG və ya WebP seçin.", photoSent: "Şəkil göndərildi", live: "Operatorla canlı yaz", liveStart: "Operatora qoşuldunuz. Mesajınızı yazın, cavab gələndə burada görəcəksiniz.", opTyping: "Operator yazır…", liveMailPh: "E-poçt (ixtiyari)", liveMailHint: "Çatdan çıxsanız, operatorun cavabını e-poçtla göndərək.", liveBack: "AI-a qayıt", liveWait: "Operator hələ cavab verməyib. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", liveEnd: "Operator söhbəti bitirdi. Yeni sual yazsanız, yenidən AI cavab verəcək.", liveFail: "Mesaj göndərilmədi, yenidən cəhd edin", livePh: "Operatora mesaj yazın…", op: "Operator", up: "Cavab faydalı idi", down: "Cavab faydalı deyildi", thanks: "Təşəkkürlər!", limit: "Bu gün üçün sual limitinə çatdınız. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", busy: "Çat hazırda çox yüklüdür. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq." , ph: "Mesajınızı yazın…", msgLabel: "Mesaj" },
+      en: { menu: "More options", soundOff: "Mute sounds", soundOn: "Turn sounds on", emoji: "Emoji", sendL: "Send", months: ["January","February","March","April","May","June","July","August","September","October","November","December"], poweredBy: "Powered by", csatQ: "Please rate the operator's help", proClose: "Close", actYes: "Confirm", actExpired: "This confirmation has expired. Please ask for the action again.", actUnknown: "It is not known whether the action was carried out. Do not repeat it; check with an operator.", actFail: "Could not confirm; the action was not carried out. Please try again.", actWait: "Please wait…", actCheck: "Please check the action:", src: "Source:", offline: "The chat can't answer right now. Leave your contact and we'll get back to you.", contact: "Contact an operator", name: "Your name (optional)", cont: "Phone or email", send: "Send", ok: "Thank you! Your request was received, we'll contact you soon.", bad: "Enter a valid phone number or email", fail: "Could not send, please try again shortly", cancel: "Cancel", fresh: "New chat", toDark: "Night mode", toLight: "Day mode", photoAdd: "Attach a photo", photoDel: "Remove photo", photoBad: "Couldn't read the image. Choose PNG, JPG or WebP.", photoSent: "Photo sent", live: "Chat with an operator", liveStart: "You are connected to an operator. Type your message, replies will appear here.", opTyping: "Operator is typing…", liveMailPh: "Email (optional)", liveMailHint: "If you leave the chat, we will email you the operator's reply.", liveBack: "Back to AI", liveWait: "The operator has not replied yet. Leave your contact and we'll get back to you.", liveEnd: "The operator ended the chat. Write a new question and the AI will answer again.", liveFail: "Message not sent, please try again", livePh: "Message the operator…", op: "Operator", up: "Helpful answer", down: "Not helpful", thanks: "Thanks!", limit: "You have reached today's question limit. Leave your contact and we'll get back to you.", busy: "The chat is very busy right now. Leave your contact and we'll get back to you." , ph: "Type your message…", msgLabel: "Message" },
+      ru: { menu: "Дополнительно", soundOff: "Выключить звук", soundOn: "Включить звук", emoji: "Эмодзи", sendL: "Отправить", months: ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"], poweredBy: "Работает на", csatQ: "Оцените помощь оператора", proClose: "Закрыть", actYes: "Подтвердить", actExpired: "Срок подтверждения истёк. Запросите действие заново.", actUnknown: "Неизвестно, выполнено ли действие. Не повторяйте его, уточните у оператора.", actFail: "Не удалось подтвердить, действие не выполнено. Попробуйте ещё раз.", actWait: "Подождите…", actCheck: "Проверьте действие:", src: "Источник:", offline: "Чат сейчас не может ответить. Оставьте контакт, и мы свяжемся с вами.", contact: "Связаться с оператором", name: "Ваше имя (необязательно)", cont: "Телефон или e-mail", send: "Отправить", ok: "Спасибо! Ваше обращение принято, мы скоро свяжемся с вами.", bad: "Введите корректный телефон или e-mail", fail: "Не удалось отправить, попробуйте позже", cancel: "Отмена", fresh: "Новый чат", toDark: "Ночной режим", toLight: "Дневной режим", photoAdd: "Прикрепить фото", photoDel: "Убрать фото", photoBad: "Не удалось прочитать изображение. Выберите PNG, JPG или WebP.", photoSent: "Фото отправлено", live: "Написать оператору", liveStart: "Вы подключены к оператору. Напишите сообщение, ответ появится здесь.", opTyping: "Оператор печатает…", liveMailPh: "E-mail (необязательно)", liveMailHint: "Если вы выйдете из чата, мы отправим ответ оператора на e-mail.", liveBack: "Назад к ИИ", liveWait: "Оператор пока не ответил. Оставьте контакт, и мы свяжемся с вами.", liveEnd: "Оператор завершил чат. Напишите новый вопрос, и снова ответит ИИ.", liveFail: "Сообщение не отправлено, попробуйте ещё раз", livePh: "Сообщение оператору…", op: "Оператор", up: "Ответ полезен", down: "Ответ не полезен", thanks: "Спасибо!", limit: "Вы достигли лимита вопросов на сегодня. Оставьте контакт, и мы свяжемся с вами.", busy: "Чат сейчас сильно загружен. Оставьте контакт, и мы свяжемся с вами." , ph: "Напишите сообщение…", msgLabel: "Сообщение" },
+      tr: { menu: "Diğer seçenekler", soundOff: "Sesi kapat", soundOn: "Sesi aç", emoji: "Emoji", sendL: "Gönder", months: ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"], poweredBy: "Sağlayan:", csatQ: "Operatörün yardımını değerlendirin", proClose: "Kapat", actYes: "Onayla", actExpired: "Bu onayın süresi doldu. İşlemi yeniden isteyin.", actUnknown: "İşlemin gerçekleştirilip gerçekleştirilmediği belli değil. Tekrarlamayın, operatörle kontrol edin.", actFail: "Onaylanamadı, işlem gerçekleştirilmedi. Lütfen tekrar deneyin.", actWait: "Lütfen bekleyin…", actCheck: "İşlemi kontrol edin:", src: "Kaynak:", offline: "Sohbet şu anda yanıt veremiyor. İsterseniz iletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", contact: "Operatörle iletişim", name: "Adınız (isteğe bağlı)", cont: "Telefon veya e-posta", send: "Gönder", ok: "Teşekkürler! Başvurunuz alındı, kısa süre içinde sizinle iletişime geçeceğiz.", bad: "Geçerli bir telefon numarası veya e-posta yazın", fail: "Gönderilemedi, birazdan tekrar deneyin", cancel: "İptal", fresh: "Yeni sohbet", toDark: "Gece modu", toLight: "Gündüz modu", photoAdd: "Fotoğraf ekle", photoDel: "Fotoğrafı kaldır", photoBad: "Görsel okunamadı. PNG, JPG veya WebP seçin.", photoSent: "Fotoğraf gönderildi", live: "Operatörle canlı yaz", liveStart: "Operatöre bağlandınız. Mesajınızı yazın, yanıt geldiğinde burada göreceksiniz.", opTyping: "Operatör yazıyor…", liveMailPh: "E-posta (isteğe bağlı)", liveMailHint: "Sohbetten çıkarsanız operatörün yanıtını e-postayla gönderelim.", liveBack: "AI'a dön", liveWait: "Operatör henüz yanıt vermedi. İsterseniz iletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", liveEnd: "Operatör sohbeti bitirdi. Yeni bir soru yazarsanız yine AI yanıt verecek.", liveFail: "Mesaj gönderilemedi, tekrar deneyin", livePh: "Operatöre mesaj yazın…", op: "Operatör", up: "Yanıt faydalıydı", down: "Faydalı değildi", thanks: "Teşekkürler!", limit: "Bugünkü soru sınırına ulaştınız. İletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", busy: "Sohbet şu anda çok yoğun. İletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", ph: "Mesajınızı yazın…", msgLabel: "Mesaj" }
     };
+    T_EN = T.en;
     return T[lang] || T.az;
   })();
   // Anonim ziyarətçi ID-si (təsadüfi, şəxsi məlumat deyil): eyni şəbəkədəki ziyarətçilər bir limiti bölüşməsin deyə.
@@ -204,10 +206,12 @@
     // Loqonun yanındakı yazı: loqonun mərkəzi ilə eyni hündürlükdə (56px loqo, 44px yazı -> 6px yuxarı)
     ".hint{position:fixed;bottom:calc(var(--cy) + 6px);height:44px;" + position + ":calc(var(--cx) + 66px);max-width:calc(100vw - var(--cx) - 78px);display:flex;align-items:center;padding:0 16px;border:0;border-radius:22px;background:var(--bg);color:var(--fg);font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.2);z-index:var(--ca-z);animation:hintIn .35s ease both}",
     "@keyframes hintIn{from{opacity:0;transform:translateX(" + (position === "left" ? "-" : "") + "8px)}to{opacity:1;transform:none}}",
-    ".launcher:focus-visible,button:focus-visible,textarea:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}",
+    ".launcher:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}",
     ".launcher svg{width:26px;height:26px}",
     ".launcher.logo{padding:0;overflow:hidden;background:var(--bg)}.launcher.logo img{width:100%;height:100%;object-fit:cover;display:block}",
-    ".logo-h{width:28px;height:28px;border-radius:50%;object-fit:cover;background:var(--bg);flex:none}",
+    // Başlıqdakı profil şəkli (loqodan ayrıdır): yüklənməyibsə standart bot ikonu
+    ".hav{width:32px;height:32px;border-radius:50%;overflow:hidden;display:grid;place-items:center;flex:none;background:color-mix(in srgb,var(--accent-fg) 18%,transparent);color:var(--accent-fg)}",
+    ".hav img,.av img{width:100%;height:100%;object-fit:cover;display:block}.hav svg{width:19px;height:19px}",
     ".panel{position:fixed;bottom:calc(var(--cy) + 68px);" + position + ":var(--cx);width:380px;max-width:calc(100vw - 24px);height:560px;max-height:max(240px,calc(100vh - var(--cy) - 88px));background:var(--bg);color:var(--fg);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:none;flex-direction:column;overflow:hidden;z-index:calc(var(--ca-z) + 1);border:1px solid var(--border)}",
     ".panel.open{display:flex}",
     ".head{display:flex;align-items:center;gap:8px;padding:14px 16px;background:var(--accent);color:var(--accent-fg)}",
@@ -215,15 +219,24 @@
     ".close{background:transparent;border:0;color:inherit;cursor:pointer;padding:4px;border-radius:6px;display:grid;place-items:center}",
     ".close svg{width:20px;height:20px}",
     ".newb[hidden]{display:none}",
-    ".log{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--bg2)}",
-    ".msg{max-width:88%;padding:9px 12px;border-radius:14px;font-size:14px;line-height:1.45;word-wrap:break-word;overflow-wrap:anywhere}",
+    ".log{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:14px 14px 12px;display:flex;flex-direction:column;gap:10px;background:var(--bg2)}",
+    ".msg{max-width:88%;min-width:0;padding:9px 12px;border-radius:14px;font-size:14px;line-height:1.45;word-wrap:break-word;overflow-wrap:anywhere}",
     ".msg p{margin:0}.msg p+p,.msg ul+p,.msg p+ul{margin-top:6px}",
     ".msg ul{margin:0;padding-left:18px}",
     ".msg a{color:inherit;text-decoration:underline}",
     ".user{align-self:flex-end;background:var(--accent);color:var(--accent-fg);border-bottom-right-radius:4px}",
     ".model{align-self:flex-start;background:var(--bg);border:1px solid var(--border);border-bottom-left-radius:4px}",
     ".model a{color:var(--accent-t)}",
-    ".srcs{align-self:flex-start;max-width:88%;font-size:12px;color:var(--muted);margin-top:-4px;display:flex;flex-wrap:wrap;gap:4px 8px}",
+    ".srcs{align-self:flex-start;max-width:80%;font-size:12px;color:var(--muted);margin-top:-4px;display:flex;flex-wrap:wrap;gap:4px 8px}",
+    // Mesaj sətri: bot mesajında solda dairəvi profil şəkli; vaxt yalnız siçan üzərinə gələndə (telefonda toxunanda) görünür
+    ".mrow{display:flex;align-items:flex-end;gap:8px;max-width:94%}.mrow.mu{align-self:flex-end}.mrow.mb{align-self:flex-start}.mrow .msg{max-width:none}",
+    ".av{flex:none;width:28px;height:28px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:var(--accent);color:var(--accent-fg)}.av svg{width:17px;height:17px}",
+    ".av.op{background:var(--opbg);color:var(--opfg);border:1px solid var(--opbd)}",
+    ".tm{flex:none;align-self:center;font-size:11px;color:var(--muted);opacity:0;transition:opacity .15s;white-space:nowrap;font-variant-numeric:tabular-nums}",
+    ".mrow:hover .tm,.mrow.show .tm{opacity:1}",
+    ".day{align-self:center;font-size:12px;font-weight:600;color:var(--muted);padding:2px 10px}",
+    // Bot mesajına aid əlavələr (kartlar, mənbələr, düymələr) mətnlə bir xətdə: profil şəklinin eni qədər içəridən
+    ".srcs,.fb,.cards,.acard,.cbtn,.csat{margin-left:36px}.cards{width:calc(100% - 36px)}",
     ".srcs a{color:var(--accent-t);text-decoration:underline}",
     ".cbtn{align-self:flex-start;border:1px solid var(--accent-t);background:var(--bg);color:var(--accent-t);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}",
     ".cform{align-self:stretch;display:flex;flex-direction:column;align-items:stretch;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px}",
@@ -265,7 +278,6 @@
     ".fbb:hover:not(:disabled){color:var(--accent-t)}.fbb.on{color:var(--accent-t)}.fbb:disabled{cursor:default}",
     ".fbb svg{width:15px;height:15px}",
     ".fb span{font-size:11px;color:var(--muted);margin-left:4px}",
-    ".livebtn[hidden]{display:none}",
     ".launcher.dot::after{content:\"\";position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:#ef4444;border:2px solid #fff}",
     ".error{align-self:center;background:var(--errbg);color:var(--errfg);border:1px solid var(--errbd);font-size:13px}",
     ".cards{align-self:stretch;display:flex;flex-direction:column;gap:8px}",
@@ -280,17 +292,29 @@
     ".typing i{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:b 1s infinite ease-in-out}",
     ".typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}",
     "@keyframes b{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}",
-    "@media (prefers-reduced-motion:reduce){.typing i{animation:none;opacity:.7}.launcher{transition:none}.hint{animation:none}}",
-    "form{display:flex;gap:8px;padding:10px;border-top:1px solid var(--border);background:var(--bg);align-items:flex-end}",
-    "textarea{flex:1;resize:none;border:1px solid var(--border2);border-radius:10px;padding:9px 10px;font-size:14px;line-height:1.35;max-height:96px;overflow-y:hidden;color:var(--fg);background:var(--bg)}",
-    ".attach{flex:none;width:38px;height:38px;border:1px solid var(--border2);border-radius:10px;background:var(--bg);color:var(--muted);display:grid;place-items:center;cursor:pointer;padding:0}",
-    ".attach svg{width:18px;height:18px}.attach[hidden],.pv[hidden]{display:none}",
-    ".pv{display:flex;align-items:center;gap:8px;padding:8px 10px 0;background:var(--bg)}",
+    "@media (prefers-reduced-motion:reduce){.typing i{animation:none;opacity:.7}.launcher{transition:none}.hint{animation:none}.sheet,.sheet-bg{transition:none}}",
+    // Yazı sahəsi: kənarda heç nə yoxdur; emoji və sancaq/göndər düymələri sahənin içində, sağda
+    // Yazı sahəsinin üstündə boşluq və xətt yoxdur; fon söhbətin fonu ilə eynidir, yalnız altda boşluq var
+    "form{position:relative;padding:0 12px 12px;background:var(--bg2)}",
+    ".ibox{display:flex;align-items:flex-end;gap:2px;border:1px solid var(--border2);border-radius:22px;padding:3px 4px 3px 14px;background:var(--bg);transition:border-color .15s}",
+    ".ibox:focus-within{border-color:var(--accent)}",
+    "textarea{flex:1;min-width:0;resize:none;border:0;outline:0;padding:8px 0;margin:0;font-size:14px;line-height:1.35;max-height:96px;overflow-y:hidden;color:var(--fg);background:transparent}",
+    ".ib{flex:none;width:34px;height:34px;border:0;border-radius:50%;background:transparent;color:var(--muted);display:grid;place-items:center;cursor:pointer;padding:0;transition:background .15s,color .15s,opacity .15s}",
+    ".ib:hover{color:var(--accent-t)}.ib svg{width:19px;height:19px}.ib[hidden]{display:none}",
+    ".ib.go{background:var(--accent);color:var(--accent-fg)}.ib.go svg{width:17px;height:17px}.ib.go.idle{opacity:.45;cursor:default}.ib:disabled{opacity:.5;cursor:default}",
+    ".emo{position:absolute;bottom:calc(100% + 6px);right:12px;width:min(296px,calc(100% - 24px));max-height:216px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:6px;display:grid;grid-template-columns:repeat(8,1fr);gap:2px;z-index:3}",
+    ".emo[hidden]{display:none}.emo button{border:0;background:transparent;font-size:20px;line-height:1;padding:6px 0;border-radius:8px;cursor:pointer}.emo button:hover{background:var(--bg2)}",
+    // Üç nöqtə menyusu: pəncərənin altından açılan vərəq
+    ".sheet-bg{position:absolute;inset:0;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .2s;z-index:5}.sheet-bg.on{opacity:1;pointer-events:auto}",
+    ".sheet{position:absolute;left:0;right:0;bottom:0;background:var(--bg);color:var(--fg);border-radius:16px 16px 0 0;padding:6px 8px 12px;box-shadow:0 -8px 24px rgba(0,0,0,.18);transform:translateY(100%);visibility:hidden;transition:transform .22s ease,visibility 0s .22s;z-index:6}",
+    ".sheet.on{transform:none;visibility:visible;transition:transform .22s ease}",
+    ".grab{width:36px;height:4px;border-radius:2px;background:var(--border2);margin:4px auto 8px}",
+    ".mi{display:flex;align-items:center;gap:12px;width:100%;border:0;background:transparent;color:var(--fg);font-size:14px;padding:12px;border-radius:10px;cursor:pointer;text-align:left}",
+    ".mi:hover{background:var(--bg2)}.mi svg{width:20px;height:20px;color:var(--muted);flex:none}.mi[hidden]{display:none}",
+    ".pv{display:flex;align-items:center;gap:8px;padding:0 12px 8px;background:var(--bg2)}",
     ".pv img{width:44px;height:44px;border-radius:8px;object-fit:cover;border:1px solid var(--border)}",
     ".pv button{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:12px;text-decoration:underline;padding:4px}",
     ".msg img.up{display:block;max-width:160px;max-height:160px;border-radius:8px;margin-bottom:6px}.msg .upl{display:block;font-size:12px;opacity:.8;margin-bottom:4px}",
-    ".send{border:0;border-radius:10px;background:var(--accent);color:var(--accent-fg);padding:0 14px;height:38px;font-size:14px;font-weight:600;cursor:pointer}",
-    ".send:disabled{opacity:.5;cursor:default}",
     // Cari pillənin məsafələri --cx/--cy-yə yazılır (lg defolt, sonra md, sonra sm). Sm-də çat tam ekrandır.
     ".launcher,.panel,.hint,.pro{--cx:var(--ca-side);--cy:var(--ca-bottom)}",
     "@media " + MQ_MD + "{.launcher,.panel,.hint,.pro{--cx:var(--ca-side-md);--cy:var(--ca-bottom-md)}}",
@@ -304,7 +328,14 @@
   var ICON_USER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>';
   var ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
   var ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
-  var ICON_IMG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-8 8"/></svg>';
+  var ICON_BOT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4.5V8"/><circle cx="12" cy="3.5" r="1"/><circle cx="9" cy="14" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="14" r="1.3" fill="currentColor" stroke="none"/><path d="M2 13v3M22 13v3"/></svg>';
+  var ICON_DOTS = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+  var ICON_SMILE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01"/></svg>';
+  var ICON_CLIP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l8.6-8.6a4 4 0 1 1 5.7 5.7l-8.6 8.6a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>';
+  var ICON_SEND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>';
+  var ICON_VOL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>';
+  var ICON_MUTE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="m22 9-6 6M16 9l6 6"/></svg>';
+  var EMOJIS = ["😀","😄","😁","😂","🤣","😊","😍","🥰","😘","😉","😎","🤩","🙂","🤔","😐","😅","😢","😭","😡","😱","🥳","😴","🤗","🙏","👍","👎","👌","👏","🙌","💪","🤝","✌️","❤️","🧡","💛","💚","💙","💜","🔥","⭐","✨","🎉","🎁","💯","✅","❌","⚠️","❓","📦","🚚","🚗","🏍️","🏠","📱","💻","💳","💰","🛒","⏰","📍","📞","✉️","☀️","🌙"];
   var ICON_UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v11H3V10z"/><path d="M7 10l4-8a3 3 0 0 1 3 3v4h6a2 2 0 0 1 2 2.3l-1.3 8a2 2 0 0 1-2 1.7H7"/></svg>';
   var ICON_DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 14V3h4v11z"/><path d="M17 14l-4 8a3 3 0 0 1-3-3v-4H4a2 2 0 0 1-2-2.3l1.3-8A2 2 0 0 1 5.3 3H17"/></svg>';
 
@@ -337,15 +368,79 @@
 
     var log = el("div", { class: "log", role: "log", "aria-live": "polite", "aria-label": "Söhbət" });
     var input = el("textarea", { rows: "1", maxlength: "500", placeholder: L.ph, "aria-label": L.msgLabel });
-    var sendBtn = el("button", { class: "send", type: "submit", text: L.send });
+    // Sağdakı düymə: yazı yoxdursa sancaq (şəkil əlavə et), yazı varsa göndər. Şəkil söndürülübsə həmişə göndər.
+    var sendBtn = el("button", { class: "ib go idle", type: "submit", "aria-label": L.sendL, title: L.sendL });
+    sendBtn.innerHTML = ICON_SEND; // sabit, yoxlanmış SVG
+    var emojiBtn = el("button", { class: "ib emob", type: "button", "aria-label": L.emoji, title: L.emoji, "aria-expanded": "false" });
+    emojiBtn.innerHTML = ICON_SMILE; // sabit, yoxlanmış SVG
+    var emo = el("div", { class: "emo", role: "dialog", "aria-label": L.emoji }); emo.hidden = true;
+    EMOJIS.forEach(function (ch) {
+      var b = el("button", { type: "button", text: ch, "aria-label": ch });
+      b.addEventListener("click", function () {
+        var a = input.selectionStart == null ? input.value.length : input.selectionStart, z = input.selectionEnd == null ? a : input.selectionEnd;
+        if ((input.value.length - (z - a) + ch.length) > 500) return;
+        input.setRangeText(ch, a, z, "end");
+        grow(); input.focus();
+      });
+      emo.appendChild(b);
+    });
+    function emoShow(v) { emo.hidden = !v; emojiBtn.setAttribute("aria-expanded", String(!!v)); }
+    emojiBtn.addEventListener("click", function () { emoShow(emo.hidden); if (emo.hidden) input.focus(); });
     var closeBtn = el("button", { class: "close", type: "button", "aria-label": "Söhbəti bağla" });
     closeBtn.innerHTML = ICON_X; // sabit, yoxlanmış SVG
     var newBtn = el("button", { class: "close newb", type: "button", "aria-label": L.fresh, title: L.fresh });
     newBtn.innerHTML = ICON_NEW; // sabit, yoxlanmış SVG
-    var liveBtn = el("button", { class: "close livebtn", type: "button", "aria-label": L.live, title: L.live });
-    liveBtn.innerHTML = ICON_USER; // sabit, yoxlanmış SVG
-    liveBtn.hidden = !cfg.live || !!state.live;
-    var themeBtn = el("button", { class: "close themeb", type: "button" });
+    // Üç nöqtə: gecə/gündüz, operatoru qoş və səs bu menyudadır (pəncərənin altından açılır)
+    var moreBtn = el("button", { class: "close moreb", type: "button", "aria-label": L.menu, title: L.menu, "aria-haspopup": "dialog", "aria-expanded": "false" });
+    moreBtn.innerHTML = ICON_DOTS; // sabit, yoxlanmış SVG
+    // Menyu ikonları adla seçilir: innerHTML-ə yalnız sabit SVG yazılır
+    function menuIcon(node, name) {
+      if (name === "sun") node.innerHTML = ICON_SUN;
+      else if (name === "moon") node.innerHTML = ICON_MOON;
+      else if (name === "user") node.innerHTML = ICON_USER;
+      else if (name === "vol") node.innerHTML = ICON_VOL;
+      else node.innerHTML = ICON_MUTE;
+    }
+    function menuItem(cls) { var b = el("button", { class: "mi " + cls, type: "button" }); var ic = el("span"); var tx = el("span"); b.appendChild(ic); b.appendChild(tx); return { b: b, set: function (name, text) { menuIcon(ic, name); tx.textContent = text; } }; }
+    var themeItem = menuItem("mi-theme"), liveItem = menuItem("mi-live"), soundItem = menuItem("mi-sound");
+    liveItem.set("user", L.live);
+    liveItem.b.hidden = !cfg.live || !!state.live;
+    var sheetBg = el("div", { class: "sheet-bg" });
+    var sheet = el("div", { class: "sheet", role: "dialog", "aria-label": L.menu, "aria-hidden": "true" }, [el("div", { class: "grab" }), themeItem.b, liveItem.b, soundItem.b]);
+    function sheetShow(v) {
+      sheet.classList.toggle("on", !!v); sheetBg.classList.toggle("on", !!v);
+      sheet.setAttribute("aria-hidden", String(!v)); moreBtn.setAttribute("aria-expanded", String(!!v));
+      if (v) { emoShow(false); setTimeout(function () { var f = sheet.querySelector(".mi:not([hidden])"); if (f) f.focus({ preventScroll: true }); }, 30); } // preventScroll: menyu qalxarkən pəncərə sürüşüb titrəməsin
+    }
+    var sheetOpen = function () { return sheet.classList.contains("on"); };
+    moreBtn.addEventListener("click", function () { sheetShow(!sheetOpen()); });
+    sheetBg.addEventListener("click", function () { sheetShow(false); });
+    // Bot cavabına qısa səs (defolt açıq; ziyarətçinin seçimi yadda qalır). Fayl yüklənmir: WebAudio ilə yaradılır.
+    var SOUND_KEY = "ca_sound", actx = null;
+    function soundOn() { try { return localStorage.getItem(SOUND_KEY) !== "off"; } catch (e) { return true; } }
+    function applySound() { soundItem.set(soundOn() ? "mute" : "vol", soundOn() ? L.soundOff : L.soundOn); }
+    function unlockAudio() { // brauzerlər səsi yalnız istifadəçi hərəkətindən sonra icazə verir
+      if (actx || !soundOn()) return;
+      try { var AC = window.AudioContext || window.webkitAudioContext; if (AC) actx = new AC(); } catch (e) { actx = null; }
+    }
+    function chime() {
+      if (!soundOn() || !actx) return;
+      try {
+        if (actx.state === "suspended") actx.resume();
+        var t0 = actx.currentTime;
+        [[880, 0], [1320, 0.09]].forEach(function (n) {
+          var o = actx.createOscillator(), g = actx.createGain();
+          o.type = "sine"; o.frequency.value = n[0];
+          g.gain.setValueAtTime(0.0001, t0 + n[1]); g.gain.exponentialRampToValueAtTime(0.12, t0 + n[1] + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t0 + n[1] + 0.22);
+          o.connect(g); g.connect(actx.destination); o.start(t0 + n[1]); o.stop(t0 + n[1] + 0.24);
+        });
+      } catch (e) { /* səs vacib deyil */ }
+    }
+    soundItem.b.addEventListener("click", function () {
+      try { localStorage.setItem(SOUND_KEY, soundOn() ? "off" : "on"); } catch (e) { /* yaddaş bağlıdır */ }
+      applySound(); unlockAudio(); sheetShow(false);
+    });
+    applySound();
     // Ziyarətçinin seçimi (düymə) yadda qalır; seçməyibsə panelde təyin olunan açılış rejimi: light / dark / auto (cihaz ayarı)
     var THEME_KEY = "ca_theme";
     var mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
@@ -354,23 +449,32 @@
     function applyTheme() {
       var th = effectiveTheme();
       host.setAttribute("data-ca-theme", th);
-      if (th === "dark") themeBtn.innerHTML = ICON_SUN; else themeBtn.innerHTML = ICON_MOON; // sabit, yoxlanmış SVG
-      var lbl = th === "dark" ? L.toLight : L.toDark;
-      themeBtn.setAttribute("aria-label", lbl); themeBtn.title = lbl;
+      themeItem.set(th === "dark" ? "sun" : "moon", th === "dark" ? L.toLight : L.toDark);
     }
-    themeBtn.addEventListener("click", function () {
+    themeItem.b.addEventListener("click", function () {
       try { localStorage.setItem(THEME_KEY, effectiveTheme() === "dark" ? "light" : "dark"); } catch (e) { /* yaddaş bağlıdır */ }
-      applyTheme();
+      applyTheme(); sheetShow(false);
     });
     if (mq && mq.addEventListener) mq.addEventListener("change", applyTheme);
     // Şəkilli sual (sayt sahibi panelden açıbsa): şəkil brauzerdə kiçildilir, serverə base64 ilə gedir, heç yerdə saxlanmır
-    var attachBtn = el("button", { class: "attach", type: "button", "aria-label": L.photoAdd, title: L.photoAdd });
-    attachBtn.innerHTML = ICON_IMG; // sabit, yoxlanmış SVG
-    attachBtn.hidden = cfg.imageSearch !== true;
     var fileIn = el("input", { type: "file", accept: "image/png,image/jpeg,image/webp", hidden: "", "aria-label": L.photoAdd });
     var pv = el("div", { class: "pv" }); pv.hidden = true;
     var pending = null; // { b64, url }
-    function clearPending() { pending = null; pv.textContent = ""; pv.hidden = true; }
+    function clearPending() { pending = null; pv.textContent = ""; pv.hidden = true; updateAct(); }
+    var canAttach = function () { return cfg.imageSearch === true && !state.live; };
+    var actMode = "";
+    function updateAct() { // sancaq <-> göndər
+      var has = !!input.value.trim() || !!pending;
+      var mode = !has && canAttach() ? "clip" : "send";
+      sendBtn.classList.toggle("idle", mode === "send" && !has);
+      if (mode === actMode) return;
+      actMode = mode;
+      sendBtn.type = mode === "clip" ? "button" : "submit";
+      sendBtn.className = mode === "clip" ? "ib" : "ib go" + (has ? "" : " idle");
+      if (mode === "clip") sendBtn.innerHTML = ICON_CLIP; else sendBtn.innerHTML = ICON_SEND; // sabit, yoxlanmış SVG
+      var lbl = mode === "clip" ? L.photoAdd : L.sendL;
+      sendBtn.setAttribute("aria-label", lbl); sendBtn.title = lbl;
+    }
     function shrinkImage(file) {
       return createImageBitmap(file).then(function (bmp) {
         var k = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
@@ -383,7 +487,7 @@
         return { url: url, b64: url.slice(url.indexOf(",") + 1) };
       });
     }
-    attachBtn.addEventListener("click", function () { if (!busy) fileIn.click(); });
+    sendBtn.addEventListener("click", function () { if (actMode === "clip" && !busy) fileIn.click(); });
     fileIn.addEventListener("change", function () {
       var f = fileIn.files && fileIn.files[0]; fileIn.value = "";
       if (!f) return;
@@ -392,22 +496,34 @@
         var thumb = el("img", { src: r.url, alt: "" });
         var del = el("button", { type: "button", text: L.photoDel });
         del.addEventListener("click", clearPending);
-        pv.appendChild(thumb); pv.appendChild(del); pv.hidden = false;
+        pv.appendChild(thumb); pv.appendChild(del); pv.hidden = false; updateAct();
       }).catch(function () { bubble("error", L.photoBad); scroll(); });
     });
-    var form = el("form", null, [attachBtn, fileIn, input, sendBtn]);
+    var form = el("form", null, [emo, fileIn, el("div", { class: "ibox" }, [input, emojiBtn, sendBtn])]);
     // Loqo yalnız bizim portaldan gələn https ünvandır; yüklənməsə sakitcə gizlənir (başlıqda) və ya standart ikonaya qayıdır (düymədə)
     var logoUrl = typeof cfg.logo === "string" && /^https?:\/\//i.test(cfg.logo) ? cfg.logo : "";
-    var headLogo = logoUrl ? el("img", { class: "logo-h", src: logoUrl, alt: "", referrerpolicy: "no-referrer" }) : null;
-    if (headLogo) headLogo.addEventListener("error", function () { headLogo.remove(); });
+    // Profil şəkli (başlıq və bot mesajları) loqodan ayrıdır; yoxdursa və ya yüklənməsə robot ikonu
+    var avatarUrl = typeof cfg.avatar === "string" && /^https?:\/\//i.test(cfg.avatar) ? cfg.avatar : "";
+    var avatarOk = !!avatarUrl;
+    function avatarInto(box) {
+      if (avatarOk) {
+        var im = el("img", { src: avatarUrl, alt: "", referrerpolicy: "no-referrer" });
+        im.addEventListener("error", function () { avatarOk = false; box.innerHTML = ICON_BOT; }); // sabit SVG
+        box.appendChild(im);
+      } else box.innerHTML = ICON_BOT; // sabit, yoxlanmış SVG
+      return box;
+    }
+    var headAvatar = avatarInto(el("span", { class: "hav", "aria-hidden": "true" }));
+    function botAv() { return avatarInto(el("span", { class: "av", "aria-hidden": "true" })); }
+    function opAv() { var a = el("span", { class: "av op", "aria-hidden": "true" }); a.innerHTML = ICON_USER; return a; } // sabit SVG
     var brandEl = null;
     if (cfg.brand && typeof cfg.brand.name === "string" && cfg.brand.name) {
       brandEl = el("div", { class: "brand" }, [el("span", { text: L.poweredBy + " " })]);
       brandEl.appendChild(isUrl(cfg.brand.url) ? el("a", { href: cfg.brand.url, target: "_blank", rel: "noopener noreferrer", text: cfg.brand.name }) : el("span", { text: cfg.brand.name }));
     }
     var panel = el("div", { class: "panel", role: "dialog", "aria-label": cfg.title || "Çat" }, [
-      el("div", { class: "head" }, [].concat(logoUrl ? [headLogo] : [], [el("h2", { text: cfg.title || "Çat" }), liveBtn, themeBtn, newBtn, closeBtn])), log, pv, form,
-    ].concat(brandEl ? [brandEl] : []));
+      el("div", { class: "head" }, [headAvatar, el("h2", { text: cfg.title || "Çat" }), newBtn, moreBtn, closeBtn]), log, pv, form,
+    ].concat(brandEl ? [brandEl] : [], [sheetBg, sheet]));
     var launcher = el("button", { class: "launcher", type: "button", "aria-label": "Çatı aç", "aria-expanded": "false" });
     launcher.innerHTML = ICON_CHAT;
     if (logoUrl) {
@@ -426,7 +542,29 @@
     }
 
     function scroll() { log.scrollTop = log.scrollHeight; }
-    function bubble(role, text, imgUrl, hadImg) {
+    // Vaxt (1:18) və gün (18 Oktyabr): brauzerin dil ayarından asılı olmasın deyə özümüz formatlayırıq
+    var lastDay = "";
+    function hm(t) { var d = new Date(t); return d.getHours() + ":" + ("0" + d.getMinutes()).slice(-2); }
+    function dayLabel(t) {
+      var d = new Date(t), m = L.months[d.getMonth()], y = d.getFullYear() !== new Date().getFullYear() ? " " + d.getFullYear() : "";
+      return L === T_EN ? m + " " + d.getDate() + y : d.getDate() + " " + m + y;
+    }
+    function maybeDay(t) {
+      if (!t) return;
+      var d = new Date(t), k = d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate();
+      if (k === lastDay) return;
+      lastDay = k;
+      log.appendChild(el("div", { class: "day", text: dayLabel(t) }));
+    }
+    // Mesaj sətri: [profil şəkli] balon [vaxt] (bot) və ya [vaxt] balon (istifadəçi)
+    function row(side, b, t, av) {
+      var kids = side === "mu" ? [t ? el("span", { class: "tm", text: hm(t) }) : null, b] : [av, b, t ? el("span", { class: "tm", text: hm(t) }) : null];
+      var r = el("div", { class: "mrow " + side }, kids);
+      if (t) r.addEventListener("click", function (e) { if (!e.target.closest || !e.target.closest("a,button")) r.classList.toggle("show"); }); // telefonda toxunanda
+      log.appendChild(r);
+      return r;
+    }
+    function bubble(role, text, imgUrl, hadImg, t) {
       var b = el("div", { class: "msg " + role });
       if (role === "model") renderText(b, text);
       else {
@@ -434,6 +572,8 @@
         else if (hadImg) b.appendChild(el("span", { class: "upl", text: L.photoSent }));
         if (text) b.appendChild(document.createTextNode(text));
       }
+      if (role === "model") return row("mb", b, t, botAv());
+      if (role === "user") return row("mu", b, t);
       log.appendChild(b);
     }
     function cards(listings) {
@@ -495,7 +635,7 @@
             body: JSON.stringify({ name: nameI.value, contact: contI.value, question: question, chat: state.messages.filter(function (m) { return !m.live; }).slice(-8).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; }), website: hp.value }),
           }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, status: res.status, data: d }; }); })
             .then(function (r) {
-              if (r.ok) { f.remove(); bubble("model", L.ok); scroll(); return; }
+              if (r.ok) { f.remove(); bubble("model", L.ok, null, null, Date.now()); scroll(); return; }
               err.textContent = r.status === 400 ? L.bad : L.fail; go.disabled = false;
             }).catch(function () { err.textContent = L.fail; go.disabled = false; });
         });
@@ -574,14 +714,15 @@
       }
       log.appendChild(el("div", { class: withBack ? "note back" : "note" }, kids));
     }
-    function liveBubble(role, text) {
+    function liveBubble(role, text, t) {
       if (role === "system") return note(L.liveEnd, false);
+      maybeDay(t);
       if (role === "operator") {
         var b = el("div", { class: "msg operator" }, [el("div", { class: "who", text: L.op })]);
         b.appendChild(el("div", { text: text }));
-        return log.appendChild(b);
+        return row("mb", b, t, opAv());
       }
-      bubble("user", text);
+      bubble("user", text, null, null, t);
     }
     function liveBox() {
       if (!cfg.live || state.live) return;
@@ -590,9 +731,9 @@
       log.appendChild(b);
     }
     function updateLiveUi() {
-      liveBtn.hidden = !cfg.live || !!state.live;
+      liveItem.b.hidden = !cfg.live || !!state.live;
       input.placeholder = state.live ? L.livePh : L.ph;
-      attachBtn.hidden = cfg.imageSearch !== true || !!state.live;
+      updateAct();
     }
     // Operator cavab yazanda ziyarətçi çatda deyilsə cavab bu e-poçta gedəcək (ixtiyari)
     function mailRow() {
@@ -608,15 +749,18 @@
       save(); updateLiveUi();
       note(L.liveStart, true); mailRow(); scroll(); input.focus();
     }
-    liveBtn.addEventListener("click", startLive);
+    liveItem.b.addEventListener("click", function () { sheetShow(false); startLive(); });
     function render() {
       newBtn.hidden = state.messages.length === 0 && !state.live;
-      log.textContent = "";
+      log.textContent = ""; lastDay = "";
+      var firstT = (state.messages.filter(function (m) { return m.t; })[0] || {}).t;
+      maybeDay(firstT || Date.now()); // gün söhbətin lap əvvəlində, ortada
       bubble("model", cfg.greeting || "");
       var q = "";
       state.messages.forEach(function (m) {
-        if (m.live) return liveBubble(m.role, m.text);
-        bubble(m.role, m.text, null, m.img); if (m.role === "user") q = m.text; else extras(m, q);
+        if (m.live) return liveBubble(m.role, m.text, m.t);
+        maybeDay(m.t);
+        bubble(m.role, m.text, null, m.img, m.t); if (m.role === "user") q = m.text; else extras(m, q);
       });
       if (state.live && state.live.pending) { note(L.liveStart, true); mailRow(); }
       updateLiveUi();
@@ -698,10 +842,12 @@
       list.forEach(function (m) {
         var role = m.from === "visitor" ? "user" : m.from === "operator" ? "operator" : "system";
         var text = role === "system" ? "closed" : String(m.text || "");
-        state.messages.push({ role: role, text: text, live: true });
-        liveBubble(role, text);
+        var at = Date.parse(m.at) || Date.now();
+        state.messages.push({ role: role, text: text, live: true, t: at });
+        liveBubble(role, text, at);
         if (role === "operator") gotOperator = true;
       });
+      if (gotOperator) chime();
       if (gotOperator) {
         clearTimeout(noReplyTimer);
         if (!state.open && state.live && d.total > (state.live.seen || 0)) launcher.classList.add("dot"); // yalnız oxunmamış cavab
@@ -789,7 +935,7 @@
 
     function setOpen(v) {
       state.open = !!v;
-      if (state.open) proHide();
+      if (state.open) proHide(); else { sheetShow(false); emoShow(false); }
       if (state.open && state.live && state.live.after) state.live.seen = state.live.after;
       panel.classList.toggle("open", state.open);
       launcher.setAttribute("aria-expanded", String(state.open));
@@ -810,10 +956,18 @@
       input.value = ""; grow();
       render(); input.focus();
     });
-    root.addEventListener("keydown", function (e) { if (e.key === "Escape" && state.open) { setOpen(false); launcher.focus(); } });
+    root.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape" || !state.open) return;
+      if (sheetOpen()) { sheetShow(false); moreBtn.focus(); return; }
+      if (!emo.hidden) { emoShow(false); input.focus(); return; }
+      setOpen(false); launcher.focus();
+    });
+    // Emoji pəncərəsi kənara toxunanda bağlanır
+    root.addEventListener("click", function (e) { if (emo.hidden) return; var path = e.composedPath ? e.composedPath() : []; if (path.indexOf(emo) < 0 && path.indexOf(emojiBtn) < 0) emoShow(false); });
+    root.addEventListener("pointerdown", unlockAudio);
 
     var busy = false, gen = 0, curCtrl = null;
-    function grow() { input.style.height = "auto"; var h = input.scrollHeight + (input.offsetHeight - input.clientHeight); input.style.height = Math.min(h, 96) + "px"; input.style.overflowY = h > 96 ? "auto" : "hidden"; }
+    function grow() { input.style.height = "auto"; var h = input.scrollHeight + (input.offsetHeight - input.clientHeight); input.style.height = Math.min(h, 96) + "px"; input.style.overflowY = h > 96 ? "auto" : "hidden"; updateAct(); }
     input.addEventListener("input", grow);
     input.addEventListener("input", function () { // operatora "yazır..." siqnalı (3 saniyədə bir)
       if (wsOk && ws && state.live && state.live.id && Date.now() - typingSentAt > 3000) { typingSentAt = Date.now(); try { ws.send('{"t":"typing"}'); } catch (e) { /* bağlanır */ } }
@@ -830,16 +984,18 @@
       if (state.live) return liveSubmit(text);
       var history = state.messages.filter(function (m) { return !m.live; }).slice(-10).map(function (m) { return { role: m.role, text: m.text + (m.note ? " [şəkil: " + m.note + "]" : (m.img && !m.text ? " [şəkil]" : "")) }; });
       if (!state.sid) state.sid = newId(); // bir söhbət = bir identifikator (sayt sahibi tarixçədə qruplaşdırılmış görür)
-      var userMsg = { role: "user", text: text };
+      var userMsg = { role: "user", text: text, t: Date.now() };
+      unlockAudio(); emoShow(false);
       if (shot) userMsg.img = true; // şəklin özü saxlanmır, yalnız "göndərilib" qeydi
       state.messages.push(userMsg);
       newBtn.hidden = false;
       save();
-      bubble("user", text, shot ? shot.url : null);
+      maybeDay(userMsg.t);
+      bubble("user", text, shot ? shot.url : null, null, userMsg.t);
       input.value = ""; grow(); clearPending();
       busy = true; sendBtn.disabled = true;
-      var typing = el("div", { class: "typing", "aria-label": "Cavab yazılır" }, [el("i"), el("i"), el("i")]);
-      log.appendChild(typing); scroll();
+      var typing = row("mb", el("div", { class: "typing", "aria-label": "Cavab yazılır" }, [el("i"), el("i"), el("i")]), 0, botAv());
+      scroll();
 
       var ctrl = new AbortController(), myGen = gen;
       curCtrl = ctrl;
@@ -862,7 +1018,7 @@
         if (r.data.identity === "invalid" && idToken) { idToken = null; try { window.dispatchEvent(new CustomEvent("caradvisor:identity-expired")); } catch (e) { /* köhnə brauzer */ } }
         if (typeof r.data.imageNote === "string" && r.data.imageNote) { userMsg.note = r.data.imageNote.slice(0, 200); }
         var answer = String(r.data.answer || "");
-        var msg = { role: "model", text: answer, listings: r.data.listings || [], sources: r.data.sources || [], unanswered: r.data.unanswered === true };
+        var msg = { role: "model", text: answer, t: Date.now(), listings: r.data.listings || [], sources: r.data.sources || [], unanswered: r.data.unanswered === true };
         var cf = r.data.confirm;
         if (cf && typeof cf.id === "string" && /^[0-9a-f]{32}$/.test(cf.id) && typeof cf.title === "string") {
           msg.confirm = { id: cf.id, title: String(cf.title).slice(0, 60), summary: String(cf.summary || "").slice(0, 300),
@@ -871,7 +1027,7 @@
         }
         state.messages.push(msg);
         save();
-        bubble("model", answer); extras(msg, text);
+        maybeDay(msg.t); bubble("model", answer, null, null, msg.t); extras(msg, text); chime();
       }).catch(function () {
         typing.remove();
         if (myGen !== gen) return;
@@ -927,7 +1083,7 @@
       var x = el("button", { class: "prox", type: "button", "aria-label": L.proClose, text: "\u00d7" });
       proEl = el("div", { class: "pro", role: "status" }, [t, x]);
       root.appendChild(proEl); proMark(id);
-      t.addEventListener("click", function () { proHide(); state.messages.push({ role: "model", text: text }); save(); setOpen(true); render(); });
+      t.addEventListener("click", function () { proHide(); state.messages.push({ role: "model", text: text, t: Date.now() }); save(); setOpen(true); render(); });
       x.addEventListener("click", function () { proHide(); });
     }
     function schedulePro(path, visible) {

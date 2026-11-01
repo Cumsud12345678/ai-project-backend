@@ -11,7 +11,7 @@ import { Router, type RequestHandler } from "express";
 import { AiError } from "./ai.js";
 import type { Deps } from "./deps.js";
 import { HttpError } from "./http.js";
-import type { LiveChat, TenantRecord, WidgetSettings } from "./store/types.js";
+import type { LiveChat, TenantRecord, WidgetImage, WidgetImageKind, WidgetSettings } from "./store/types.js";
 import { cleanContact } from "./kb.js";
 import { notifyBalance } from "./billing.js";
 import { hub } from "./hub.js";
@@ -59,7 +59,7 @@ export function originAllowed(origin: string | undefined, tenant: Pick<TenantRec
 
 export const LOGO_MAX_BYTES = 100 * 1024;
 /** Loqo: yalnız PNG/JPEG/WebP (SVG yoxdur: skript daşıya bilər), ölçü və başlıq baytları yoxlanır. */
-export function parseLogo(body: unknown): NonNullable<WidgetSettings["logo"]> {
+export function parseLogo(body: unknown): WidgetImage {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   if (typeof b.data !== "string" || !b.data || b.data.length > Math.ceil(LOGO_MAX_BYTES * 1.4) + 64) throw new HttpError(400, "Loqo faylı çox böyükdür (maksimum 100 KB)", "LOGO_TOO_LARGE");
   const buf = Buffer.from(b.data, "base64");
@@ -176,7 +176,9 @@ async function widgetScript(): Promise<string> {
   return text;
 }
 
-export const logoUrl = (portalUrl: string, w: Pick<WidgetSettings, "key" | "logo">) => `${portalUrl}/widget/${w.key}/logo?v=${w.logo?.v ?? 0}`;
+export const WIDGET_IMAGE_KINDS: readonly WidgetImageKind[] = ["logo", "avatar"];
+export const imageUrl = (portalUrl: string, w: Pick<WidgetSettings, "key" | "logo" | "avatar">, kind: WidgetImageKind) => `${portalUrl}/widget/${w.key}/${kind}?v=${w[kind]?.v ?? 0}`;
+export const logoUrl = (portalUrl: string, w: Pick<WidgetSettings, "key" | "logo">) => imageUrl(portalUrl, w, "logo");
 
 /** /widget.js və /widget/:key/* — giriş (cookie) tələb etmir, brauzerdən müştəri saytından çağırılır. */
 export function widgetRoutes(deps: Deps) {
@@ -211,13 +213,13 @@ export function widgetRoutes(deps: Deps) {
     } catch (e) { next(e); }
   };
 
-  // Loqo şəkli: <img> ilə yüklənir (CORS lazım deyil). Yalnız aktiv vidjetin loqosu, keşlənir; skript icrası mümkün deyil.
-  r.get("/widget/:key/logo", async (req, res, next) => {
+  // Loqo (düymə) və profil şəkli (çatın içi): <img> ilə yüklənir (CORS lazım deyil). Yalnız aktiv vidjetin şəkli, keşlənir; skript icrası mümkün deyil.
+  for (const kind of WIDGET_IMAGE_KINDS) r.get(`/widget/:key/${kind}`, async (req, res, next) => {
     try {
       const key = String(req.params.key ?? "");
       const tenant = WIDGET_KEY_RE.test(key) ? await store.findTenantByWidgetKey(key) : null;
-      const logo = tenant?.widget?.enabled ? tenant.widget.logo : undefined;
-      if (!logo) throw new HttpError(404, "Loqo tapılmadı", "NO_LOGO");
+      const logo = tenant?.widget?.enabled ? tenant.widget[kind] : undefined;
+      if (!logo) throw new HttpError(404, kind === "logo" ? "Loqo tapılmadı" : "Profil şəkli tapılmadı", kind === "logo" ? "NO_LOGO" : "NO_AVATAR");
       res.set({
         "Content-Type": logo.mime, "Cache-Control": "public, max-age=86400", "Cross-Origin-Resource-Policy": "cross-origin",
         "Content-Security-Policy": "default-src 'none'; sandbox", "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline",
@@ -234,7 +236,7 @@ export function widgetRoutes(deps: Deps) {
     // Quraşdırmanın işlədiyini göstərmək üçün: ən çox 10 dəqiqədən bir yazılır
     if (!w.lastSeenAt || Date.now() - new Date(w.lastSeenAt).getTime() > 10 * 60_000) void store.touchWidget(wt.tenantId, new Date()).catch(() => {});
     res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, mode, contact: true, live: liveOpenNow(wt), csat: w.live?.csat !== false, proactive: w.proactive?.enabled ? w.proactive.rules.map((r) => ({ id: r.id, text: r.text, delaySec: r.delaySec, match: r.match })) : [], // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
-      theme: w.theme ?? "light", brand: wt.brandRemoved ? null : { name: deps.config.brandName, url: deps.config.brandUrl }, imageSearch: imageEnabled(wt), ...(w.logo && { logo: logoUrl(deps.config.publicPortalUrl, w) }) });
+      theme: w.theme ?? "light", brand: wt.brandRemoved ? null : { name: deps.config.brandName, url: deps.config.brandUrl }, imageSearch: imageEnabled(wt), ...(w.logo && { logo: imageUrl(deps.config.publicPortalUrl, w, "logo") }), ...(w.avatar && { avatar: imageUrl(deps.config.publicPortalUrl, w, "avatar") }) });
   });
 
   // Operatorla əlaqə (cavab tapılmayanda): sayt ziyarətçisi telefon/e-poçt qoyur, sayt sahibi panelda görür və e-poçtla xəbər alır.

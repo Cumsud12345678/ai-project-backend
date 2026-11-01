@@ -1,21 +1,38 @@
 // WhatsApp-a şəkil göndərmək üçün şəkli BİZİM server yükləyir, ona görə SSRF-dən qorunur:
 // yalnız http(s), daxili/şəxsi IP-lər qadağandır (DNS cavabı yoxlanır), yönləndirmələr təkrar yoxlanır,
 // ölçü və vaxt limiti var, məzmun real şəkil (png/jpeg/webp) olmalıdır.
+import dns from "node:dns";
 import { lookup as dnsLookup } from "node:dns/promises";
 import net from "node:net";
+import { Agent, fetch as undiciFetch } from "undici";
 
 export const IMAGE_MAX_BYTES = 3 * 1024 * 1024;
 type Lookup = (host: string) => Promise<{ address: string }[]>;
 
 export function isPrivateIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
-    const [a, b] = ip.split(".").map(Number) as [number, number];
-    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+    const [a, b, c] = ip.split(".").map(Number) as [number, number, number];
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)
+      || (a === 192 && b === 0 && c === 0) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
   }
   const v = ip.toLowerCase();
   if (v.startsWith("::ffff:")) return isPrivateIp(v.slice(7));
+  if (v.startsWith("64:ff9b:")) return true; // NAT64: içində istənilən IPv4 gizlənə bilər
   return v === "::" || v === "::1" || v.startsWith("fc") || v.startsWith("fd") || v.startsWith("fe8") || v.startsWith("fe9") || v.startsWith("fea") || v.startsWith("feb") || v.startsWith("ff");
 }
+
+// DNS rebinding-ə qarşı: IP qoşulma ANINDA yoxlanır (assertPublic-dəki yoxlamadan sonra domen başqa IP-yə dönə bilər).
+type LookupCb = (err: NodeJS.ErrnoException | null, address?: string | dns.LookupAddress[], family?: number) => void;
+function safeLookup(hostname: string, options: dns.LookupOptions, callback: LookupCb) {
+  dns.lookup(hostname, { ...options, all: true }, (err, addrs) => {
+    if (err) return callback(err);
+    if (!addrs.length || addrs.some((a) => isPrivateIp(a.address))) return callback(Object.assign(new Error("daxili ünvan"), { code: "EPRIVATEIP" }));
+    if (options?.all) return callback(null, addrs);
+    callback(null, addrs[0]!.address, addrs[0]!.family);
+  });
+}
+const guardedAgent = new Agent({ connect: { lookup: safeLookup as never } });
+const guardedFetch = ((url: URL | string, init?: RequestInit) => undiciFetch(url, { ...(init as object), dispatcher: guardedAgent })) as unknown as typeof fetch;
 
 export function sniffImage(b: Buffer): "image/png" | "image/jpeg" | "image/webp" | null {
   if (b.length > 12 && b[0] === 0x89 && b.subarray(1, 4).toString() === "PNG") return "image/png";
@@ -36,7 +53,7 @@ async function assertPublic(raw: string, lookup: Lookup): Promise<URL> {
 
 /** Uğurlu olsa şəkil baytlarını, istənilən problemdə null qaytarır (çağıran mətnə keçir). */
 export async function fetchImage(raw: string, o: { fetchFn?: typeof fetch; lookup?: Lookup } = {}): Promise<{ data: Buffer; mime: string } | null> {
-  const fetchFn = o.fetchFn ?? fetch;
+  const fetchFn = o.fetchFn ?? guardedFetch;
   const lookup: Lookup = o.lookup ?? ((h) => dnsLookup(h, { all: true }));
   try {
     let url = raw;

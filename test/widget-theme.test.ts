@@ -45,6 +45,28 @@ test("loqo: PNG yüklənir, ictimai ünvandan düzgün başlıqlarla verilir, ba
   assert.equal((await fetch(`${p.base}/widget/${key}/logo`)).status, 404);
 });
 
+test("profil şəkli loqodan ayrıdır: ayrıca yüklənir, verilir və silinir, biri digərinə toxunmur", async () => {
+  const { c, key } = await tenant();
+  const JPG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(120, 2)]);
+  assert.equal((await fetch(`${p.base}/widget/${key}/avatar`)).status, 404);
+  assert.equal((await cfgOf(key)).avatar, undefined, "yüklənməyibsə vidjet standart bot ikonunu göstərir");
+  await c.call("PUT", "/tenant/widget/logo", { data: PNG.toString("base64") });
+  const r = await c.call("PUT", "/tenant/widget/avatar", { data: JPG.toString("base64") });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(r.body.widget.avatarUrl, new RegExp(`/widget/${key}/avatar\\?v=\\d+`)); assert.equal(r.body.widget.avatar, undefined);
+  assert.match(r.body.widget.logoUrl, /\/logo\?v=/, "avatar yükləmək loqonu silməməlidir");
+  const img = await fetch(`${p.base}/widget/${key}/avatar`);
+  assert.equal(img.headers.get("content-type"), "image/jpeg"); assert.deepEqual(Buffer.from(await img.arrayBuffer()), JPG);
+  assert.deepEqual(Buffer.from(await (await fetch(`${p.base}/widget/${key}/logo`)).arrayBuffer()), PNG, "loqo öz şəklini saxlayır");
+  const cfg = await cfgOf(key);
+  assert.match(cfg.avatar, /\/avatar\?v=\d+/); assert.match(cfg.logo, /\/logo\?v=\d+/);
+  assert.equal((await c.call("PUT", "/tenant/widget/avatar", { data: "PHN2Zz4=" })).body.code, "LOGO_TYPE");
+  const del = await c.call("DELETE", "/tenant/widget/avatar");
+  assert.equal(del.body.widget.avatarUrl, null); assert.match(del.body.widget.logoUrl, /\/logo\?v=/);
+  assert.equal((await fetch(`${p.base}/widget/${key}/avatar`)).status, 404);
+  assert.equal((await fetch(`${p.base}/widget/${key}/logo`)).status, 200);
+});
+
 test("loqo: SVG, səhv format və böyük fayl rədd olunur; söndürülmüş vidjetin loqosu verilmir", async () => {
   const { c, key } = await tenant();
   const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>').toString("base64");

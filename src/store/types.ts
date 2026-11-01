@@ -12,6 +12,11 @@ export type LiveNote = { text: string; by: string; at: Date };
 export type CannedReply = { id: string; title: string; text: string };
 
 /** Müştəri saytına qoyulan çat vidjetinin ayarları. `key` ictimaidir (brauzerdə görünür), sirr deyil. */
+/** Vidjet şəkli (kiçildilmiş, base64). Panelə və vidjetə yalnız ünvanı qayıdır. `v` keşi yeniləmək üçündür. */
+export type WidgetImage = { mime: "image/png" | "image/jpeg" | "image/webp"; data: string; v: number };
+/** Vidjetin ayrıca saxlanan şəkilləri: logo = çat düyməsi, avatar = çatın içindəki profil şəkli. */
+export type WidgetImageKind = "logo" | "avatar";
+
 export type WidgetSettings = {
   key: string;
   enabled: boolean;
@@ -24,8 +29,10 @@ export type WidgetSettings = {
   color: string;
   /** Çatın ilk açılış rejimi: light (defolt), dark və ya auto (cihaz ayarı). Ziyarətçi çatdakı düymə ilə özü dəyişir və seçimi yadda qalır. */
   theme?: "light" | "dark" | "auto";
-  /** Yüklənmiş loqo (kiçildilmiş şəkil, base64). Panelə və vidjetə yalnız ünvanı qayıdır. `v` keşi yeniləmək üçündür. */
-  logo?: { mime: "image/png" | "image/jpeg" | "image/webp"; data: string; v: number };
+  /** Çat düyməsinin loqosu. Olmayanda düymədə standart çat ikonu göstərilir. */
+  logo?: WidgetImage;
+  /** Çatın içindəki profil şəkli (başlıq və bot mesajlarının yanındakı dairə). Olmayanda vidjet standart bot ikonunu göstərir. */
+  avatar?: WidgetImage;
   /** Çat istifadə limitləri (0 = limitsiz). Olmayanda defolt: ziyarətçi başına gündə 30 mesaj, sayt üzrə limitsiz. */
   limits?: { perVisitorDay: number; siteHour: number };
   /** Canlı operator söhbəti: ziyarətçi operatorla panel vasitəsilə yazışır. Defolt: söndürülüb (operator panelə baxmalıdır). */
@@ -151,7 +158,7 @@ export interface Store {
   listTenants(limit: number): Promise<TenantRecord[]>;
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
   /** Yalnız vidjet loqosunu dəyişir (bütün vidjet sənədini yenidən yazmır). null = sil. */
-  setWidgetLogo(tenantId: string, logo: NonNullable<WidgetSettings["logo"]> | null): Promise<void>;
+  setWidgetLogo(tenantId: string, logo: WidgetImage | null, kind?: WidgetImageKind): Promise<void>;
   updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved" | "canned">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */

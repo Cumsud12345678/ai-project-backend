@@ -11,7 +11,7 @@ import { hub } from "../hub.js";
 import { makeTicket, wsUrlOf } from "../realtime.js";
 import { currentUser, requireAuth } from "../middleware.js";
 import { DuplicateError, type LiveChat, type TenantRecord, type User } from "../store/types.js";
-import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, logoUrl } from "../widget.js";
+import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, imageUrl, WIDGET_IMAGE_KINDS } from "../widget.js";
 
 const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret", "feedText"];
 const PROFILE_KEYS = ["language", "tone", "maxResults", "extraInstructions", "logQueries", "mode", "fallbackMessage", "generalKnowledge", "kbAutoRefresh", "imageSearch"];
@@ -211,7 +211,7 @@ export function tenantRoutes(deps: Deps) {
   };
   const widgetView = (t: TenantRecord, widget: NonNullable<TenantRecord["widget"]>) => ({
     // Loqonun baytları panelə qayıtmır: yalnız ünvan
-    widget: { ...widget, logo: undefined, logoUrl: widget.logo ? logoUrl(config.publicPortalUrl, widget) : null, theme: widget.theme ?? "light", label: widget.label ?? DEFAULT_LABEL, limits: limitsOf(widget) }, scriptUrl: `${config.publicPortalUrl}/widget.js`, domain: t.domain, brandRemoved: Boolean(t.brandRemoved), brandName: config.brandName,
+    widget: { ...widget, logo: undefined, avatar: undefined, logoUrl: widget.logo ? imageUrl(config.publicPortalUrl, widget, "logo") : null, avatarUrl: widget.avatar ? imageUrl(config.publicPortalUrl, widget, "avatar") : null, theme: widget.theme ?? "light", label: widget.label ?? DEFAULT_LABEL, limits: limitsOf(widget) }, scriptUrl: `${config.publicPortalUrl}/widget.js`, domain: t.domain, brandRemoved: Boolean(t.brandRemoved), brandName: config.brandName,
   });
 
   r.get("/widget", async (_req, res) => {
@@ -236,26 +236,30 @@ export function tenantRoutes(deps: Deps) {
     const ms = Date.now() - t0;
     if (ms > 1500) console.warn(`[widget-logo] ${label} ${ms}ms (yavaş: əsasən baza gecikməsi)`);
   };
-  r.put("/widget/logo", async (req, res) => {
-    const t0 = Date.now();
-    const user = currentUser(res);
-    if (!limiter.hit(`logo:${user.id}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox əməliyyat oldu, bir az gözləyin", "RATE_LIMITED");
-    const t = await mine(user.id);
-    const logo = parseLogo(req.body);
-    const base = await widgetOf(t);
-    await store.setWidgetLogo(t.tenantId, logo);
-    timed("PUT", t0);
-    res.json(widgetView(t, { ...base, logo }));
-  });
-  r.delete("/widget/logo", async (_req, res) => {
-    const t0 = Date.now();
-    const user = currentUser(res);
-    const t = await mine(user.id);
-    const { logo: _gone, ...rest } = await widgetOf(t);
-    await store.setWidgetLogo(t.tenantId, null);
-    timed("DELETE", t0);
-    res.json(widgetView(t, rest));
-  });
+  // /widget/logo = çat düyməsi, /widget/avatar = çatın içindəki profil şəkli. Hər biri ayrıca saxlanır və silinir.
+  for (const kind of WIDGET_IMAGE_KINDS) {
+    r.put(`/widget/${kind}`, async (req, res) => {
+      const t0 = Date.now();
+      const user = currentUser(res);
+      if (!limiter.hit(`logo:${user.id}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox əməliyyat oldu, bir az gözləyin", "RATE_LIMITED");
+      const t = await mine(user.id);
+      const img = parseLogo(req.body);
+      const base = await widgetOf(t);
+      await store.setWidgetLogo(t.tenantId, img, kind);
+      timed(`PUT ${kind}`, t0);
+      res.json(widgetView(t, { ...base, [kind]: img }));
+    });
+    r.delete(`/widget/${kind}`, async (_req, res) => {
+      const t0 = Date.now();
+      const user = currentUser(res);
+      const t = await mine(user.id);
+      const rest = { ...(await widgetOf(t)) };
+      delete rest[kind];
+      await store.setWidgetLogo(t.tenantId, null, kind);
+      timed(`DELETE ${kind}`, t0);
+      res.json(widgetView(t, rest));
+    });
+  }
 
   // Köhnə açarla qoyulmuş scriptlər dərhal işləməyi dayandırır.
   r.post("/widget/rotate", async (_req, res) => {

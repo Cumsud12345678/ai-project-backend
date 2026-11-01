@@ -65,11 +65,12 @@ export function createMemoryStore(): Store {
       const t = tenants.get(tenantId);
       if (t) tenants.set(tenantId, { ...t, ...patch, updatedAt: new Date() });
     },
-    async setWidgetLogo(tenantId, logo) {
+    async setWidgetLogo(tenantId, logo, kind = "logo") {
       const t = tenants.get(tenantId);
       if (!t?.widget) return;
-      const { logo: _old, ...rest } = t.widget;
-      tenants.set(tenantId, { ...t, widget: logo ? { ...rest, logo } : rest, updatedAt: new Date() });
+      const rest = { ...t.widget };
+      delete rest[kind];
+      tenants.set(tenantId, { ...t, widget: logo ? { ...rest, [kind]: logo } : rest, updatedAt: new Date() });
     },
     async touchWidget(tenantId, at) {
       const t = tenants.get(tenantId);

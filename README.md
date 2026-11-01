@@ -14,7 +14,7 @@ brauzer ─► Next.js (3001) ─/api/portal/*► portal backend (4000) ─Beare
 npm install
 cp .env.example .env     # MONGODB_URI, AI_SERVICE_URL, AI_SERVICE_TOKEN, ADMIN_EMAILS yaz
 npm run dev              # http://localhost:4000
-npm test                 # 39 test (MongoDB lazım deyil, yaddaş store-u ilə)
+npm test                 # bütün testlər (MongoDB lazım deyil, yaddaş store-u ilə)
 ```
 
 Production: `npm run build && npm start`. `NODE_ENV=production` olanda `RESEND_API_KEY` və `MAIL_FROM` məcburidir (Resend-də domen təsdiqlənməlidir).
