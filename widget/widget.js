@@ -155,6 +155,21 @@
   }
   var isUrl = function (u) { return typeof u === "string" && /^https?:\/\//i.test(u); };
 
+  // ---------- analitika: saytın öz Google Analytics / Tag Manager-inə hadisə ----------
+  // gtag varsa gtag("event", ...), yoxdursa dataLayer.push({event, ...}). Hər hadisə "caradvisor:event" adlı DOM hadisəsi kimi də göndərilir
+  // (Yandex Metrica, Facebook Pixel və s. üçün). Söndürmək: <script ... data-analytics="off">. Şəxsi məlumat (mesaj mətni, e-poçt) göndərilmir.
+  var analyticsOn = script.getAttribute("data-analytics") !== "off";
+  var opened = false;
+  function track(name, params) {
+    if (!analyticsOn) return;
+    var p = params || {};
+    try {
+      if (typeof window.gtag === "function") window.gtag("event", name, p);
+      else if (Array.isArray(window.dataLayer)) { var o = { event: name }; for (var k in p) o[k] = p[k]; window.dataLayer.push(o); }
+    } catch (e) { /* saytın analitikası xəta versə çat işləməyə davam edir */ }
+    try { window.dispatchEvent(new CustomEvent("caradvisor:event", { detail: { name: name, params: p } })); } catch (e) { /* köhnə brauzer */ }
+  }
+
   // ---------- təhlükəsiz mətn göstəricisi (innerHTML yoxdur) ----------
   // Dəstəklənir: **qalın**, [mətn](https://...), "* " / "- " siyahıları, sətir keçidləri.
   var INLINE = /\*\*([^*]+)\*\*|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
@@ -251,6 +266,7 @@
     ".csat .stars button{border:0;background:none;font-size:24px;line-height:1;cursor:pointer;color:var(--muted);padding:2px}",
     ".csat .stars button:hover,.csat .stars button:focus-visible{color:#f59e0b}",
     ".pro{position:fixed;bottom:calc(var(--cy) + 68px);" + position + ":var(--cx);max-width:min(260px,calc(100vw - 2 * var(--cx)));background:var(--bg);color:var(--fg);border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.22);z-index:var(--ca-z);animation:hintIn .35s ease both;display:flex;align-items:flex-start}",
+    ".pro .prot .who{display:block;margin-bottom:2px}",
     ".pro .prot{border:0;background:none;color:inherit;font-size:14px;font-weight:600;text-align:left;cursor:pointer;padding:12px 4px 12px 14px;line-height:1.35}",
     ".pro .prox{border:0;background:none;color:var(--muted);font-size:18px;cursor:pointer;padding:6px 10px;line-height:1}",
     ".acard{align-self:flex-start;max-width:92%;background:var(--bg);border:1px solid var(--accent-t);border-radius:12px;padding:10px 12px;font-size:13px;color:var(--fg);display:flex;flex-direction:column;gap:6px}",
@@ -461,7 +477,8 @@
     var pv = el("div", { class: "pv" }); pv.hidden = true;
     var pending = null; // { b64, url }
     function clearPending() { pending = null; pv.textContent = ""; pv.hidden = true; updateAct(); }
-    var canAttach = function () { return cfg.imageSearch === true && !state.live; };
+    // Şəkil: AI söhbətində sayt sahibi şəkillə axtarışı açıbsa; operatorla canlı söhbətdə həmişə (operator şəkli görür)
+    var canAttach = function () { return state.live ? !state.live.pending : cfg.imageSearch === true; };
     var actMode = "";
     function updateAct() { // sancaq <-> göndər
       var has = !!input.value.trim() || !!pending;
@@ -597,7 +614,7 @@
         kids.push(el("div", null, info));
         var cardEl = isUrl(l.url) ? el("a", { class: "card", href: l.url, target: "_blank", rel: "noopener noreferrer" }, kids) : el("div", { class: "card" }, kids);
         // Klik sayğacı (hesabat üçün): məzmun göndərilmir, sorğu sadədir (preflight yoxdur)
-        if (isUrl(l.url)) cardEl.addEventListener("click", function () { try { fetch(api + "/click", { method: "POST", keepalive: true }).catch(function () { /* vacib deyil */ }); } catch (e) { /* vacib deyil */ } });
+        if (isUrl(l.url)) cardEl.addEventListener("click", function () { var ev = { item_name: String(l.title).slice(0, 100) }; if (typeof l.price === "number") { ev.value = l.price; ev.currency = String(l.currency || "").slice(0, 3); } track("ai_chat_listing_click", ev); try { fetch(api + "/click", { method: "POST", keepalive: true }).catch(function () { /* vacib deyil */ }); } catch (e) { /* vacib deyil */ } });
         wrap.appendChild(cardEl);
       });
       log.appendChild(wrap);
@@ -635,7 +652,7 @@
             body: JSON.stringify({ name: nameI.value, contact: contI.value, question: question, chat: state.messages.filter(function (m) { return !m.live; }).slice(-8).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; }), website: hp.value }),
           }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, status: res.status, data: d }; }); })
             .then(function (r) {
-              if (r.ok) { f.remove(); bubble("model", L.ok, null, null, Date.now()); scroll(); return; }
+              if (r.ok) { f.remove(); bubble("model", L.ok, null, null, Date.now()); scroll(); track("ai_chat_lead", { source: "contact_form" }); return; }
               err.textContent = r.status === 400 ? L.bad : L.fail; go.disabled = false;
             }).catch(function () { err.textContent = L.fail; go.disabled = false; });
         });
@@ -690,6 +707,7 @@
           .then(function (r) {
             if (!r.ok) { yes.textContent = L.actYes; yes.disabled = no.disabled = false; err.textContent = (r.data && r.data.error) || L.actFail; return; }
             c.res = { status: String(r.data.status || ""), message: String(r.data.message || L.actUnknown) };
+            track("ai_chat_action", { action_title: String(c.title).slice(0, 60), status: c.res.status });
             save(); render();
           }).catch(function () {
             // Sorğu serverə çatmış ola bilər: nəticə bəlli deyil, təkrar göndərilmir
@@ -714,7 +732,7 @@
       }
       log.appendChild(el("div", { class: withBack ? "note back" : "note" }, kids));
     }
-    function liveBubble(role, text, t) {
+    function liveBubble(role, text, t, withFile) {
       if (role === "system") return note(L.liveEnd, false);
       maybeDay(t);
       if (role === "operator") {
@@ -722,7 +740,10 @@
         b.appendChild(el("div", { text: text }));
         return row("mb", b, t, opAv());
       }
-      bubble("user", text, null, null, t);
+      // Şəkil: bu tabda yenicə göndərilibsə önizləmə, yoxsa "Şəkil göndərildi" qeydi. Şəkilsiz mətn "📷" yalnız işarədir, göstərilmir.
+      var url = withFile && sentShot ? sentShot : null;
+      if (withFile) sentShot = "";
+      bubble("user", withFile && text === "📷" ? "" : text, url, withFile, t);
     }
     function liveBox() {
       if (!cfg.live || state.live) return;
@@ -758,7 +779,7 @@
       bubble("model", cfg.greeting || "");
       var q = "";
       state.messages.forEach(function (m) {
-        if (m.live) return liveBubble(m.role, m.text, m.t);
+        if (m.live) return liveBubble(m.role, m.text, m.t, m.img === true);
         maybeDay(m.t);
         bubble(m.role, m.text, null, m.img, m.t); if (m.role === "user") q = m.text; else extras(m, q);
       });
@@ -843,8 +864,9 @@
         var role = m.from === "visitor" ? "user" : m.from === "operator" ? "operator" : "system";
         var text = role === "system" ? "closed" : String(m.text || "");
         var at = Date.parse(m.at) || Date.now();
-        state.messages.push({ role: role, text: text, live: true, t: at });
-        liveBubble(role, text, at);
+        var withFile = role === "user" && m.file === true;
+        state.messages.push({ role: role, text: text, live: true, t: at, img: withFile || undefined });
+        liveBubble(role, text, at, withFile);
         if (role === "operator") gotOperator = true;
       });
       if (gotOperator) chime();
@@ -862,12 +884,12 @@
       scroll();
     }
     // Mesajı göndərir (varsa) və yeni mesajları gətirir. Qaytarır: uğurlu olub-olmadığı.
-    function liveCall(text) {
+    function liveCall(text, img) {
       var lv = state.live;
       if (!lv || !lv.id) return Promise.resolve(false);
       return fetch(api + "/live/" + lv.id + "/sync", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token: lv.token, after: lv.after || 0, text: text || undefined }),
+        body: JSON.stringify({ token: lv.token, after: lv.after || 0, text: text || undefined, image: img || undefined }),
       }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, d: d }; }); })
         .then(function (r) {
           if (!r.ok) {
@@ -878,7 +900,8 @@
           applyLive(r.d); return true;
         });
     }
-    function liveSubmit(text) {
+    var sentShot = ""; // göndərilən şəklin önizləməsi: serverdən qayıdan mesajda dərhal göstərilir
+    function liveSubmit(text, shot) {
       if (liveBusy) return;
       var mail = state.live && state.live.pending ? String(state.live.email || "").trim() : "";
       if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) { bubble("error", L.bad); scroll(); return; }
@@ -894,12 +917,13 @@
           .then(function (r) {
             if (!r.ok) throw new Error(r.d.code || "start");
             state.live = { id: r.d.id, token: r.d.token, after: 0, pending: false, t: Date.now(), seen: 0 };
+            track("ai_chat_live_start", { source: "visitor" }); presenceSoon();
             Array.prototype.forEach.call(log.querySelectorAll(".note.back, .mailrow"), function (n) { n.remove(); }); // "AI-a qayıt" artıq mümkün deyil
             applyLive(r.d); wsOpen(); return true;
           });
-      } else go = liveCall(text);
+      } else { if (shot) sentShot = shot.url; go = liveCall(text, shot ? shot.b64 : null); }
       go.then(function (ok) {
-        if (ok) { input.value = ""; grow(); schedulePoll(); if (!hadOperator) { clearTimeout(noReplyTimer); noReplyTimer = setTimeout(function () { note(L.liveWait, false); contactBox(text); scroll(); }, 90000); } }
+        if (ok) { input.value = ""; clearPending(); grow(); schedulePoll(); if (!hadOperator) { clearTimeout(noReplyTimer); noReplyTimer = setTimeout(function () { note(L.liveWait, false); contactBox(text); scroll(); }, 90000); } }
       }).catch(function () { bubble("error", L.liveFail); scroll(); })
         .then(function () { liveBusy = false; sendBtn.disabled = false; if (state.open) input.focus(); });
     }
@@ -942,7 +966,8 @@
       launcher.setAttribute("aria-label", state.open ? "Çatı bağla" : "Çatı aç");
       layout();
       save();
-      if (state.open) { launcher.classList.remove("dot"); scroll(); setTimeout(function () { input.focus(); }, 0); schedulePoll(); }
+      if (state.open) { launcher.classList.remove("dot"); scroll(); setTimeout(function () { input.focus(); }, 0); schedulePoll(); if (!opened) { opened = true; track("ai_chat_open", { page_path: location.pathname }); } }
+      presenceSoon();
     }
     launcher.addEventListener("click", function () { setOpen(!state.open); });
     if (hint) hint.addEventListener("click", function () { setOpen(true); });
@@ -990,13 +1015,14 @@
     form.addEventListener("submit", function (e) {
       e.preventDefault();
       var text = input.value.trim();
-      var shot = state.live ? null : pending;
+      var shot = state.live && !canAttach() ? null : pending;
       if ((!text && !shot) || busy) return;
-      if (state.live) return liveSubmit(text);
+      if (state.live) return liveSubmit(text, shot);
       var history = state.messages.filter(function (m) { return !m.live; }).slice(-10).map(function (m) { return { role: m.role, text: m.text + (m.note ? " [şəkil: " + m.note + "]" : (m.img && !m.text ? " [şəkil]" : "")) }; });
       if (!state.sid) state.sid = newId(); // bir söhbət = bir identifikator (sayt sahibi tarixçədə qruplaşdırılmış görür)
       var userMsg = { role: "user", text: text, t: Date.now() };
       unlockAudio(); emoShow(false);
+      track("ai_chat_message", { has_image: !!shot });
       if (shot) userMsg.img = true; // şəklin özü saxlanmır, yalnız "göndərilib" qeydi
       state.messages.push(userMsg);
       newBtn.hidden = false;
@@ -1081,6 +1107,52 @@
       });
     };
 
+    // ---------- "saytda kim var": operator ziyarətçini görür və özü ilk yaza bilər ----------
+    // Yalnız canlı söhbət açıqdırsa, yalnız görünən tabda, 15 saniyədən bir. Göndərilən: təsadüfi ziyarətçi ID-si, səhifə yolu/başlığı,
+    // gəldiyi saytın adı (referrer domeni), dil, telefon/kompüter. Mesaj mətni və şəxsi məlumat göndərilmir.
+    var presTimer = null, presBusy = false, presSoonT = null;
+    function chatState() { return state.live && state.live.id ? "live" : state.messages.length ? "ai" : "none"; }
+    function presenceBeat() {
+      clearTimeout(presTimer);
+      if (!cfg.presence || !shown) return;
+      presTimer = setTimeout(presenceBeat, 15000);
+      if (document.hidden || presBusy) return;
+      presBusy = true;
+      fetch(api + "/presence", {
+        method: "POST", headers: { "content-type": "application/json" }, keepalive: true,
+        body: JSON.stringify({ vid: visitorId(), path: location.pathname, title: document.title, ref: document.referrer || "", lang: (navigator.language || "").slice(0, 12), mobile: mobile.matches, chat: chatState() }),
+      }).then(function (res) { return res.ok ? res.json() : {}; })
+        .then(function (d) { if (d && d.invite && typeof d.invite.id === "string" && typeof d.invite.token === "string") acceptInvite(d.invite); })
+        .catch(function () { /* növbəti dəfə */ })
+        .then(function () { presBusy = false; });
+    }
+    function presenceSoon() { clearTimeout(presSoonT); presSoonT = setTimeout(presenceBeat, 400); }
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) presenceSoon(); });
+    // Operator ziyarətçiyə ilk yazıb: canlı söhbət bu brauzerdə açılır, operatorun mesajı balonda göstərilir
+    function acceptInvite(inv) {
+      if (state.live && state.live.id) return;
+      state.live = { id: inv.id, token: inv.token, after: 0, pending: false, t: Date.now(), seen: 0 };
+      Array.prototype.forEach.call(log.querySelectorAll(".livecbtn, .note.back, .mailrow"), function (n) { n.remove(); });
+      save(); updateLiveUi(); newBtn.hidden = false;
+      track("ai_chat_live_start", { source: "operator" }); presenceSoon(); // panel "Operatorla" statusunu dərhal görsün
+      liveCall("").then(function () {
+        schedulePoll(); wsOpen();
+        if (state.open) return;
+        var op = null;
+        for (var i = state.messages.length - 1; i >= 0; i--) if (state.messages[i].live && state.messages[i].role === "operator") { op = state.messages[i]; break; }
+        if (op) invitePop(op.text);
+      }).catch(function () { /* polling sonra gətirəcək */ });
+    }
+    function invitePop(text) {
+      proHide();
+      var t = el("button", { class: "prot", type: "button" }, [el("span", { class: "who", text: L.op }), el("span", { text: String(text).slice(0, 140) })]);
+      var x = el("button", { class: "prox", type: "button", "aria-label": L.proClose, text: "\u00d7" });
+      proEl = el("div", { class: "pro", role: "status" }, [t, x]);
+      root.appendChild(proEl);
+      t.addEventListener("click", function () { proHide(); setOpen(true); });
+      x.addEventListener("click", function () { proHide(); });
+    }
+
     // ---------- proaktiv mesajlar: ziyarətçi yazmadan, şərtə görə balon ----------
     var proRules = Array.isArray(cfg.proactive) ? cfg.proactive : [];
     var proEl = null, proTimers = [], PRO_KEY = STORE + "_pro";
@@ -1116,9 +1188,9 @@
       host.style.display = ok ? "" : "none";
       if (!ok && state.open) setOpen(false); // açıq çat gizlənəndə mobil scroll kilidi də açılsın
     }
-    var onRoute = function () { setTimeout(applyRoute, 0); };
+    var onRoute = function () { setTimeout(function () { applyRoute(); presenceSoon(); }, 0); };
     var restore = [];
-    if (showOn || hideOn || proRules.length) {
+    if (showOn || hideOn || proRules.length || cfg.presence) {
       ["pushState", "replaceState"].forEach(function (fn) {
         var orig = history[fn];
         if (typeof orig !== "function") return;
@@ -1129,6 +1201,7 @@
       window.addEventListener("hashchange", onRoute);
       applyRoute();
     }
+    presenceBeat();
 
     window.CarAdvisor = {
       identify: window.CarAdvisor.identify,
@@ -1140,6 +1213,7 @@
       // Vidjeti tam silir (məs. React komponentinin useEffect təmizləməsində). Skript yenidən yüklənsə yenidən qurulur.
       destroy: function () {
         proTimers.forEach(clearTimeout); proHide();
+        cfg.presence = false; clearTimeout(presTimer); clearTimeout(presSoonT);
         if (state.open) setOpen(false);
         window.removeEventListener("popstate", onRoute); window.removeEventListener("hashchange", onRoute);
         restore.forEach(function (f) { f(); });

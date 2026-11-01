@@ -16,6 +16,7 @@ import type { LiveChat, TenantRecord, WidgetImage, WidgetImageKind, WidgetSettin
 import { cleanContact } from "./kb.js";
 import { notifyBalance } from "./billing.js";
 import { hub } from "./hub.js";
+import { beat, takeInvite, type ChatState } from "./presence.js";
 
 export const WIDGET_KEY_RE = /^wk_[a-f0-9]{32}$/;
 export const newWidgetKey = () => `wk_${randomBytes(16).toString("hex")}`;
@@ -153,7 +154,7 @@ export const sameToken = (token: unknown, hash: string) => typeof token === "str
 /** Vidjetə yalnız ziyarətçinin görməli olduğu sahələr çıxır. */
 const liveView = (c: LiveChat, after: number) => ({
   status: c.status, total: c.messages.length,
-  messages: c.messages.slice(after).map((m) => ({ from: m.from, text: m.text, at: m.at })),
+  messages: c.messages.slice(after).map((m) => ({ from: m.from, text: m.text, at: m.at, ...(m.file && { file: true }) })),
 });
 /** Səhifə yolu: yalnız "/..." və sorğu/hash olmadan; başlıq qısaldılır. */
 const cleanPage = (v: unknown): { path: string; title?: string } | undefined => {
@@ -237,7 +238,7 @@ export function widgetRoutes(deps: Deps) {
     // Quraşdırmanın işlədiyini göstərmək üçün: ən çox 10 dəqiqədən bir yazılır
     if (!w.lastSeenAt || Date.now() - new Date(w.lastSeenAt).getTime() > 10 * 60_000) void store.touchWidget(wt.tenantId, new Date()).catch(() => {});
     res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, mode, contact: true, live: liveOpenNow(wt), csat: w.live?.csat !== false, proactive: w.proactive?.enabled ? w.proactive.rules.map((r) => ({ id: r.id, text: r.text, delaySec: r.delaySec, match: r.match })) : [], // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
-      theme: w.theme ?? "light", brand: wt.brandRemoved ? null : { name: deps.config.brandName, url: deps.config.brandUrl }, imageSearch: imageEnabled(wt), ...(w.logo && { logo: imageUrl(deps.config.publicPortalUrl, w, "logo") }), ...(w.avatar && { avatar: imageUrl(deps.config.publicPortalUrl, w, "avatar") }) });
+      theme: w.theme ?? "light", brand: wt.brandRemoved ? null : { name: deps.config.brandName, url: deps.config.brandUrl }, imageSearch: imageEnabled(wt), presence: Boolean(w.live?.enabled), ...(w.logo && { logo: imageUrl(deps.config.publicPortalUrl, w, "logo") }), ...(w.avatar && { avatar: imageUrl(deps.config.publicPortalUrl, w, "avatar") }) });
   });
 
   // Operatorla əlaqə (cavab tapılmayanda): sayt ziyarətçisi telefon/e-poçt qoyur, sayt sahibi panelda görür və e-poçtla xəbər alır.
@@ -349,6 +350,36 @@ export function widgetRoutes(deps: Deps) {
     }
   });
 
+  // ---- "İndi saytda kim var" ----
+  // Vidjet açıq tabda 15 saniyədən bir xəbər verir. Cavabda (varsa) operatorun dəvəti qayıdır: canlı söhbətin id və tokeni (yalnız bu ziyarətçiyə, bir dəfə).
+  const CHAT_STATES: ChatState[] = ["none", "ai", "live"];
+  const lastPush = new Map<string, number>();
+  r.post("/widget/:key/presence", access, async (req, res) => {
+    const t = res.locals.widgetTenant as TenantRecord;
+    if (!t.widget?.live?.enabled) return void res.json({});
+    const key = t.widget.key, ip = req.ip ?? "unknown";
+    if (!limiter.hit(`w:pres:${key}:${ip}`, 30, 60_000) || !limiter.hit(`w:preskey:${key}`, 6000, 60_000)) return void res.status(429).json({});
+    const b = req.body ?? {};
+    const vid = typeof b.vid === "string" && /^[a-f0-9]{16,32}$/.test(b.vid) ? b.vid : "";
+    if (!vid) throw new HttpError(400, "vid düzgün deyil");
+    const str = (v: unknown, n: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, n) : "");
+    const page = cleanPage({ path: b.path, title: b.title });
+    let ref = "";
+    try {
+      const u = new URL(str(b.ref, 300)), own = req.get("origin") ? new URL(req.get("origin")!).hostname : "";
+      if ((u.protocol === "https:" || u.protocol === "http:") && u.hostname !== own) ref = u.hostname; // saytın öz səhifələri mənbə sayılmır
+    } catch { /* yoxdur */ }
+    const out = beat(t.tenantId, vid, {
+      path: page?.path ?? "/", title: page?.title ?? "", ref, lang: str(b.lang, 12), mobile: b.mobile === true,
+      chat: CHAT_STATES.includes(b.chat) ? b.chat : "none",
+    });
+    if (!out) return void res.json({});
+    // Yeni ziyarətçi: panel siyahını dərhal yeniləsin (sayt üzrə 3 saniyədə bir siqnal)
+    if (out.isNew && Date.now() - (lastPush.get(t.tenantId) ?? 0) > 3000) { lastPush.set(t.tenantId, Date.now()); hub.toOperators(t.tenantId, { t: "visitors" }); }
+    const inv = takeInvite(t.tenantId, out.pid);
+    res.json(inv ? { invite: inv } : {});
+  });
+
   // ---- Canlı operator söhbəti ----
   // Ziyarətçi söhbəti başladanda gizli token alır (yalnız hash-i saxlanır). Sonra bu token ilə mesaj göndərir və yeni mesajları oxuyur.
   r.post("/widget/:key/live", access, async (req, res) => {
@@ -388,14 +419,26 @@ export function widgetRoutes(deps: Deps) {
     if (!chat || !sameToken(b.token, chat.tokenHash)) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
     if (!limiter.hit(`w:livesync:${id}`, 40, 60_000)) throw new HttpError(429, "Çox tez-tez sorğu", "RATE_LIMITED");
     const after = Number.isInteger(b.after) && b.after >= 0 ? Math.min(b.after, 1000) : 0;
-    const text = typeof b.text === "string" ? b.text.trim() : "";
+    let text = typeof b.text === "string" ? b.text.trim() : "";
+    // Canlı söhbətdə şəkil (yalnız PNG/JPEG/WebP, ən çox 2 MB): baytlar ayrıca saxlanır, mesajda yalnız istinad qalır
+    const img = b.image === undefined || b.image === null ? null : checkBase64Image(b.image);
+    if (b.image !== undefined && b.image !== null && !img) throw new HttpError(400, "Şəkil PNG, JPG və ya WebP olmalıdır (ən çox 2 MB)", "BAD_IMAGE");
+    if (img && !text) text = "📷";
     // Ziyarətçi çatdadır: 30 saniyədən tez yazmırıq (operator cavab verəndə e-poçt göndərilib-göndərilməməsini bu müəyyən edir)
     if (!chat.visitorSeenAt || Date.now() - chat.visitorSeenAt.getTime() > 30_000) await store.patchLive(t.tenantId, id, { visitorSeenAt: new Date() });
     if (text) {
       if (text.length > 1000) throw new HttpError(400, "Mesaj ən çox 1000 simvol ola bilər");
       if (chat.status === "closed") throw new HttpError(409, "Söhbət bağlanıb", "LIVE_CLOSED");
       if (!limiter.hit(`w:livemsg:${id}`, 10, 60_000)) throw new HttpError(429, "Çox tez-tez mesaj göndərdin", "RATE_LIMITED");
-      const next = await store.pushLive(t.tenantId, id, { from: "visitor", text, at: new Date() });
+      let file: { id: string; mime: string } | undefined;
+      if (img) {
+        if (!limiter.hit(`w:liveimg:${id}`, 10, 10 * 60_000) || !limiter.hit(`w:liveimgkey:${t.widget!.key}`, 300, 60 * 60_000)) throw new HttpError(429, "Çox sayda şəkil göndərildi, bir az sonra yenidən cəhd edin", "RATE_LIMITED");
+        const buf = Buffer.from(img, "base64");
+        const mime = buf[0] === 0x89 ? "image/png" : buf[0] === 0xff ? "image/jpeg" : "image/webp";
+        file = { id: randomUUID(), mime };
+        await store.addLiveFile({ id: file.id, tenantId: t.tenantId, chatId: id, mime, data: img, at: new Date() });
+      }
+      const next = await store.pushLive(t.tenantId, id, { from: "visitor", text, at: new Date(), ...(file && { file }) });
       hub.toOperators(t.tenantId, { t: "live", id, kind: "message", by: "visitor" });
       void notifyOperators(deps, t, { kind: "message", chatId: id, channel: "sayt", name: chat.name, text });
       return void res.json(liveView(next ?? chat, after));

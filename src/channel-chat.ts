@@ -1,5 +1,6 @@
 // Kanallar (Telegram, WhatsApp) üçün ortaq söhbət məntiqi: limitlər, tarixçə, AI çağırışı, cavab tapılmayanda kontakt yığımı.
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { sniffImage } from "./safe-image.js";
 import { AiError } from "./ai.js";
 import { notifyBalance } from "./billing.js";
 import type { Deps } from "./deps.js";
@@ -147,10 +148,21 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
         await io.send(LIVE_MSG.back);
         return;
       }
-      const body = clip(text, 1000) || (io.image ? "[şəkil]" : "");
-      if (!body) return;
       if (!limiter.hit(`${lk}liverate:${tenant.tenantId}:${chatId}`, 20, 60_000)) return;
-      await store.pushLive(tenant.tenantId, liveNow.id, { from: "visitor", text: body, at: new Date() }, { visitorSeenAt: new Date(), ...(!liveNow.name && io.senderName ? { name: clip(io.senderName, 80) } : {}) });
+      // Operatorla yazışmada şəkil: baytlar ayrıca saxlanır, operator paneldə şəkli görür
+      let file: { id: string; mime: string } | undefined;
+      if (io.image) {
+        let buf: Buffer | null = null;
+        try { buf = await io.image.load(); } catch { buf = null; }
+        const mime = buf && checkBufferImage(buf) ? sniffImage(buf) : null;
+        if (buf && mime) {
+          file = { id: randomUUID(), mime };
+          await store.addLiveFile({ id: file.id, tenantId: tenant.tenantId, chatId: liveNow.id, mime, data: buf.toString("base64"), at: new Date() });
+        }
+      }
+      const body = clip(text, 1000) || (io.image ? (file ? "📷" : "[şəkil]") : "");
+      if (!body) return;
+      await store.pushLive(tenant.tenantId, liveNow.id, { from: "visitor", text: body, at: new Date(), ...(file && { file }) }, { visitorSeenAt: new Date(), ...(!liveNow.name && io.senderName ? { name: clip(io.senderName, 80) } : {}) });
       hub.toOperators(tenant.tenantId, { t: "live", id: liveNow.id, kind: "message", by: "visitor" });
       void notifyOperators(deps, tenant, { kind: "message", chatId: liveNow.id, channel: label, name: liveNow.name || clip(io.senderName, 80), text: body });
       return;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type Session, type Store, type TenantRecord, type User } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User } from "./types.js";
 
 /** Test və DB-siz sınaq üçün. Proses bitəndə məlumat itir. */
 export function createMemoryStore(): Store {
@@ -8,6 +8,7 @@ export function createMemoryStore(): Store {
   const codes = new Map<string, CodeRecord>();
   const tenants = new Map<string, TenantRecord>();
   const live = new Map<string, LiveChat>();
+  const liveFiles = new Map<string, LiveFile>();
   const clicks: { tenantId: string; at: Date }[] = [];
   const feedback: FeedbackRecord[] = [];
   const errors: ErrorRecord[] = [];
@@ -79,6 +80,7 @@ export function createMemoryStore(): Store {
     async deleteTenant(tenantId) {
       tenants.delete(tenantId);
       for (const [id, c] of live) if (c.tenantId === tenantId) live.delete(id);
+      for (const [id, f] of liveFiles) if (f.tenantId === tenantId) liveFiles.delete(id);
       for (let i = feedback.length - 1; i >= 0; i--) if (feedback[i]!.tenantId === tenantId) feedback.splice(i, 1);
       for (const k of [...sessionsCh.keys()]) if (k.startsWith(`${tenantId}|`)) sessionsCh.delete(k);
       for (const k of [...waAuth.keys()]) if (k.startsWith(`${tenantId}|`)) waAuth.delete(k);
@@ -100,7 +102,9 @@ export function createMemoryStore(): Store {
     async listLive(tenantId, status, limit) {
       return [...live.values()].filter((c) => c.tenantId === tenantId && c.status === status).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, limit);
     },
-    async deleteLiveForTenant(tenantId) { for (const [id, c] of live) if (c.tenantId === tenantId) live.delete(id); },
+    async deleteLiveForTenant(tenantId) { for (const [id, c] of live) if (c.tenantId === tenantId) live.delete(id); for (const [id, f] of liveFiles) if (f.tenantId === tenantId) liveFiles.delete(id); },
+    async addLiveFile(f) { liveFiles.set(f.id, { ...f }); },
+    async getLiveFile(tenantId, id) { const f = liveFiles.get(id); return f && f.tenantId === tenantId ? { ...f } : null; },
 
     async addFeedback(f) { feedback.push(f); if (feedback.length > 5000) feedback.shift(); },
     async feedbackSince(tenantId, since, limit) {

@@ -87,7 +87,9 @@ export type ChannelSession = {
   updatedAt: Date;
 };
 
-export type LiveMessage = { from: "visitor" | "operator" | "system"; text: string; at: Date; /** operator mesajını yazan komanda üzvü */ by?: string };
+export type LiveMessage = { from: "visitor" | "operator" | "system"; text: string; at: Date; /** operator mesajını yazan komanda üzvü */ by?: string; /** ziyarətçinin göndərdiyi şəkil (baytlar ayrıca, live_files-da) */ file?: { id: string; mime: string } };
+/** Canlı söhbətdə göndərilən şəkil. Söhbət sənədini böyütməmək üçün ayrıca saxlanır, söhbətlə eyni müddətdə silinir. */
+export type LiveFile = { id: string; tenantId: string; chatId: string; mime: "image/png" | "image/jpeg" | "image/webp"; data: string; at: Date };
 /** Ziyarətçi ilə operator arasında canlı söhbət. Ziyarətçi yalnız `tokenHash`-ın sahibi olan token ilə oxuya/yaza bilər. */
 export type LiveChat = {
   id: string; tenantId: string; tokenHash: string;
@@ -177,6 +179,8 @@ export interface Store {
   findLiveByChannel(tenantId: string, type: "telegram" | "whatsapp", chatId: string): Promise<LiveChat | null>;
   listLive(tenantId: string, status: "open" | "closed", limit: number): Promise<LiveChat[]>;
   deleteLiveForTenant(tenantId: string): Promise<void>;
+  addLiveFile(f: LiveFile): Promise<void>;
+  getLiveFile(tenantId: string, id: string): Promise<LiveFile | null>;
 
   addFeedback(f: FeedbackRecord): Promise<void>;
   feedbackSince(tenantId: string, since: Date, limit: number): Promise<FeedbackRecord[]>;

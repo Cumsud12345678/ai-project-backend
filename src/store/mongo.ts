@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { MongoClient, MongoServerError, ObjectId, type AnyBulkWriteOperation, type Db } from "mongodb";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type Session, type Store, type TenantRecord, type User } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User } from "./types.js";
 
 type UserDoc = Omit<User, "id"> & { _id: ObjectId };
 
@@ -21,6 +21,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
   const codes = db.collection<CodeRecord>("codes");
   const tenants = db.collection<TenantRecord>("tenants");
   const lives = db.collection<LiveChat>("live_chats");
+  const liveFiles = db.collection<LiveFile>("live_files");
   const feedbacks = db.collection<FeedbackRecord>("feedback");
   const clicksCol = db.collection<{ tenantId: string; at: Date }>("clicks");
   const errors = db.collection<ErrorRecord>("error_log");
@@ -42,6 +43,9 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     lives.createIndex({ tenantId: 1, status: 1, updatedAt: -1 }),
     lives.createIndex({ tenantId: 1, "channel.type": 1, "channel.chatId": 1, status: 1 }, { sparse: true }),
     lives.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 60 * 24 * 3600 }), // 60 gün sonra silinir
+    liveFiles.createIndex({ id: 1 }, { unique: true }),
+    liveFiles.createIndex({ tenantId: 1 }),
+    liveFiles.createIndex({ at: 1 }, { expireAfterSeconds: 60 * 24 * 3600 }), // söhbətlə eyni müddət
     feedbacks.createIndex({ tenantId: 1, at: -1 }),
     feedbacks.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 3600 }), // 90 gün sonra silinir
     clicksCol.createIndex({ tenantId: 1, at: -1 }),
@@ -107,7 +111,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async touchWidget(tenantId, at) { await tenants.updateOne({ tenantId, widget: { $exists: true } }, { $set: { "widget.lastSeenAt": at } }); },
     async deleteTenant(tenantId) {
       await tenants.deleteOne({ tenantId });
-      await Promise.all([lives.deleteMany({ tenantId }), feedbacks.deleteMany({ tenantId }), channelSessions.deleteMany({ tenantId }), waAuth.deleteMany({ tenantId })]);
+      await Promise.all([lives.deleteMany({ tenantId }), liveFiles.deleteMany({ tenantId }), feedbacks.deleteMany({ tenantId }), channelSessions.deleteMany({ tenantId }), waAuth.deleteMany({ tenantId })]);
     },
 
     async createLive(c) { await lives.insertOne({ ...c }); },
@@ -128,7 +132,9 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async listLive(tenantId, status, limit) {
       return (await lives.find({ tenantId, status }).sort({ updatedAt: -1 }).limit(limit).toArray()).map((d) => strip(d) as LiveChat);
     },
-    async deleteLiveForTenant(tenantId) { await lives.deleteMany({ tenantId }); },
+    async deleteLiveForTenant(tenantId) { await Promise.all([lives.deleteMany({ tenantId }), liveFiles.deleteMany({ tenantId })]); },
+    async addLiveFile(f) { await liveFiles.insertOne({ ...f }); },
+    async getLiveFile(tenantId, id) { return strip(await liveFiles.findOne({ tenantId, id })) as LiveFile | null; },
 
     async addFeedback(f) { await feedbacks.insertOne({ ...f }); },
     async feedbackSince(tenantId, since, limit) {

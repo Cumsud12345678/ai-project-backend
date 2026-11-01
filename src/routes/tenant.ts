@@ -8,10 +8,12 @@ import { notifyTopupRequest, parseAmount } from "../billing.js";
 import { mailVisitorReply } from "../live.js";
 import { exportCsv, funnel, type ExportKind } from "../stats.js";
 import { hub } from "../hub.js";
+import { getVisitor, hasInvite, listVisitors, setInvite } from "../presence.js";
+import { randomBytes, randomUUID } from "node:crypto";
 import { makeTicket, wsUrlOf } from "../realtime.js";
 import { currentUser, requireAuth } from "../middleware.js";
 import { DuplicateError, type LiveChat, type TenantRecord, type User } from "../store/types.js";
-import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, imageUrl, WIDGET_IMAGE_KINDS } from "../widget.js";
+import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, imageUrl, WIDGET_IMAGE_KINDS, sha } from "../widget.js";
 
 const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret", "feedText"];
 const PROFILE_KEYS = ["language", "tone", "maxResults", "extraInstructions", "logQueries", "mode", "fallbackMessage", "generalKnowledge", "kbAutoRefresh", "imageSearch"];
@@ -465,6 +467,45 @@ export function tenantRoutes(deps: Deps) {
       : [];
     res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt, channel: c.channel?.type ?? null, assignee: c.assignee ?? null, notes: c.notes ?? [], tags: c.tags ?? [], csat: c.csat ?? null, page: c.page ?? null, previous } });
   });
+  // Canlı söhbətdə ziyarətçinin göndərdiyi şəkil: yalnız bu hesabın operatorları, yalnız həmin söhbətin faylı
+  r.get("/live/:id/files/:fid", async (req, res) => {
+    const { tenant: t } = await opTenant(currentUser(res));
+    const f = await store.getLiveFile(t.tenantId, String(req.params.fid ?? "").slice(0, 60));
+    if (!f || f.chatId !== String(req.params.id)) throw new HttpError(404, "Fayl tapılmadı", "FILE_NOT_FOUND");
+    res.set({ "Content-Type": f.mime, "Cache-Control": "private, max-age=3600", "Content-Security-Policy": "default-src 'none'; sandbox", "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline" });
+    res.send(Buffer.from(f.data, "base64"));
+  });
+
+  // ---- İndi saytda kim var + operatorun ilk yazması ----
+  r.get("/visitors", async (_req, res) => {
+    const { tenant: t } = await opTenant(currentUser(res));
+    const on = Boolean(t.widget?.live?.enabled);
+    res.json({ enabled: on, items: on ? listVisitors(t.tenantId).map((v) => ({ ...v, invited: hasInvite(t.tenantId, v.pid) })) : [] });
+  });
+  r.post("/visitors/:pid/invite", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`live:invite:${user.id}`, 30, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez dəvət göndərirsən", "RATE_LIMITED");
+    const { tenant: t } = await opTenant(user);
+    if (!t.widget?.live?.enabled) throw new HttpError(409, "Canlı söhbət söndürülüb", "LIVE_OFF");
+    const pid = String(req.params.pid ?? "");
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (!text || text.length > 1000) throw new HttpError(400, "Mesaj 1-1000 simvol olmalıdır");
+    const v = /^[a-f0-9]{16}$/.test(pid) ? getVisitor(t.tenantId, pid) : null;
+    if (!v) throw new HttpError(404, "Ziyarətçi artıq saytda deyil", "VISITOR_GONE");
+    if (v.chat === "live") throw new HttpError(409, "Bu ziyarətçi artıq operatorla yazışır", "VISITOR_IN_LIVE");
+    if (hasInvite(t.tenantId, pid)) throw new HttpError(409, "Bu ziyarətçiyə artıq yazmısan, cavab gözlənilir", "ALREADY_INVITED");
+    const who = nameOf(user), now = new Date(), token = randomBytes(24).toString("hex");
+    const chat: LiveChat = {
+      id: randomUUID(), tenantId: t.tenantId, tokenHash: sha(token).toString("hex"), name: "", contact: "", status: "open", context: [],
+      page: { path: v.path, ...(v.title && { title: v.title }) },
+      messages: [{ from: "operator", text, at: now, by: who }], createdAt: now, updatedAt: now, operatorSeenAt: now, assignee: { userId: user.id, name: who },
+    };
+    await store.createLive(chat);
+    setInvite(t.tenantId, pid, { id: chat.id, token }); // ziyarətçinin növbəti xəbərində (≤15 san) ona çatır
+    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "start" });
+    res.status(201).json({ id: chat.id });
+  });
+
   // Real vaxt bağlantısı üçün qısa ömürlü bilet (panel WebSocket-i bununla açır; cookie portalın ünvanına getmir)
   r.post("/live/ws-ticket", async (req, res) => {
     const user = currentUser(res);
