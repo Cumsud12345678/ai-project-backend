@@ -11,6 +11,7 @@ import { hub } from "./hub.js";
 import { WIDGET_KEY_RE, originAllowed, sameToken } from "./widget.js";
 
 const MAX_PAYLOAD = 2048;
+const DRAFT_MAX = 300; // operatora göstərilən qaralamanın maksimum uzunluğu (simvol)
 const AUTH_TIMEOUT_MS = 5_000;
 const PING_MS = 25_000;
 const OPERATOR_LIFETIME_MS = 60 * 60_000; // saatda bir yenidən qoşulur: bitmiş sessiya ilə soket açıq qalmasın
@@ -46,7 +47,7 @@ function ipOf(req: IncomingMessage, trust: number): string {
   return req.socket.remoteAddress ?? "unknown";
 }
 
-type Meta = { alive: boolean; authing: boolean; msgs: number[]; typingAt: number; verified: Set<string>; cleanup?: () => void };
+type Meta = { alive: boolean; authing: boolean; msgs: number[]; typingAt: number; draftAt: number; verified: Set<string>; cleanup?: () => void };
 
 export function attachRealtime(server: Server, deps: Deps) {
   const { store, config } = deps;
@@ -63,7 +64,7 @@ export function attachRealtime(server: Server, deps: Deps) {
 
   function onConnection(ws: WebSocket, req: IncomingMessage, ip: string) {
     perIp.set(ip, (perIp.get(ip) ?? 0) + 1);
-    const m: Meta = { alive: true, authing: false, msgs: [], typingAt: 0, verified: new Set() };
+    const m: Meta = { alive: true, authing: false, msgs: [], typingAt: 0, draftAt: 0, verified: new Set() };
     meta.set(ws, m);
     const authTimer = setTimeout(() => ws.close(4401, "auth"), AUTH_TIMEOUT_MS);
     let role: "visitor" | "operator" | null = null;
@@ -84,7 +85,7 @@ export function attachRealtime(server: Server, deps: Deps) {
       try {
         const now = Date.now();
         m.msgs = m.msgs.filter((t) => now - t < 10_000);
-        if (m.msgs.push(now) > 20) return void ws.close(4429, "rate");
+        if (m.msgs.push(now) > 40) return void ws.close(4429, "rate"); // qaralama siqnalları da daxil (0.6 san-də bir)
         let msg: Record<string, unknown>;
         try { msg = JSON.parse(raw.toString()); } catch { return; }
         if (!msg || typeof msg !== "object") return;
@@ -119,7 +120,14 @@ export function attachRealtime(server: Server, deps: Deps) {
           return void hub.send(ws, { t: "ready" });
         }
 
-        // auth-dan sonra yalnız "yazır..." qəbul edilir (2 saniyədə bir)
+        // Ziyarətçinin göndərilməmiş mətni ("sneak peek"): operator cavabı qabaqcadan hazırlaya bilsin. Yalnız canlı söhbətdə, 0.4 saniyədə bir.
+        if (msg.t === "draft") {
+          if (role !== "visitor" || now - m.draftAt < 400) return;
+          m.draftAt = now;
+          const draft = typeof msg.text === "string" ? msg.text.replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, DRAFT_MAX) : "";
+          return void hub.toOperators(tenantId, { t: "typing", id: chatId, draft });
+        }
+        // auth-dan sonra "yazır..." da qəbul edilir (2 saniyədə bir)
         if (msg.t !== "typing" || now - m.typingAt < 2_000) return;
         m.typingAt = now;
         if (role === "visitor") hub.toOperators(tenantId, { t: "typing", id: chatId });

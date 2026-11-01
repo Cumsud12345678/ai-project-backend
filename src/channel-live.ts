@@ -7,6 +7,7 @@ import { decryptSecret } from "./secrets.js";
 import type { LiveChat, TenantRecord } from "./store/types.js";
 import { hub } from "./hub.js";
 import { notifyTeam } from "./team.js";
+import { notifyOperators } from "./operator-notify.js";
 
 /** Operator cavab verməyibsə bot bu müddətdən sonra özü qayıdır (söhbət sonsuza qədər susmasın). */
 export const LIVE_STALE_MS = Number(process.env.CHANNEL_LIVE_STALE_MS) || 12 * 60 * 60_000;
@@ -56,6 +57,7 @@ export async function startChannelLive(deps: Deps, t: TenantRecord, p: { channel
   };
   await deps.store.createLive(chat);
   if (!p.quiet) void notifyTeam(deps, t, `Canlı söhbət (${p.channel === "telegram" ? "Telegram" : "WhatsApp"}): ${t.businessName}`, `${p.channel === "telegram" ? "Telegram" : "WhatsApp"} kanalında müştəri operatorla yazışmaq istəyir.${p.first ? `\n\nMüştəri: ${p.first.slice(0, 300)}` : ""}\n\nPanelin "Müraciətlər" bölməsində "Canlı söhbət" tabını açın.`);
-  hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "start" });
+  hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "start", ...(!p.quiet && { by: "visitor" }) });
+  if (!p.quiet) void notifyOperators(deps, t, { kind: "start", chatId: chat.id, channel: p.channel === "telegram" ? "Telegram" : "WhatsApp", name: chat.name, ...(p.first && { text: p.first }) });
   return chat;
 }

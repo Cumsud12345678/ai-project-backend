@@ -1,6 +1,8 @@
 export type Role = "admin" | "user";
 /** `role` köhnə sənədlərdə olmaya bilər: yoxdursa "user" sayılır. */
-export type User = { id: string; email: string; passwordHash: string; verified: boolean; createdAt: Date; role?: Role };
+/** Operatorun canlı söhbət bildirişləri üçün bağladığı Telegram (platformanın bildiriş botu ilə). */
+export type TgNotify = { chatId: string; name: string; at: Date };
+export type User = { id: string; email: string; passwordHash: string; verified: boolean; createdAt: Date; role?: Role; tgNotify?: TgNotify | null };
 export type Session = { tokenHash: string; userId: string; expiresAt: Date };
 export type CodePurpose = "verify" | "reset";
 export type CodeRecord = { email: string; purpose: CodePurpose; codeHash: string; expiresAt: Date; attempts: number; sentAt: Date };
@@ -134,7 +136,7 @@ export interface Store {
   findUserByEmail(email: string): Promise<User | null>;
   findUserById(id: string): Promise<User | null>;
   createUser(u: { email: string; passwordHash: string }): Promise<User>;
-  updateUser(id: string, patch: Partial<Pick<User, "passwordHash" | "verified" | "role">>): Promise<void>;
+  updateUser(id: string, patch: Partial<Pick<User, "passwordHash" | "verified" | "role" | "tgNotify">>): Promise<void>;
   listUsers(limit: number): Promise<User[]>;
   deleteUser(id: string): Promise<void>;
 

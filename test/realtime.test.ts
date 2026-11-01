@@ -103,3 +103,24 @@ test("bilet: giriş tələb olunur; başqa müştərinin söhbətinə operator s
   assert.ok(!vsA.events.some((e) => e.t === "typing"));
   opB.ws.close(); vsA.ws.close();
 });
+
+test("sneak peek: ziyarətçinin göndərilməmiş mətni operatora 'typing' + draft kimi çatır; uzun mətn kəsilir; operator draft göndərə bilmir", async () => {
+  const { c, key, id, token } = await setup();
+  const op = open("http://localhost:3001", { t: "auth", role: "operator", ticket: await ticketOf(c) });
+  const vs = open(ORIGIN, { t: "auth", role: "visitor", key, id, token });
+  await until(() => op.events.some((e) => e.t === "ready") && vs.events.some((e) => e.t === "ready"));
+  vs.ws.send(JSON.stringify({ t: "draft", text: "Çatdırılma neçə\ngünə" }));
+  await until(() => op.events.some((e) => e.t === "typing" && typeof e.draft === "string"));
+  assert.deepEqual(op.events.find((e) => typeof e.draft === "string"), { t: "typing", id, draft: "Çatdırılma neçə günə" });
+  await new Promise((r) => setTimeout(r, 450));
+  vs.ws.send(JSON.stringify({ t: "draft", text: "a".repeat(500) }));
+  await until(() => op.events.filter((e) => typeof e.draft === "string").length === 2);
+  assert.equal((op.events.filter((e) => typeof e.draft === "string")[1]!.draft as string).length, 300);
+  // dərhal ikinci qaralama (0.4 saniyədən tez) atılır
+  vs.ws.send(JSON.stringify({ t: "draft", text: "tez" }));
+  op.ws.send(JSON.stringify({ t: "draft", id, text: "operator" }));
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(op.events.filter((e) => typeof e.draft === "string").length, 2);
+  assert.ok(!vs.events.some((e) => "draft" in e), "operatorun qaralaması ziyarətçiyə getmir");
+  op.ws.close(); vs.ws.close();
+});

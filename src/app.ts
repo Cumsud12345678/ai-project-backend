@@ -9,6 +9,7 @@ import { recordError } from "./errorlog.js";
 import { telegramPanelRoutes, telegramWebhook } from "./telegram-channel.js";
 import { whatsappPanelRoutes } from "./whatsapp/routes.js";
 import { widgetRoutes } from "./widget.js";
+import { notifyPanelRoutes, notifyWebhook } from "./operator-notify.js";
 
 export function createApp(deps: Deps) {
   const app = express();
@@ -27,6 +28,7 @@ export function createApp(deps: Deps) {
   // Müştəri saytlarından çağırılan ictimai vidjet route-ları (öz CORS/origin yoxlaması var).
   app.use(widgetRoutes(deps));
   app.use(telegramWebhook(deps)); // Telegram-ın webhook-u: öz gizli başlığı ilə qorunur, cookie/origin tələb etmir
+  app.use(notifyWebhook(deps)); // operator bildiriş botunun webhook-u (eyni qayda)
 
   app.use(originCheck(deps), loadUser(deps));
   app.use("/auth", authRoutes(deps));
@@ -50,6 +52,7 @@ export function createApp(deps: Deps) {
     res.json({ announcement: a?.active ? { text: a.text, level: a.level } : null });
   });
   app.use("/tenant/channels", telegramPanelRoutes(deps), whatsappPanelRoutes(deps));
+  app.use("/tenant", notifyPanelRoutes(deps));
   app.use("/tenant", tenantRoutes(deps));
   app.use("/admin", adminRoutes(deps));
 

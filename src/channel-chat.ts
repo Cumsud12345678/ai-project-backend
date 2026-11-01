@@ -9,6 +9,7 @@ import { cleanContact } from "./kb.js";
 import type { ChannelSession, TenantRecord } from "./store/types.js";
 import { cardText, parseDecision, publicConfirm } from "./action-card.js";
 import { hub } from "./hub.js";
+import { notifyOperators } from "./operator-notify.js";
 import { LIVE_MSG, LIVE_STALE_MS, isBotCmd, isOperatorCmd, liveEnabled, startChannelLive, wantsHuman } from "./channel-live.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, limitsOf, modeOf } from "./widget.js";
 
@@ -150,7 +151,8 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       if (!body) return;
       if (!limiter.hit(`${lk}liverate:${tenant.tenantId}:${chatId}`, 20, 60_000)) return;
       await store.pushLive(tenant.tenantId, liveNow.id, { from: "visitor", text: body, at: new Date() }, { visitorSeenAt: new Date(), ...(!liveNow.name && io.senderName ? { name: clip(io.senderName, 80) } : {}) });
-      hub.toOperators(tenant.tenantId, { t: "live", id: liveNow.id, kind: "message" });
+      hub.toOperators(tenant.tenantId, { t: "live", id: liveNow.id, kind: "message", by: "visitor" });
+      void notifyOperators(deps, tenant, { kind: "message", chatId: liveNow.id, channel: label, name: liveNow.name || clip(io.senderName, 80), text: body });
       return;
     } else if ((isOperatorCmd(text) || (liveEnabled(tenant) && wantsHuman(text))) && !io.reset) {
       if (!liveEnabled(tenant)) { await io.send(LIVE_MSG.off); return; }

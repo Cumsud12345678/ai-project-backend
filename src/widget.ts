@@ -2,6 +2,7 @@
 // Gizli API açarı heç vaxt brauzerə çıxmır: vidjet yalnız ictimai açar (wk_...) göndərir,
 // portal isə həmin müştəri üçün AI servisini öz service tokeni ilə çağırır.
 import { notifyTeam } from "./team.js";
+import { notifyOperators } from "./operator-notify.js";
 import { publicConfirm } from "./action-card.js";
 import { liveOpenNow, parseHours, parseProactive } from "./helpdesk.js";
 import { checkBase64Image, imageEnabled } from "./image-input.js";
@@ -373,7 +374,8 @@ export function widgetRoutes(deps: Deps) {
     await store.createLive(chat);
     // Sayt sahibinə və komandaya bildiriş (10 dəqiqədə bir, spam olmasın)
     void notifyTeam(deps, t, `Canlı söhbət: ${t.businessName}`, `Saytınızın çatında ziyarətçi operatorla yazışmaq istəyir.${text ? `\n\nİlk mesaj: ${text.slice(0, 300)}` : ""}\n\nPanelin "Müraciətlər" bölməsində "Canlı söhbət" tabını açın.`);
-    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "start" });
+    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "start", by: "visitor" });
+    void notifyOperators(deps, t, { kind: "start", chatId: chat.id, channel: "sayt", name, text });
     res.status(201).json({ id: chat.id, token, ...liveView(chat, 0) });
   });
 
@@ -394,7 +396,8 @@ export function widgetRoutes(deps: Deps) {
       if (chat.status === "closed") throw new HttpError(409, "Söhbət bağlanıb", "LIVE_CLOSED");
       if (!limiter.hit(`w:livemsg:${id}`, 10, 60_000)) throw new HttpError(429, "Çox tez-tez mesaj göndərdin", "RATE_LIMITED");
       const next = await store.pushLive(t.tenantId, id, { from: "visitor", text, at: new Date() });
-      hub.toOperators(t.tenantId, { t: "live", id, kind: "message" });
+      hub.toOperators(t.tenantId, { t: "live", id, kind: "message", by: "visitor" });
+      void notifyOperators(deps, t, { kind: "message", chatId: id, channel: "sayt", name: chat.name, text });
       return void res.json(liveView(next ?? chat, after));
     }
     res.json(liveView(chat, after));

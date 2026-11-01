@@ -967,11 +967,22 @@
     root.addEventListener("pointerdown", unlockAudio);
 
     var busy = false, gen = 0, curCtrl = null;
-    function grow() { input.style.height = "auto"; var h = input.scrollHeight + (input.offsetHeight - input.clientHeight); input.style.height = Math.min(h, 96) + "px"; input.style.overflowY = h > 96 ? "auto" : "hidden"; updateAct(); }
+    function grow() { input.style.height = "auto"; var h = input.scrollHeight + (input.offsetHeight - input.clientHeight); input.style.height = Math.min(h, 96) + "px"; input.style.overflowY = h > 96 ? "auto" : "hidden"; updateAct(); scheduleDraft(); }
     input.addEventListener("input", grow);
-    input.addEventListener("input", function () { // operatora "yazır..." siqnalı (3 saniyədə bir)
-      if (wsOk && ws && state.live && state.live.id && Date.now() - typingSentAt > 3000) { typingSentAt = Date.now(); try { ws.send('{"t":"typing"}'); } catch (e) { /* bağlanır */ } }
-    });
+    // Canlı operator söhbətində yazılan mətn operatora canlı görünür ("yazır…" ilə birlikdə), 0.6 saniyədə bir. AI söhbətində heç nə getmir.
+    var draftTimer = null, draftSent = "";
+    function scheduleDraft() {
+      if (!(wsOk && ws && state.live && state.live.id) || draftTimer) return;
+      var wait = Math.max(0, 600 - (Date.now() - typingSentAt));
+      draftTimer = setTimeout(function () {
+        draftTimer = null;
+        if (!(wsOk && ws && state.live && state.live.id)) return;
+        var v = input.value.slice(0, 300);
+        if (v === draftSent) return;
+        draftSent = v; typingSentAt = Date.now();
+        try { ws.send(JSON.stringify({ t: "draft", text: v })); } catch (e) { /* bağlanır */ }
+      }, wait);
+    }
     input.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
     });
