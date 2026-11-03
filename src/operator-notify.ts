@@ -17,6 +17,8 @@ import type { TenantRecord, User } from "./store/types.js";
 const CODE_TTL_MS = 10 * 60_000;
 const MSG_GAP_MS = 3 * 60_000;
 const codes = new Map<string, { userId: string; exp: number }>();
+/** Müraciətlərin göndəriləcəyi Telegram qrupunu bağlamaq üçün kodlar (bot qrupa "startgroup" linki ilə əlavə olunur) */
+const groupCodes = new Map<string, { tenantId: string; exp: number }>();
 let botUsername = "";
 
 /** Webhook ünvanındakı gizli hissə və Telegram-ın göndərdiyi gizli başlıq: tokendən törədilir, ayrıca saxlanmır. */
@@ -41,7 +43,17 @@ export async function initNotifyBot(deps: Deps): Promise<void> {
 }
 
 /** Testlər üçün: bot adını əl ilə qoyur. */
-export const __setNotifyBot = (name: string) => { botUsername = name; codes.clear(); };
+export const __setNotifyBot = (name: string) => { botUsername = name; codes.clear(); groupCodes.clear(); };
+
+/** Müraciət qrupu üçün link: açılanda Telegram qrup seçdirir, botu əlavə edir və qrupa "/start <kod>" göndərir. */
+export function groupLinkUrl(tenantId: string): { url: string; expiresInS: number } {
+  for (const [k, v] of groupCodes) if (v.exp < Date.now() || v.tenantId === tenantId) groupCodes.delete(k);
+  const code = randomBytes(12).toString("base64url");
+  groupCodes.set(code, { tenantId, exp: Date.now() + CODE_TTL_MS });
+  return { url: `https://t.me/${botUsername}?startgroup=${code}`, expiresInS: CODE_TTL_MS / 1000 };
+}
+/** Bildiriş botu ilə istənilən söhbətə (qrupa) mesaj. "gone": bot qrupdan çıxarılıb və ya qrup silinib. */
+export const sendNotify = (deps: Deps, chatId: string, text: string) => send(deps, chatId, text);
 
 async function send(deps: Deps, chatId: string, text: string): Promise<"ok" | "gone" | "fail"> {
   try { await deps.telegram.sendMessage(deps.config.notifyBotToken!, chatId, text); return "ok"; }
@@ -86,7 +98,7 @@ export async function notifyOperators(deps: Deps, t: TenantRecord, p: { kind: "s
   } catch (e) { console.warn("[notify] Telegram bildirişi göndərilmədi:", e instanceof Error ? e.message : e); }
 }
 
-type Update = { message?: { text?: string; chat?: { id?: number; type?: string }; from?: { first_name?: string; username?: string; is_bot?: boolean } } };
+type Update = { message?: { text?: string; chat?: { id?: number; type?: string; title?: string }; from?: { first_name?: string; username?: string; is_bot?: boolean } } };
 
 /** İctimai webhook: Telegram bura çağırır. Yalnız "/start <kod>" bağlama üçündür, qalan mesajlara qısa izah verilir. */
 export function notifyWebhook(deps: Deps) {
@@ -97,6 +109,19 @@ export function notifyWebhook(deps: Deps) {
     if (!token || String(req.params.hook ?? "") !== hookOf(deps) || got.length !== want.length || !timingSafeEqual(Buffer.from(got), Buffer.from(want))) throw new HttpError(404, "Tapılmadı");
     res.json({ ok: true });
     const msg = ((req.body ?? {}) as Update).message;
+    // Qrup: yalnız "/start@bot <kod>" (bot qrupa müraciət qrupu kimi əlavə olunanda). Qrupdakı digər yazışmalara bot qarışmır.
+    if (msg?.chat && (msg.chat.type === "group" || msg.chat.type === "supergroup") && typeof msg.chat.id === "number" && !msg.from?.is_bot) {
+      const g = (typeof msg.text === "string" ? msg.text.trim() : "").match(/^\/start(?:@\w+)?\s+([A-Za-z0-9_-]{10,40})$/);
+      if (!g) return;
+      const gid = String(msg.chat.id), c = groupCodes.get(g[1]!);
+      groupCodes.delete(g[1]!);
+      if (!c || c.exp < Date.now()) { await send(deps, gid, "Link köhnəlib. Paneldən yenisini al (link 10 dəqiqə etibarlıdır)."); return; }
+      const t = await deps.store.findTenantById(c.tenantId);
+      if (!t) return;
+      await deps.store.updateTenant(t.tenantId, { leadForward: { ...(t.leadForward ?? {}), telegram: { chatId: gid, title: String(msg.chat.title ?? "").slice(0, 80) } } });
+      await send(deps, gid, `✅ Bu qrup ${t.businessName} saytının yeni müraciətlərini alacaq (ad, əlaqə, sual). Ayırmaq üçün paneldə “Ayır” düyməsini bas və ya botu qrupdan çıxar.`);
+      return;
+    }
     if (!msg?.chat || msg.chat.type !== "private" || msg.from?.is_bot || typeof msg.chat.id !== "number") return;
     const chatId = String(msg.chat.id);
     const text = typeof msg.text === "string" ? msg.text.trim() : "";

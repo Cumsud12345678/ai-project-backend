@@ -32,7 +32,7 @@ function safeLookup(hostname: string, options: dns.LookupOptions, callback: Look
   });
 }
 const guardedAgent = new Agent({ connect: { lookup: safeLookup as never } });
-const guardedFetch = ((url: URL | string, init?: RequestInit) => undiciFetch(url, { ...(init as object), dispatcher: guardedAgent })) as unknown as typeof fetch;
+export const guardedFetch = ((url: URL | string, init?: RequestInit) => undiciFetch(url, { ...(init as object), dispatcher: guardedAgent })) as unknown as typeof fetch;
 
 export function sniffImage(b: Buffer): "image/png" | "image/jpeg" | "image/webp" | null {
   if (b.length > 12 && b[0] === 0x89 && b.subarray(1, 4).toString() === "PNG") return "image/png";

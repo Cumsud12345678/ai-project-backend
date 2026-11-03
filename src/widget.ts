@@ -3,6 +3,7 @@
 // portal isə həmin müştəri üçün AI servisini öz service tokeni ilə çağırır.
 import { notifyTeam } from "./team.js";
 import { notifyOperators } from "./operator-notify.js";
+import { forwardLead } from "./lead-forward.js";
 import { publicConfirm } from "./action-card.js";
 import { liveOpenNow, parseHours, parseProactive } from "./helpdesk.js";
 import { checkBase64Image, imageEnabled } from "./image-input.js";
@@ -262,6 +263,8 @@ export function widgetRoutes(deps: Deps) {
       if (e instanceof AiError) { console.warn(`[widget] lead ${t.tenantId}: ${e.status} ${e.message}`); throw new HttpError(502, "Müraciət göndərilə bilmədi, bir azdan yenidən cəhd et", "UNAVAILABLE"); }
       throw e;
     }
+    // Telegram qrupu / Bitrix24 / webhook (qoşulubsa): ziyarətçini gözlətmir
+    void forwardLead(deps, t, { source: "sayt", name, contact, question, conversation, ...(cleanPage(b.page)?.path && { page: cleanPage(b.page)!.path }) });
     // Sayt sahibinə bildiriş (alınmasa da müraciət panelda qalır)
     try {
       const owner = await store.findUserById(t.userId);

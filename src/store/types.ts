@@ -1,5 +1,6 @@
 export type Role = "admin" | "user";
 /** `role` köhnə sənədlərdə olmaya bilər: yoxdursa "user" sayılır. */
+export type LeadForward = { telegram?: { chatId: string; title: string } | null; bitrix?: { urlEnc: string; host: string } | null; webhook?: { urlEnc: string; host: string } | null };
 /** Operatorun canlı söhbət bildirişləri üçün bağladığı Telegram (platformanın bildiriş botu ilə). */
 export type TgNotify = { chatId: string; name: string; at: Date };
 export type User = { id: string; email: string; passwordHash: string; verified: boolean; createdAt: Date; role?: Role; tgNotify?: TgNotify | null };
@@ -68,6 +69,8 @@ export type TenantRecord = {
   whatsapp?: WhatsAppLink | null;
   /** Hazır cavablar: operatorlar söhbətdə bir kliklə mesaja əlavə edir */
   canned?: CannedReply[];
+  /** Yeni müraciətin ötürüldüyü yerlər. Bitrix24 və webhook linkləri sirr daşıyır: şifrəli saxlanır (CHANNEL_SECRET_KEY). */
+  leadForward?: LeadForward;
 };
 
 /** Müştərinin Telegram botu. Token şifrələnmiş saxlanır, panelə qayıtmır. `hook` webhook ünvanındakı təsadüfi hissədir, `secret` Telegram-ın hər sorğuya qoyduğu başlıqdır. */
@@ -163,7 +166,7 @@ export interface Store {
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
   /** Yalnız vidjet loqosunu dəyişir (bütün vidjet sənədini yenidən yazmır). null = sil. */
   setWidgetLogo(tenantId: string, logo: WidgetImage | null, kind?: WidgetImageKind): Promise<void>;
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved" | "canned">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;

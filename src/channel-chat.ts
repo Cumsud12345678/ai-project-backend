@@ -11,6 +11,7 @@ import type { ChannelSession, TenantRecord } from "./store/types.js";
 import { cardText, parseDecision, publicConfirm } from "./action-card.js";
 import { hub } from "./hub.js";
 import { notifyOperators } from "./operator-notify.js";
+import { forwardLead } from "./lead-forward.js";
 import { LIVE_MSG, LIVE_STALE_MS, isBotCmd, isOperatorCmd, liveEnabled, startChannelLive, wantsHuman } from "./channel-live.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, limitsOf, modeOf } from "./widget.js";
 
@@ -214,6 +215,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
           if (e instanceof AiError) { await recordError(store, { source: "channel", message: `${label} müraciəti yazıla bilmədi: ${e.message}`, tenantId: tenant.tenantId, code: e.code }); await io.send(MSG.offline); return; }
           throw e;
         }
+        void forwardLead(deps, tenant, { source: label, name, contact, question, conversation: session.history.slice(-10) });
         try {
           const owner = await store.findUserById(tenant.userId);
           if (owner) await mailer.send(owner.email, `Yeni müraciət (${label}): ${tenant.businessName}`, `${label} kanalından yeni müraciət var.\n\nAd: ${name || "-"}\nƏlaqə: ${contact}\nSual: ${question || "-"}`);

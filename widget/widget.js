@@ -649,7 +649,7 @@
           err.textContent = ""; go.disabled = true;
           fetch(api + "/contact", {
             method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ name: nameI.value, contact: contI.value, question: question, chat: state.messages.filter(function (m) { return !m.live; }).slice(-8).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; }), website: hp.value }),
+            body: JSON.stringify({ name: nameI.value, contact: contI.value, question: question, chat: state.messages.filter(function (m) { return !m.live; }).slice(-8).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; }), website: hp.value, page: { path: location.pathname, title: document.title } }),
           }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, status: res.status, data: d }; }); })
             .then(function (r) {
               if (r.ok) { f.remove(); bubble("model", L.ok, null, null, Date.now()); scroll(); track("ai_chat_lead", { source: "contact_form" }); return; }
