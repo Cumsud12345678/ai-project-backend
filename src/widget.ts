@@ -200,7 +200,8 @@ export function widgetRoutes(deps: Deps) {
     try {
       const key = String(req.params.key ?? "");
       const tenant = WIDGET_KEY_RE.test(key) ? await store.findTenantByWidgetKey(key) : null;
-      if (!tenant?.widget?.enabled) throw new HttpError(404, "Vidjet tapılmadı və ya söndürülüb", "WIDGET_OFF");
+      // Admin hesabı dayandırıbsa vidjet saytda görünmür (eyni cavab: ziyarətçi səbəbi görmür)
+      if (!tenant?.widget?.enabled || tenant.suspended) throw new HttpError(404, "Vidjet tapılmadı və ya söndürülüb", "WIDGET_OFF");
       const origin = req.get("origin");
       if (!originAllowed(origin, tenant)) throw new HttpError(403, "Bu saytdan vidjetə icazə yoxdur", "ORIGIN_NOT_ALLOWED");
       res.set({

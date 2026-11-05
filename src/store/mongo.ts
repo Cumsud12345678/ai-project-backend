@@ -4,7 +4,7 @@ import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement,
 
 type UserDoc = Omit<User, "id"> & { _id: ObjectId };
 
-const toUser = (d: UserDoc): User => ({ id: d._id.toHexString(), email: d.email, passwordHash: d.passwordHash, verified: d.verified, createdAt: d.createdAt, role: d.role === "admin" ? "admin" : "user", ...(d.tgNotify?.chatId && { tgNotify: d.tgNotify }) });
+const toUser = (d: UserDoc): User => ({ id: d._id.toHexString(), email: d.email, passwordHash: d.passwordHash, verified: d.verified, createdAt: d.createdAt, role: d.role === "admin" ? "admin" : "user", ...(d.tgNotify?.chatId && { tgNotify: d.tgNotify }), ...(d.totp?.secretEnc && { totp: d.totp }), ...(d.totpPending?.secretEnc && { totpPending: d.totpPending }) });
 const strip = <T extends { _id?: unknown }>(d: T | null): Omit<T, "_id"> | null => {
   if (!d) return null;
   const { _id, ...rest } = d;

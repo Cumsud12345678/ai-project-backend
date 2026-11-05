@@ -84,6 +84,8 @@ export function fakeAi(): FakeAi {
     async billingRequests(status) { return rec("billingRequests", [status], { requests: [{ id: "r1", tenantId: "tenant-1", amountAzn: 10, status, provider: "manual", at: "2026-10-22T00:00:00.000Z" }, { id: "r2", tenantId: "gone", amountAzn: 20, status, provider: "manual", at: "2026-10-21T00:00:00.000Z" }] }); },
     async billingResolve(id, action, by) { return rec("billingResolve", [id, action, by], { request: { id, tenantId: "tenant-1", amountAzn: 10, status: action === "approve" ? "approved" : "rejected" }, ...(action === "approve" && { duplicate: false, balance: { totalAzn: 16.2 } }) }); },
     async billingAccounts() { return rec("billingAccounts", [], { accounts: [{ tenantId: "tenant-1", totalAzn: 6.2, paidAzn: 5, spentAzn: 0.8 }] }); },
+    async billingFinance(...a) { return rec("billingFinance", a, { months: [{ month: "2026-11", cashIn: { paidAzn: 10, manualAzn: 2, adjustAzn: 0, totalAzn: 12 }, billedAzn: 3, freeAzn: 1, revenueAzn: 2, costAzn: 1.2, profitAzn: 0.8, marginPct: 40, requests: 90 }], models: [{ model: "claude-haiku-5-5", provider: "anthropic", costAzn: 1, calls: 80, tokens: 1000, months: { "2026-11": 1 } }], tenants: [{ tenantId: "tenant-1", requests: 90, billedAzn: 3, freeAzn: 1, revenueAzn: 2, costAzn: 1.2, profitAzn: 0.8, markup: 1.5, customMarkup: false, balanceAzn: 6.2 }], totals: { cashInAzn: 40, cashInMonthAzn: 12, outstandingPaidAzn: 5, creditUsedAzn: 0, defaultMarkup: 1.5, usdAzn: 1.7 } }); },
+    async suspendTenant(...a) { return rec("suspendTenant", a, { ok: true, suspended: a[1] }); },
   };
   function rec<T>(fn: string, args: unknown[], value: T): T {
     calls.push({ fn, args });

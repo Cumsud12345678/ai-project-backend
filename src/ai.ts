@@ -67,6 +67,10 @@ export type AiClient = {
   billingRequests(status: string): Promise<AiResult>;
   billingResolve(requestId: string, action: "approve" | "reject", by: string): Promise<AiResult>;
   billingAccounts(): Promise<AiResult>;
+  /** Admin: ay üzrə pul girişi, AI xərci, mənfəət; model və müştəri üzrə bölgü */
+  billingFinance(months?: number): Promise<AiResult>;
+  /** Admin: müştərinin AI sorğularını dayandırır / bərpa edir */
+  suspendTenant(tenantId: string, suspended: boolean): Promise<AiResult>;
 };
 
 export function createAiClient(baseUrl: string, token: string): AiClient {
@@ -147,5 +151,7 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     billingRequests: (status) => request("GET", `/billing/requests?status=${encodeURIComponent(status)}`),
     billingResolve: (rid, action, by) => request("POST", `/billing/requests/${encodeURIComponent(rid)}/${action}`, { by }),
     billingAccounts: () => request("GET", "/billing/accounts"),
+    billingFinance: (months = 6) => request("GET", `/billing/finance?months=${Math.min(24, Math.max(1, Math.round(months)))}`),
+    suspendTenant: (id, suspended) => request("PATCH", `${t(id)}/suspend`, { suspended }),
   };
 }

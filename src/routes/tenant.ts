@@ -39,6 +39,8 @@ function withoutSecrets(cfg: Record<string, unknown>): Record<string, unknown> {
 const publicTenant = (t: TenantRecord) => ({
   tenantId: t.tenantId, businessName: t.businessName, domain: t.domain, config: t.config,
   createdAt: t.createdAt, updatedAt: t.updatedAt, keyRotatedAt: t.keyRotatedAt ?? null,
+  // Sahib panelində xəbərdarlıq göstərmək üçün (kim dayandırıb göstərilmir)
+  suspended: t.suspended ? { at: t.suspended.at, reason: t.suspended.reason } : null,
 });
 
 /** Ziyarətçi yazıb, operator hələ cavab verməyib (və ya söhbəti açmayıb). */

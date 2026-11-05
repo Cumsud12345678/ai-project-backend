@@ -106,8 +106,8 @@ test("admin: ümumi istifadə statistikası müştəri adları ilə gəlir; sili
   assert.equal((await c.call("GET", "/admin/usage")).status, 403);
 });
 
-test("admin başqa istifadəçiyə admin statusu verir/alır; restart lazım deyil, dərhal qüvvəyə minir", async () => {
-  const c = await p.signedIn("yeni-admin@example.com");
+test("admin başqa istifadəçiyə admin statusu verir/alır; restart lazım deyil, köhnə sessiya bağlanır (yeni girişlə qüvvəyə minir)", async () => {
+  let c = await p.signedIn("yeni-admin@example.com");
   assert.equal((await c.call("GET", "/auth/me")).body.role, "user");
   assert.equal((await c.call("GET", "/admin/users")).status, 403);
   const id = await userId("yeni-admin@example.com");
@@ -117,14 +117,17 @@ test("admin başqa istifadəçiyə admin statusu verir/alır; restart lazım dey
   assert.equal((await c.call("PATCH", `/admin/users/${id}/role`, { role: "admin" })).status, 403, "adi istifadəçi özünü admin edə bilmir");
 
   assert.equal((await admin.call("PATCH", `/admin/users/${id}/role`, { role: "admin" })).body.isAdmin, true);
-  assert.equal((await c.call("GET", "/auth/me")).body.role, "admin", "eyni sessiya, yeni giriş lazım deyil");
+  assert.equal((await c.call("GET", "/auth/me")).status, 401, "rol dəyişəndə köhnə sessiya bağlanır");
+  c = p.client();
+  assert.equal((await c.call("POST", "/auth/login", { email: "yeni-admin@example.com", password: "parol12345" })).status, 200);
+  assert.equal((await c.call("GET", "/auth/me")).body.role, "admin", "restart lazım deyil");
   const list = (await c.call("GET", "/admin/users")).body.users.find((u: { id: string }) => u.id === id);
   assert.equal(list.isAdmin, true);
   assert.equal(list.isOwner, false);
   assert.equal((await c.call("DELETE", `/admin/users/${await userId("boss@example.com")}`)).body.code, "CANNOT_DELETE_ADMIN");
 
   assert.equal((await admin.call("PATCH", `/admin/users/${id}/role`, { role: "user" })).body.isAdmin, false);
-  assert.equal((await c.call("GET", "/admin/users")).status, 403);
+  assert.equal((await c.call("GET", "/admin/users")).status, 401, "rol alınanda da sessiya bağlanır");
 });
 
 test("rol: öz rolunu və .env adminini dəyişmək olmaz; təsdiqlənməmişə admin verilmir", async () => {

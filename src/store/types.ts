@@ -3,9 +3,13 @@ export type Role = "admin" | "user";
 export type LeadForward = { telegram?: { chatId: string; title: string } | null; bitrix?: { urlEnc: string; host: string } | null; webhook?: { urlEnc: string; host: string } | null };
 /** Operatorun canlı söhbət bildirişləri üçün bağladığı Telegram (platformanın bildiriş botu ilə). */
 export type TgNotify = { chatId: string; name: string; at: Date };
-export type User = { id: string; email: string; passwordHash: string; verified: boolean; createdAt: Date; role?: Role; tgNotify?: TgNotify | null };
-export type Session = { tokenHash: string; userId: string; expiresAt: Date };
-export type CodePurpose = "verify" | "reset";
+/** İki addımlı giriş (TOTP, Google Authenticator və s.). Sirr CHANNEL_SECRET_KEY ilə şifrəlidir; ehtiyat kodlar yalnız hash kimi saxlanır. `lastStep`: son qəbul olunan kodun 30 saniyəlik addımı (eyni kod iki dəfə işləmir). */
+export type TwoFactor = { secretEnc: string; enabledAt: Date; backupHashes: string[]; lastStep?: number };
+export type User = { id: string; email: string; passwordHash: string; verified: boolean; createdAt: Date; role?: Role; tgNotify?: TgNotify | null; totp?: TwoFactor | null; /** quraşdırma başlanıb, hələ kodla təsdiqlənməyib */ totpPending?: { secretEnc: string; at: Date } | null };
+/** `createdAt`: admin sessiyasının qısa ömrünü (ADMIN_SESSION_HOURS) yoxlamaq üçün. Köhnə sessiyalarda yoxdur. */
+export type Session = { tokenHash: string; userId: string; expiresAt: Date; createdAt?: Date };
+/** "2fa": parol düzgündür, iki addımlı kod gözlənilir (kod əvəzinə qısa ömürlü bilet saxlanır). */
+export type CodePurpose = "verify" | "reset" | "2fa";
 export type CodeRecord = { email: string; purpose: CodePurpose; codeHash: string; expiresAt: Date; attempts: number; sentAt: Date };
 
 /** Həftənin 7 günü (0 = bazar, JS getDay). null = həmin gün işləmir. Saat "HH:MM", gecəni keçən aralıq yoxdur. */
@@ -61,6 +65,8 @@ export type TenantRecord = {
   widget?: WidgetSettings;
   /** "Powered by" yazısı vidjetdə defolt görünür; yalnız admin söndürə bilir (ödənişli xidmət). */
   brandRemoved?: boolean;
+  /** Admin müştərini dayandırıbsa: vidjet, kanallar və AI sorğuları işləmir. Sahib panelə daxil ola bilir. */
+  suspended?: { at: Date; by: string; reason: string } | null;
   /** Aylıq e-poçt hesabatı: defolt aktivdir (monthly=false ilə söndürülür); lastSent = axırıncı göndərilən dövr ("2026-09"). */
   report?: { monthly?: boolean; lastSent?: string };
   /** Operator komandası: sahibin dəvət etdiyi işçilər yalnız canlı söhbət qutusunu görür. `userId` işçi qeydiyyatdan keçəndə dolur. */
@@ -141,7 +147,7 @@ export interface Store {
   findUserByEmail(email: string): Promise<User | null>;
   findUserById(id: string): Promise<User | null>;
   createUser(u: { email: string; passwordHash: string }): Promise<User>;
-  updateUser(id: string, patch: Partial<Pick<User, "passwordHash" | "verified" | "role" | "tgNotify">>): Promise<void>;
+  updateUser(id: string, patch: Partial<Pick<User, "passwordHash" | "verified" | "role" | "tgNotify" | "totp" | "totpPending">>): Promise<void>;
   listUsers(limit: number): Promise<User[]>;
   deleteUser(id: string): Promise<void>;
 
@@ -166,7 +172,7 @@ export interface Store {
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
   /** Yalnız vidjet loqosunu dəyişir (bütün vidjet sənədini yenidən yazmır). null = sil. */
   setWidgetLogo(tenantId: string, logo: WidgetImage | null, kind?: WidgetImageKind): Promise<void>;
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;

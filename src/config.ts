@@ -15,6 +15,10 @@ export type Config = {
   allowedOrigins: string[];
   cookieSecure: boolean;
   sessionDays: number;
+  /** Admin sessiyasının ömrü (saat). Defolt 12: admin hər gün yenidən daxil olur. */
+  adminSessionHours?: number;
+  /** "required": admin iki addımlı girişi (2FA) quraşdırmadan admin panelə girə bilmir. Defolt: production-da (şifrələmə açarı varsa) required. */
+  adminTwoFactor?: "required" | "optional";
   /** Resend API açarı (https://resend.com/api-keys). Boşdursa email göndərilmir, konsola yazılır (yalnız inkişaf). */
   resendApiKey: string | undefined;
   mailFrom: string;
@@ -50,6 +54,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     allowedOrigins: list(env.ALLOWED_ORIGINS || "http://localhost:3001"),
     cookieSecure: env.COOKIE_SECURE ? env.COOKIE_SECURE === "1" : isProd,
     sessionDays: Number(env.SESSION_DAYS) || 30,
+    adminSessionHours: Number(env.ADMIN_SESSION_HOURS) || 12,
+    adminTwoFactor: env.ADMIN_2FA === "optional" ? "optional" : env.ADMIN_2FA === "required" || (isProd && (env.CHANNEL_SECRET_KEY ?? "").length >= 32) ? "required" : "optional",
     resendApiKey: env.RESEND_API_KEY || undefined,
     mailFrom: env.MAIL_FROM || "Car Advisor <onboarding@resend.dev>",
     mailReplyTo: env.MAIL_REPLY_TO || undefined,

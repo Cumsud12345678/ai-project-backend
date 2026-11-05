@@ -108,6 +108,8 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
   const lk = `${channel}:`;
   // Eyni mesajda xəbərdarlıq spamı olmasın: dəqiqədə ən çox 1 xəbərdarlıq
   const warn = async (m: string) => { if (limiter.hit(`${lk}warn:${tenant.tenantId}:${chatId}`, 1, 60_000)) await io.send(m); };
+  // Admin hesabı dayandırıbsa bot susur (AI çağırılmır, limit sayılmır)
+  if (tenant.suspended) return Promise.resolve();
 
   return serial(`${tenant.tenantId}:${channel}:${chatId}`, async () => {
     // Səsli mesaj əvvəlcə mətnə çevrilir: sonrakı bütün axın (limit, canlı operator, AI) adi mətnlə işləyir

@@ -6,6 +6,7 @@ import { isAdmin, isOwner } from "../deps.js";
 import { HttpError } from "../http.js";
 import { currentUser, requireAdmin, requireAuth } from "../middleware.js";
 import { notifyTopupDone, parseAmount } from "../billing.js";
+import type { TenantRecord, User } from "../store/types.js";
 import type { ErrorSource } from "../store/types.js";
 
 const SOURCES: ErrorSource[] = ["api", "ai", "mail", "widget", "process", "client", "job", "channel"];
@@ -32,8 +33,8 @@ export function adminRoutes(deps: Deps) {
       users: users.map((u) => {
         const t = byUser.get(u.id);
         return {
-          id: u.id, email: u.email, verified: u.verified, isAdmin: isAdmin(config, u), isOwner: isOwner(config, u), createdAt: u.createdAt,
-          tenant: t ? { mode: modeOf(t.config), balance: balances.get(t.tenantId) ?? null, tenantId: t.tenantId, businessName: t.businessName, domain: t.domain, createdAt: t.createdAt, keyRotatedAt: t.keyRotatedAt ?? null, brandRemoved: Boolean(t.brandRemoved) } : null,
+          id: u.id, email: u.email, verified: u.verified, isAdmin: isAdmin(config, u), isOwner: isOwner(config, u), createdAt: u.createdAt, twoFactor: Boolean(u.totp),
+          tenant: t ? { mode: modeOf(t.config), balance: balances.get(t.tenantId) ?? null, tenantId: t.tenantId, businessName: t.businessName, domain: t.domain, createdAt: t.createdAt, keyRotatedAt: t.keyRotatedAt ?? null, brandRemoved: Boolean(t.brandRemoved), suspended: t.suspended ? { at: t.suspended.at, by: t.suspended.by, reason: t.suspended.reason } : null } : null,
         };
       }),
     });
@@ -129,9 +130,84 @@ export function adminRoutes(deps: Deps) {
     if (isOwner(config, target)) throw new HttpError(403, "Əsas adminin (.env) rolunu burada dəyişmək olmaz", "OWNER_ROLE_FIXED");
     if (role === "admin" && !target.verified) throw new HttpError(400, "Email təsdiqlənməyib: əvvəlcə hesab təsdiqlənməlidir", "NOT_VERIFIED");
     await store.updateUser(target.id, { role });
+    // Rol dəyişəndə köhnə (uzun ömürlü) sessiyalar bağlanır: yeni admin qısa sessiya və 2FA ilə yenidən daxil olur
+    await store.deleteSessionsForUser(target.id);
     void audit(res, "user.role", target.email, role);
     console.log(`[admin] ${currentUser(res).email} ${target.email} üçün rolu dəyişdi: ${role}`);
     res.json({ ok: true, id: target.id, isAdmin: role === "admin" });
+  });
+
+  // Bütün cihazlardan çıxış (məs. hesab oğurlanmış ola bilər). Admin özünün sessiyalarını burada bağlamır: Ayarlar səhifəsindən.
+  r.post("/users/:id/revoke-sessions", async (req, res) => {
+    const target = await store.findUserById(String(req.params.id));
+    if (!target) throw new HttpError(404, "İstifadəçi tapılmadı");
+    if (target.id === currentUser(res).id) throw new HttpError(400, "Öz sessiyalarını Ayarlar səhifəsindən bağla", "CANNOT_CHANGE_SELF");
+    await store.deleteSessionsForUser(target.id);
+    void audit(res, "user.revoke_sessions", target.email);
+    res.json({ ok: true });
+  });
+
+  // İki addımlı girişi sıfırlayır (telefon itib, ehtiyat kodlar yoxdur). Əsas adminin 2FA-nı yalnız əsas admin sıfırlaya bilər.
+  r.post("/users/:id/reset-2fa", async (req, res) => {
+    const target = await store.findUserById(String(req.params.id));
+    if (!target) throw new HttpError(404, "İstifadəçi tapılmadı");
+    const actor = currentUser(res);
+    if (target.id === actor.id) throw new HttpError(400, "Öz iki addımlı girişini burada sıfırlaya bilməzsən", "CANNOT_CHANGE_SELF");
+    if (isOwner(config, target) && !isOwner(config, actor)) throw new HttpError(403, "Əsas adminin iki addımlı girişini yalnız əsas admin sıfırlaya bilər", "OWNER_ROLE_FIXED");
+    await store.updateUser(target.id, { totp: null, totpPending: null });
+    await store.deleteSessionsForUser(target.id);
+    void audit(res, "user.reset_2fa", target.email);
+    res.json({ ok: true });
+  });
+
+  // ---- Müştərini dayandırmaq / bərpa etmək ----
+  // Dayandırılmış müştərinin vidjeti görünmür, Telegram/WhatsApp cavab vermir, API açarı ilə sorğular 402 alır.
+  // Hesab, məlumat və balans silinmir: sahib panelə daxil ola bilir və səbəbi görür.
+  const suspendMail = (t: TenantRecord, owner: User | null, on: boolean, reason: string) => {
+    if (!owner) return;
+    const subject = on ? `Hesab dayandırıldı: ${t.businessName}` : `Hesab bərpa olundu: ${t.businessName}`;
+    const body = on
+      ? `${t.businessName} (${t.domain}) üçün çat xidməti müvəqqəti dayandırıldı.\n\nSəbəb: ${reason}\n\nMəlumatların və balansın silinməyib. Sual üçün bu məktuba cavab yaz.`
+      : `${t.businessName} (${t.domain}) üçün çat xidməti yenidən aktivdir. Vidjet, kanallar və API əvvəlki kimi işləyir.`;
+    deps.mailer.send(owner.email, subject, body).catch((e) => console.error("[mail] dayandırma bildirişi:", e));
+  };
+  r.post("/tenants/:tenantId/suspend", async (req, res) => {
+    const tenantId = await known(req.params.tenantId);
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 300) : "";
+    if (reason.length < 3) throw new HttpError(400, "Səbəbi yaz (sahibə email ilə göndəriləcək)", "REASON_REQUIRED");
+    const t = (await store.findTenantById(tenantId))!;
+    await ai.suspendTenant(tenantId, true);
+    const suspended = { at: new Date(), by: currentUser(res).email, reason };
+    await store.updateTenant(tenantId, { suspended });
+    void audit(res, "tenant.suspend", tenantId, reason);
+    console.log(`[admin] ${currentUser(res).email} müştərini dayandırdı: ${tenantId} (${reason})`);
+    if (req.body?.notify !== false) suspendMail(t, await store.findUserById(t.userId), true, reason);
+    res.json({ ok: true, suspended });
+  });
+  r.post("/tenants/:tenantId/unsuspend", async (req, res) => {
+    const tenantId = await known(req.params.tenantId);
+    const t = (await store.findTenantById(tenantId))!;
+    await ai.suspendTenant(tenantId, false);
+    await store.updateTenant(tenantId, { suspended: null });
+    void audit(res, "tenant.unsuspend", tenantId);
+    console.log(`[admin] ${currentUser(res).email} müştərini bərpa etdi: ${tenantId}`);
+    if (t.suspended && req.body?.notify !== false) suspendMail(t, await store.findUserById(t.userId), false, "");
+    res.json({ ok: true });
+  });
+
+  // ---- Maliyyə: pul girişi, AI xərci, mənfəət, model və müştəri üzrə ----
+  r.get("/finance", async (req, res) => {
+    const months = Number(req.query.months) || 6;
+    const [fin, tenants, users] = await Promise.all([ai.billingFinance(months), store.listTenants(5000), store.listUsers(5000)]);
+    const tmap = new Map(tenants.map((t) => [t.tenantId, t]));
+    const umap = new Map(users.map((u) => [u.id, u.email]));
+    res.json({
+      ...fin,
+      tenants: ((fin.tenants ?? []) as { tenantId: string }[]).map((x) => {
+        const t = tmap.get(x.tenantId);
+        return { ...x, businessName: t?.businessName ?? "(silinib)", domain: t?.domain ?? "", email: t ? umap.get(t.userId) ?? "" : "", suspended: Boolean(t?.suspended) };
+      }),
+    });
   });
 
   // İstifadəçini və onun müştərisini (AI servisində də) silir. Geri qaytarmaq olmur.
@@ -176,9 +252,10 @@ export function adminRoutes(deps: Deps) {
   // ---- Ümumi baxış və sistem vəziyyəti ----
   r.get("/overview", async (_req, res) => {
     const day = 86_400_000;
-    const [users, tenants, summary, accounts, pending, errors24, errors7] = await Promise.all([
+    const [users, tenants, summary, accounts, pending, errors24, errors7, fin] = await Promise.all([
       store.listUsers(5000), store.listTenants(5000), ai.usageSummary().catch(() => null), ai.billingAccounts().catch(() => null),
       ai.billingRequests("pending").catch(() => null), store.countErrors(new Date(Date.now() - day)), store.countErrors(new Date(Date.now() - 7 * day)),
+      ai.billingFinance(1).catch(() => null),
     ]);
     const now = Date.now();
     const since = (n: number) => users.filter((u) => now - new Date(u.createdAt).getTime() < n * day).length;
@@ -194,10 +271,14 @@ export function adminRoutes(deps: Deps) {
     const top = ((summary?.tenants ?? []) as { tenantId: string; requests: number; tokens: number }[]).slice(0, 5).map((x) => ({ ...x, businessName: names.get(x.tenantId)?.businessName ?? "(silinib)" }));
     res.json({
       users: { total: users.length, verified: users.filter((u) => u.verified).length, admins: users.filter((u) => isAdmin(config, u)).length, last7d: since(7), last30d: since(30) },
-      tenants: { total: tenants.length, modes, widgetActive7d: tenants.filter((t) => t.widget?.lastSeenAt && now - new Date(t.widget.lastSeenAt).getTime() < 7 * day).length, emptyBalance: tenants.filter((t) => { const b = bal.get(t.tenantId); return b && b.totalAzn <= 0; }).length },
+      tenants: { total: tenants.length, modes, suspended: tenants.filter((t) => t.suspended).length, widgetActive7d: tenants.filter((t) => t.widget?.lastSeenAt && now - new Date(t.widget.lastSeenAt).getTime() < 7 * day).length, emptyBalance: tenants.filter((t) => { const b = bal.get(t.tenantId); return b && b.totalAzn <= 0; }).length },
       usage: summary ? { today: summary.today, thisMonth: summary.thisMonth, lastMonth: summary.lastMonth } : null,
       pendingTopups: ((pending?.requests ?? []) as unknown[]).length,
-      revenueAzn: Math.round([...bal.values()].reduce((s, b) => s + (b.paidAzn ?? 0), 0) * 100) / 100,
+      // Əvvəllər burada qalan ödənişli balansların cəmi göstərilirdi (müştəri xərclədikcə azalırdı). İndi: balansa daxil olan real pul.
+      revenueAzn: fin?.totals ? Math.round(Number(fin.totals.cashInAzn) * 100) / 100 : null,
+      revenueMonthAzn: fin?.totals ? Math.round(Number(fin.totals.cashInMonthAzn) * 100) / 100 : null,
+      outstandingPaidAzn: fin?.totals ? Math.round(Number(fin.totals.outstandingPaidAzn) * 100) / 100 : null,
+      monthProfitAzn: fin?.months?.length ? Math.round(Number(fin.months[fin.months.length - 1].profitAzn) * 100) / 100 : null,
       errors: { last24h: errors24, last7d: errors7 },
       signups: series, topTenants: top,
     });
