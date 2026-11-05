@@ -251,7 +251,7 @@
     ".mrow:hover .tm,.mrow.show .tm{opacity:1}",
     ".day{align-self:center;font-size:12px;font-weight:600;color:var(--muted);padding:2px 10px}",
     // Bot mesajına aid əlavələr (kartlar, mənbələr, düymələr) mətnlə bir xətdə: profil şəklinin eni qədər içəridən
-    ".srcs,.fb,.cards,.acard,.cbtn,.csat{margin-left:36px}.cards{width:calc(100% - 36px)}",
+    ".srcs,.fb,.acard,.cbtn,.csat{margin-left:36px}.cards{width:100%}", // elan kartları tam enlə: solda avatar üçün boş yer qalmır
     ".srcs a{color:var(--accent-t);text-decoration:underline}",
     ".cbtn{align-self:flex-start;border:1px solid var(--accent-t);background:var(--bg);color:var(--accent-t);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}",
     ".cform{align-self:stretch;display:flex;flex-direction:column;align-items:stretch;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px}",
