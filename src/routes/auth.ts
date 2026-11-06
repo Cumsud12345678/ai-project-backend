@@ -8,6 +8,7 @@ import { cookieOptions, COOKIE, currentUser, needsTwoFactorSetup, requireAuth, s
 import { decryptSecret, encryptSecret } from "../secrets.js";
 import { dummyHash, hashCode, hashPassword, newCode, newSessionToken, normalizeEmail, passwordProblem, safeEqualHex, verifyPassword } from "../security.js";
 import { hashBackup, looksLikeBackup, newBackupCodes, newTotpSecret, otpauthUri, verifyTotp } from "../totp.js";
+import { attachOnSignup, getPartnerSettings, normalizeCode, validCode } from "../partners.js";
 import { DuplicateError, type CodePurpose, type User } from "../store/types.js";
 
 const CODE_TTL_MS = 15 * 60_000;
@@ -32,6 +33,7 @@ export function authRoutes(deps: Deps) {
   const me = (u: User) => ({
     email: u.email, role: isAdmin(config, u) ? "admin" : "user",
     twoFactor: { enabled: Boolean(u.totp), required: config.adminTwoFactor === "required" && isAdmin(config, u), setupNeeded: needsTwoFactorSetup(deps, u), backupLeft: u.totp?.backupHashes.length ?? 0 },
+    partner: u.partner ? { code: u.partner.code, active: u.partner.active } : null,
   });
 
   /**
@@ -86,14 +88,31 @@ export function authRoutes(deps: Deps) {
 
     const existing = await store.findUserByEmail(email);
     if (existing?.verified) throw new HttpError(409, "Bu email ilə hesab artıq var. Daxil ol.", "EMAIL_TAKEN");
+    // Partnyor kodu: istifadəçi özü yazıbsa (code) səhv kod xəta verir; linkdən gəlibsə (link) səssizcə keçilir
+    const refSource = req.body?.refSource === "link" ? "link" : "code";
+    const refCode = normalizeCode(req.body?.ref);
+    if (refCode && refSource === "code") {
+      const p = validCode(refCode) ? await store.findUserByPartnerCode(refCode) : null;
+      if (!p?.partner?.active || p.email === email) throw new HttpError(400, "Promo kod tapılmadı", "BAD_REF_CODE");
+    }
     const passwordHash = await hashPassword(req.body.password);
     if (existing) await store.updateUser(existing.id, { passwordHash }); // təsdiqlənməmiş hesab: yeni parolla davam
     else {
       try { await store.createUser({ email, passwordHash }); }
       catch (e) { if (!(e instanceof DuplicateError)) throw e; }
     }
+    if (refCode) { const u = await store.findUserByEmail(email); if (u) await attachOnSignup(deps, u, refCode, refSource); }
     await sendCode(email, "verify");
     res.status(201).json({ ok: true, email });
+  });
+
+  // Qeydiyyat formasında promo kodu yoxlamaq üçün (partnyor haqqında məlumat qaytarmır)
+  r.get("/ref/:code", async (req, res) => {
+    limit(`refcheck:${req.ip}`, 30, 10 * MIN);
+    const code = normalizeCode(req.params.code);
+    const p = validCode(code) ? await store.findUserByPartnerCode(code) : null;
+    const s = await getPartnerSettings(deps);
+    res.json({ valid: Boolean(p?.partner?.active), code, bonusPct: s.bonusPct, bonusCapAzn: s.bonusCapAzn });
   });
 
   r.post("/verify", async (req, res) => {

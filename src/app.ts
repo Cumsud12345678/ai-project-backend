@@ -3,6 +3,7 @@ import type { Deps } from "./deps.js";
 import { createErrorHandler, notFound } from "./http.js";
 import { loadUser, originCheck } from "./middleware.js";
 import { adminRoutes } from "./routes/admin.js";
+import { partnerRoutes } from "./routes/partner.js";
 import { authRoutes } from "./routes/auth.js";
 import { tenantRoutes } from "./routes/tenant.js";
 import { recordError } from "./errorlog.js";
@@ -56,6 +57,7 @@ export function createApp(deps: Deps) {
   app.use("/tenant", notifyPanelRoutes(deps), leadForwardRoutes(deps));
   app.use("/tenant", tenantRoutes(deps));
   app.use("/admin", adminRoutes(deps));
+  app.use("/partner", partnerRoutes(deps));
 
   app.use(notFound);
   app.use(createErrorHandler(deps));

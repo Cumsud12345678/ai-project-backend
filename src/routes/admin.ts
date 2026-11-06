@@ -5,8 +5,10 @@ import type { Deps } from "../deps.js";
 import { isAdmin, isOwner } from "../deps.js";
 import { HttpError } from "../http.js";
 import { currentUser, requireAdmin, requireAuth } from "../middleware.js";
+import { normalizeEmail } from "../security.js";
 import { notifyTopupDone, parseAmount } from "../billing.js";
 import { ALERT_KINDS, alertLog, getAlertSettings, healthState, saveAlertSettings, sendAlert } from "../alerts.js";
+import { getPartnerSettings, normalizeCode, partnerCustomers, savePartnerSettings, syncThrottled, validCode, validRate } from "../partners.js";
 import { notifyAvailable, notifyBotName, sendNotify, userLinkUrl } from "../operator-notify.js";
 import type { TenantRecord, User } from "../store/types.js";
 import type { ErrorSource } from "../store/types.js";
@@ -491,6 +493,110 @@ export function adminRoutes(deps: Deps) {
     if (!deps.limiter.hit(`alerts:test:${me.id}`, 5, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez sorğu", "RATE_LIMITED");
     const out = await sendAlert(deps, "test", me.id, "Sınaq bildirişi", `Bu, ${me.email} üçün sınaq bildirişidir. Xəbərdarlıqlar belə görünəcək.`, { force: true, only: [me] });
     res.json(out);
+  });
+
+  // ---- Partnyorlar ----
+  const partnerRow = (u: User, totals: Record<string, { earned: number; adjust: number; paidOut: number; balance: number }>, counts: Map<string, number>) => ({
+    id: u.id, email: u.email, code: u.partner!.code, rate: u.partner!.rate, active: u.partner!.active, since: u.partner!.since, note: u.partner!.note ?? "",
+    customers: counts.get(u.id) ?? 0, totals: totals[u.id] ?? { earned: 0, adjust: 0, paidOut: 0, balance: 0 },
+  });
+  const loadPartner = async (id: string) => {
+    const u = await store.findUserById(id);
+    if (!u?.partner) throw new HttpError(404, "Partnyor tapılmadı");
+    return u;
+  };
+  const codeFree = async (code: string, selfId?: string) => {
+    if (!validCode(code)) throw new HttpError(400, "Kod 3–20 simvol olmalıdır: hərf, rəqəm, - və _", "BAD_CODE");
+    const other = await store.findUserByPartnerCode(code);
+    if (other && other.id !== selfId) throw new HttpError(409, "Bu kod artıq istifadə olunur", "CODE_TAKEN");
+  };
+
+  r.get("/partners", async (_req, res) => {
+    await syncThrottled(deps);
+    const [partners, settings, referred, totals] = await Promise.all([store.listPartners(), getPartnerSettings(deps), store.listReferred(), store.partnerTotals()]);
+    const counts = new Map<string, number>();
+    for (const c of referred) counts.set(c.referredBy!.partnerId, (counts.get(c.referredBy!.partnerId) ?? 0) + 1);
+    res.json({ settings, partners: partners.map((u) => partnerRow(u, totals, counts)) });
+  });
+  r.put("/partners/settings", async (req, res) => {
+    const s = await savePartnerSettings(deps, req.body);
+    void audit(res, "partner.settings", undefined, JSON.stringify(s));
+    res.json(s);
+  });
+  // Mövcud istifadəçini partnyor edir (e-poçtla)
+  r.post("/partners", async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    const u = email ? await store.findUserByEmail(email) : null;
+    if (!u?.verified) throw new HttpError(404, "Bu e-poçtla təsdiqlənmiş hesab tapılmadı. Partnyor əvvəlcə qeydiyyatdan keçməlidir.", "USER_NOT_FOUND");
+    if (u.partner) throw new HttpError(409, "Bu istifadəçi artıq partnyordur", "ALREADY_PARTNER");
+    const settings = await getPartnerSettings(deps);
+    const code = normalizeCode(req.body?.code) || u.email.split("@")[0]!.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+    await codeFree(code);
+    const rate = req.body?.rate === undefined || req.body?.rate === "" ? settings.defaultRate : validRate(req.body.rate);
+    await store.updateUser(u.id, { partner: { code, rate, active: true, since: new Date(), note: typeof req.body?.note === "string" ? req.body.note.slice(0, 200) : "" } });
+    void audit(res, "partner.create", u.email, `${code} · ${rate}%`);
+    res.status(201).json({ ok: true, id: u.id, code });
+  });
+  r.patch("/partners/:id", async (req, res) => {
+    const u = await loadPartner(String(req.params.id));
+    const p = { ...u.partner! };
+    const b = req.body ?? {};
+    const changes: string[] = [];
+    if (b.code !== undefined) { const code = normalizeCode(b.code); if (code !== p.code) { await codeFree(code, u.id); changes.push(`kod ${p.code}→${code}`); p.code = code; } }
+    if (b.rate !== undefined) { const rate = validRate(b.rate); if (rate !== p.rate) { changes.push(`faiz ${p.rate}→${rate}`); p.rate = rate; } }
+    if (typeof b.active === "boolean" && b.active !== p.active) { changes.push(b.active ? "aktiv" : "söndürüldü"); p.active = b.active; }
+    if (typeof b.note === "string") p.note = b.note.slice(0, 200);
+    await store.updateUser(u.id, { partner: p });
+    if (changes.length) void audit(res, "partner.update", u.email, changes.join(", "));
+    res.json({ ok: true });
+  });
+  r.get("/partners/:id", async (req, res) => {
+    const u = await loadPartner(String(req.params.id));
+    await syncThrottled(deps, u.id);
+    const [totals, customers, entries] = await Promise.all([store.partnerTotals([u.id]), partnerCustomers(deps, u.id, { revealEmail: true }), store.listPartnerEntries(u.id, 300)]);
+    res.json({
+      partner: partnerRow(u, totals, new Map([[u.id, customers.length]])),
+      customers, entries,
+    });
+  });
+  // Balansı əl ilə dəyişmək. kind=payout: "ödədim" (məbləğ müsbət yazılır, balansdan çıxılır); kind=adjust: ± düzəliş
+  r.post("/partners/:id/entries", async (req, res) => {
+    const u = await loadPartner(String(req.params.id));
+    const kind = req.body?.kind === "payout" ? "payout" : "adjust";
+    const amount = parseAmount(req.body?.amountAzn, { allowNegative: kind === "adjust" });
+    const note = typeof req.body?.note === "string" ? req.body.note.trim().slice(0, 200) : "";
+    if (kind === "adjust" && note.length < 2) throw new HttpError(400, "Düzəlişin səbəbini yaz", "REASON_REQUIRED");
+    const totals = (await store.partnerTotals([u.id]))[u.id];
+    if (kind === "payout" && amount > (totals?.balance ?? 0) + 0.001) throw new HttpError(400, "Ödəniş balansdan çox ola bilməz", "OVER_BALANCE");
+    const value = Math.round((kind === "payout" ? -Math.abs(amount) : amount) * 100) / 100;
+    await store.addPartnerEntry({ partnerId: u.id, kind, amountAzn: value, at: new Date(), note: note || (kind === "payout" ? "Ödənildi" : ""), by: currentUser(res).email });
+    void audit(res, kind === "payout" ? "partner.payout" : "partner.adjust", u.email, `${value} AZN${note ? ` · ${note}` : ""}`);
+    res.json({ ok: true, totals: (await store.partnerTotals([u.id]))[u.id] });
+  });
+  // Müştərini partnyora əl ilə bağlamaq / ayırmaq. countPast=true: pəncərə müştərinin qeydiyyat tarixindən başlayır
+  r.post("/partners/referrals", async (req, res) => {
+    const email = normalizeEmail(req.body?.email);
+    const customer = email ? await store.findUserByEmail(email) : null;
+    if (!customer) throw new HttpError(404, "Müştəri tapılmadı", "USER_NOT_FOUND");
+    const code = normalizeCode(req.body?.code);
+    if (!code) {
+      if (!customer.referredBy) return void res.json({ ok: true });
+      await store.updateUser(customer.id, { referredBy: null });
+      void audit(res, "partner.detach", customer.email, customer.referredBy.code);
+      return void res.json({ ok: true });
+    }
+    const partner = await store.findUserByPartnerCode(code);
+    if (!partner?.partner) throw new HttpError(404, "Bu kodla partnyor yoxdur", "BAD_REF_CODE");
+    if (partner.id === customer.id) throw new HttpError(400, "Partnyor özünü gətirə bilməz", "SELF_REFERRAL");
+    const at = req.body?.countPast === true ? customer.createdAt : new Date();
+    await store.updateUser(customer.id, { referredBy: { partnerId: partner.id, code, at, source: "admin", bonusAt: customer.referredBy?.bonusAt ?? null } });
+    void audit(res, "partner.attach", customer.email, `${code}${req.body?.countPast === true ? " · keçmiş ödənişlər daxil" : ""}`);
+    await syncThrottled(deps, partner.id, 0);
+    res.json({ ok: true });
+  });
+  r.post("/partners/sync", async (_req, res) => {
+    await syncThrottled(deps, undefined, 0);
+    res.json({ ok: true });
   });
 
   // ---- Ümumi AI açarı: bütün müştərilər üçün AI sorğularını dayandırır (məs. provayder problemi, xərc partlayışı) ----

@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { MongoClient, MongoServerError, ObjectId, type AnyBulkWriteOperation, type Db } from "mongodb";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery, type PartnerEntry } from "./types.js";
 
 type UserDoc = Omit<User, "id"> & { _id: ObjectId };
 
-const toUser = (d: UserDoc): User => ({ id: d._id.toHexString(), email: d.email, passwordHash: d.passwordHash, verified: d.verified, createdAt: d.createdAt, role: d.role === "admin" ? "admin" : "user", ...(d.tgNotify?.chatId && { tgNotify: d.tgNotify }), ...(d.totp?.secretEnc && { totp: d.totp }), ...(d.totpPending?.secretEnc && { totpPending: d.totpPending }) });
+const toUser = (d: UserDoc): User => ({ id: d._id.toHexString(), email: d.email, passwordHash: d.passwordHash, verified: d.verified, createdAt: d.createdAt, role: d.role === "admin" ? "admin" : "user", ...(d.tgNotify?.chatId && { tgNotify: d.tgNotify }), ...(d.totp?.secretEnc && { totp: d.totp }), ...(d.totpPending?.secretEnc && { totpPending: d.totpPending }), ...(d.partner?.code && { partner: d.partner }), ...(d.referredBy?.partnerId && { referredBy: d.referredBy }) });
 const strip = <T extends { _id?: unknown }>(d: T | null): Omit<T, "_id"> | null => {
   if (!d) return null;
   const { _id, ...rest } = d;
@@ -32,6 +32,8 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
   const waAuth = db.collection<{ tenantId: string; name: string; value: string }>("wa_auth");
   const audits = db.collection<AuditRecord>("admin_audit");
   const settings = db.collection<{ _id: string; value: unknown }>("settings");
+  const partnerEntries = db.collection<Omit<PartnerEntry, "id"> & { _id: ObjectId }>("partner_entries");
+  const round2 = (n: number) => Math.round(n * 100) / 100;
 
   await Promise.all([
     users.createIndex({ email: 1 }, { unique: true }),
@@ -62,6 +64,10 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     errors.createIndex({ fingerprint: 1 }),
     audits.createIndex({ at: -1 }),
     users.createIndex({ createdAt: -1 }),
+    users.createIndex({ "partner.code": 1 }, { unique: true, partialFilterExpression: { "partner.code": { $type: "string" } } }),
+    users.createIndex({ "referredBy.partnerId": 1 }, { partialFilterExpression: { "referredBy.partnerId": { $type: "string" } } }),
+    partnerEntries.createIndex({ sourceRef: 1 }, { unique: true, partialFilterExpression: { sourceRef: { $type: "string" } } }),
+    partnerEntries.createIndex({ partnerId: 1, at: -1 }),
     errors.createIndex({ tenantId: 1, at: -1 }),
     audits.createIndex({ at: 1 }, { expireAfterSeconds: 365 * 24 * 3600 }),
     tenants.createIndex({ "widget.key": 1 }, { unique: true, partialFilterExpression: { "widget.key": { $type: "string" } } }),
@@ -198,6 +204,35 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async setAnnouncement(a) {
       if (a) await settings.updateOne({ _id: "announcement" }, { $set: { value: a } }, { upsert: true });
       else await settings.deleteOne({ _id: "announcement" });
+    },
+    async findUserByPartnerCode(code) { const d = await users.findOne({ "partner.code": code.toUpperCase() }); return d ? toUser(d) : null; },
+    async listPartners() { return (await users.find({ "partner.code": { $type: "string" } }).sort({ "partner.since": -1 }).limit(1000).toArray()).map(toUser); },
+    async listReferred(partnerId) {
+      const f = partnerId ? { "referredBy.partnerId": partnerId } : { "referredBy.partnerId": { $type: "string" } };
+      return (await users.find(f).sort({ "referredBy.at": -1 }).limit(20_000).toArray()).map(toUser);
+    },
+    async addPartnerEntry(e) {
+      try { await partnerEntries.insertOne({ _id: new ObjectId(), ...e }); return true; }
+      catch (err) { if (isDup(err)) return false; throw err; }
+    },
+    async listPartnerEntries(partnerId, limit) {
+      return (await partnerEntries.find({ partnerId }).sort({ at: -1 }).limit(limit).toArray()).map(({ _id, ...rest }) => ({ id: _id.toHexString(), ...rest }));
+    },
+    async partnerTotals(partnerIds) {
+      const match = partnerIds ? { partnerId: { $in: partnerIds } } : {};
+      const rows = await partnerEntries.aggregate<{ _id: { p: string; k: string }; s: number }>([{ $match: match }, { $group: { _id: { p: "$partnerId", k: "$kind" }, s: { $sum: "$amountAzn" } } }]).toArray();
+      const out: Record<string, { earned: number; adjust: number; paidOut: number; balance: number }> = {};
+      for (const r of rows) {
+        const t = (out[r._id.p] ??= { earned: 0, adjust: 0, paidOut: 0, balance: 0 });
+        if (r._id.k === "commission") t.earned += r.s; else if (r._id.k === "payout") t.paidOut -= r.s; else t.adjust += r.s;
+        t.balance += r.s;
+      }
+      for (const t of Object.values(out)) { t.earned = round2(t.earned); t.adjust = round2(t.adjust); t.paidOut = round2(t.paidOut); t.balance = round2(t.balance); }
+      return out;
+    },
+    async partnerTotalsByCustomer(partnerId) {
+      const rows = await partnerEntries.aggregate<{ _id: string; base: number; earned: number }>([{ $match: { partnerId, kind: "commission" } }, { $group: { _id: "$customerId", base: { $sum: "$baseAzn" }, earned: { $sum: "$amountAzn" } } }]).toArray();
+      return Object.fromEntries(rows.map((r) => [r._id, { base: round2(r.base), earned: round2(r.earned) }]));
     },
     async getSetting(key) { const d = await settings.findOne({ _id: key }); return (d?.value as never) ?? null; },
     async setSetting(key, value) {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery, type PartnerEntry } from "./types.js";
 
 /** Test və DB-siz sınaq üçün. Proses bitəndə məlumat itir. */
 export function createMemoryStore(): Store {
@@ -17,6 +17,8 @@ export function createMemoryStore(): Store {
   const audit: AuditRecord[] = [];
   let announcement: Announcement | null = null;
   const settings = new Map<string, unknown>();
+  const partnerEntries: PartnerEntry[] = [];
+  const round2 = (n: number) => Math.round(n * 100) / 100;
   const userMatch = (u: User, q: UserQuery) =>
     (!q.ids || q.ids.includes(u.id)) &&
     (!q.search || u.email.toLowerCase().includes(q.search.text.toLowerCase()) || q.search.ids.includes(u.id)) &&
@@ -146,6 +148,35 @@ export function createMemoryStore(): Store {
     async listAudit(limit) { return audit.slice(-limit).reverse(); },
     async getAnnouncement() { return announcement; },
     async setAnnouncement(a) { announcement = a; },
+    async findUserByPartnerCode(code) { return [...users.values()].find((u) => u.partner?.code === code.toUpperCase()) ?? null; },
+    async listPartners() { return [...users.values()].filter((u) => u.partner?.code); },
+    async listReferred(partnerId) { return [...users.values()].filter((u) => u.referredBy && (!partnerId || u.referredBy.partnerId === partnerId)); },
+    async addPartnerEntry(e) {
+      if (e.sourceRef && partnerEntries.some((x) => x.sourceRef === e.sourceRef)) return false;
+      partnerEntries.push({ id: randomUUID(), ...e });
+      return true;
+    },
+    async listPartnerEntries(partnerId, limit) { return partnerEntries.filter((x) => x.partnerId === partnerId).sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, limit); },
+    async partnerTotals(partnerIds) {
+      const out: Record<string, { earned: number; adjust: number; paidOut: number; balance: number }> = {};
+      for (const e of partnerEntries) {
+        if (partnerIds && !partnerIds.includes(e.partnerId)) continue;
+        const t = (out[e.partnerId] ??= { earned: 0, adjust: 0, paidOut: 0, balance: 0 });
+        if (e.kind === "commission") t.earned += e.amountAzn; else if (e.kind === "payout") t.paidOut -= e.amountAzn; else t.adjust += e.amountAzn;
+        t.balance += e.amountAzn;
+      }
+      for (const t of Object.values(out)) { t.earned = round2(t.earned); t.adjust = round2(t.adjust); t.paidOut = round2(t.paidOut); t.balance = round2(t.balance); }
+      return out;
+    },
+    async partnerTotalsByCustomer(partnerId) {
+      const out: Record<string, { base: number; earned: number }> = {};
+      for (const e of partnerEntries) {
+        if (e.partnerId !== partnerId || e.kind !== "commission" || !e.customerId) continue;
+        const t = (out[e.customerId] ??= { base: 0, earned: 0 });
+        t.base = round2(t.base + (e.baseAzn ?? 0)); t.earned = round2(t.earned + e.amountAzn);
+      }
+      return out;
+    },
     async getSetting(key) { return (structuredClone(settings.get(key)) as never) ?? null; },
     async setSetting(key, value) { if (value === null || value === undefined) settings.delete(key); else settings.set(key, structuredClone(value)); },
     async pageUsers(q) { const all = [...users.values()].filter((u) => userMatch(u, q)).sort(byNewest); return { items: all.slice(q.skip, q.skip + q.limit), total: all.length }; },

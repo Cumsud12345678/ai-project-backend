@@ -62,7 +62,8 @@ export type AiClient = {
   kbDeleteLead(tenantId: string, id: string): Promise<AiResult>;
   billing(tenantId: string, admin?: boolean): Promise<AiResult>;
   billingTopupRequest(tenantId: string, amountAzn: number): Promise<AiResult>;
-  billingTopup(tenantId: string, body: { amountAzn: number; note?: string; by?: string }): Promise<AiResult>;
+  /** ref: təkrar-qoruma açarı (eyni ref ikinci dəfə pul əlavə etmir) */
+  billingTopup(tenantId: string, body: { amountAzn: number; note?: string; by?: string; ref?: string }): Promise<AiResult>;
   billingSettings(tenantId: string, body: { markup?: number | null; creditLimitAzn?: number; dailyLimitAzn?: number | null }): Promise<AiResult>;
   billingRequests(status: string): Promise<AiResult>;
   billingResolve(requestId: string, action: "approve" | "reject", by: string): Promise<AiResult>;

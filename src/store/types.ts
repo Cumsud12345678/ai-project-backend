@@ -5,7 +5,22 @@ export type LeadForward = { telegram?: { chatId: string; title: string } | null;
 export type TgNotify = { chatId: string; name: string; at: Date };
 /** İki addımlı giriş (TOTP, Google Authenticator və s.). Sirr CHANNEL_SECRET_KEY ilə şifrəlidir; ehtiyat kodlar yalnız hash kimi saxlanır. `lastStep`: son qəbul olunan kodun 30 saniyəlik addımı (eyni kod iki dəfə işləmir). */
 export type TwoFactor = { secretEnc: string; enabledAt: Date; backupHashes: string[]; lastStep?: number };
-export type User = { id: string; email: string; passwordHash: string; verified: boolean; createdAt: Date; role?: Role; tgNotify?: TgNotify | null; totp?: TwoFactor | null; /** quraşdırma başlanıb, hələ kodla təsdiqlənməyib */ totpPending?: { secretEnc: string; at: Date } | null };
+/** Partnyor (yalnız admin təyin edir): kodu ilə gələn müştərilərin ödənişlərindən `rate` faiz qazanır. */
+export type PartnerInfo = { code: string; /** faiz, məs. 15 = 15% */ rate: number; active: boolean; since: Date; note?: string };
+/**
+ * Müştəri hansı partnyorla gəlib. `at`: komissiya pəncərəsinin başlanğıcı (bu tarixdən N ay ərzindəki ödənişlər sayılır).
+ * `source`: link/code = qeydiyyatda (yeni müştəri bonusu verilir), admin = sonradan əl ilə bağlanıb (bonus yoxdur).
+ * `bonusAt`: ilk ödəniş bonusu verilibsə.
+ */
+export type ReferralInfo = { partnerId: string; code: string; at: Date; source: "link" | "code" | "admin"; bonusAt?: Date | null };
+/** Partnyor balansındakı hərəkət. commission: avtomatik (ödənişdən); adjust: admin əl ilə ±; payout: admin ödəyib (mənfi). */
+export type PartnerEntry = {
+  id: string; partnerId: string; kind: "commission" | "adjust" | "payout"; amountAzn: number; at: Date;
+  /** commission: AI servisindəki ödəniş qeydinin ID-si (təkrar yazılmır) */
+  sourceRef?: string; tenantId?: string; customerId?: string; baseAzn?: number; rate?: number;
+  note?: string; by?: string;
+};
+export type User = { id: string; email: string; passwordHash: string; verified: boolean; createdAt: Date; role?: Role; tgNotify?: TgNotify | null; totp?: TwoFactor | null; /** quraşdırma başlanıb, hələ kodla təsdiqlənməyib */ totpPending?: { secretEnc: string; at: Date } | null; partner?: PartnerInfo | null; referredBy?: ReferralInfo | null };
 /** `createdAt`: admin sessiyasının qısa ömrünü (ADMIN_SESSION_HOURS) yoxlamaq üçün. Köhnə sessiyalarda yoxdur. */
 export type Session = { tokenHash: string; userId: string; expiresAt: Date; createdAt?: Date };
 /** "2fa": parol düzgündür, iki addımlı kod gözlənilir (kod əvəzinə qısa ömürlü bilet saxlanır). */
@@ -150,7 +165,7 @@ export interface Store {
   findUserByEmail(email: string): Promise<User | null>;
   findUserById(id: string): Promise<User | null>;
   createUser(u: { email: string; passwordHash: string }): Promise<User>;
-  updateUser(id: string, patch: Partial<Pick<User, "passwordHash" | "verified" | "role" | "tgNotify" | "totp" | "totpPending">>): Promise<void>;
+  updateUser(id: string, patch: Partial<Pick<User, "passwordHash" | "verified" | "role" | "tgNotify" | "totp" | "totpPending" | "partner" | "referredBy">>): Promise<void>;
   listUsers(limit: number): Promise<User[]>;
   deleteUser(id: string): Promise<void>;
 
@@ -222,6 +237,20 @@ export interface Store {
 
   getAnnouncement(): Promise<Announcement | null>;
   setAnnouncement(a: Announcement | null): Promise<void>;
+
+  // ---- Partnyor proqramı ----
+  /** Kod böyük hərflə saxlanır */
+  findUserByPartnerCode(code: string): Promise<User | null>;
+  listPartners(): Promise<User[]>;
+  /** partnerId verilibsə yalnız onun gətirdikləri */
+  listReferred(partnerId?: string): Promise<User[]>;
+  /** false: eyni sourceRef artıq var (komissiya təkrar yazılmır) */
+  addPartnerEntry(e: Omit<PartnerEntry, "id">): Promise<boolean>;
+  listPartnerEntries(partnerId: string, limit: number): Promise<PartnerEntry[]>;
+  /** Partnyor üzrə cəmlər (AZN): earned = komissiya, adjust = əl ilə ±, paidOut = ödənilən (müsbət ədəd), balance = hamısının cəmi */
+  partnerTotals(partnerIds?: string[]): Promise<Record<string, { earned: number; adjust: number; paidOut: number; balance: number }>>;
+  /** Müştəri üzrə partnyora yazılan komissiya və onun əsası (ödəniş) */
+  partnerTotalsByCustomer(partnerId: string): Promise<Record<string, { base: number; earned: number }>>;
 
   // ---- Admin: böyük siyahılar (səhifələmə, bazada sayma) və ümumi ayarlar ----
   /** Ümumi ayar (məs. "admin_alerts"). null = sil. */
