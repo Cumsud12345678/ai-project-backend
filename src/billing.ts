@@ -2,6 +2,7 @@
 import type { Deps } from "./deps.js";
 import { HttpError } from "./http.js";
 import type { TenantRecord } from "./store/types.js";
+import { alertDailyLimit, alertTopupRequest } from "./alerts.js";
 
 export function parseAmount(v: unknown, { allowNegative = false } = {}): number {
   const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v.replace(",", ".")) : NaN;
@@ -25,11 +26,17 @@ export function notifyBalance(deps: Deps, t: TenantRecord, kind: "low" | "empty"
   return mailOwner(deps, t, `Balans bitdi: ${t.businessName}`, `Çat balansı bitdi və ziyarətçilərə cavab vermir (əvəzinə əlaqə forması göstərilir). Balans yüklənən kimi çat avtomatik davam edir.\n\n${panel}`);
 }
 
-export async function notifyTopupRequest(deps: Deps, t: TenantRecord, amountAzn: number) {
-  for (const to of deps.config.adminEmails) {
-    try { await deps.mailer.send(to, `Balans yükləmə sorğusu: ${t.businessName}`, `${t.businessName} (${t.domain}) ${fmt(amountAzn)} yükləmək istəyir.\n\nÖdəniş alınandan sonra admin panelində sorğunu təsdiqlə.`); }
-    catch (e) { console.warn("[billing] admin bildirişi göndərilmədi:", e instanceof Error ? e.message : e); }
-  }
+/** Yeni yükləmə sorğusu: adminlərə xəbərdarlıq (Telegram və/və ya e-poçt, admin → Ayarlar). */
+export async function notifyTopupRequest(deps: Deps, t: TenantRecord, amountAzn: number, requestId = `${t.tenantId}:${Date.now()}`) {
+  await alertTopupRequest(deps, t, amountAzn, requestId);
+}
+
+/** Müştəri gündəlik xərc limitinə çatdı: sahibə gündə bir dəfə e-poçt, adminə xəbərdarlıq. */
+export async function notifyDailyLimit(deps: Deps, t: TenantRecord) {
+  const day = new Date().toISOString().slice(0, 10);
+  if (!deps.limiter.hit(`dlimit:${t.tenantId}:${day}`, 1, 24 * 60 * 60_000)) return;
+  await mailOwner(deps, t, `Gündəlik limitə çatıldı: ${t.businessName}`, `Çat bu gün üçün təyin olunmuş xərc limitinə çatdı və sabaha qədər ziyarətçilərə cavab vermir (əvəzinə əlaqə forması göstərilir).\n\nQəfil artım gözlənilməzdirsə (məs. bot hücumu), "Sorğular" bölməsinə bax. Limiti dəyişmək üçün dəstəyə yaz.`);
+  await alertDailyLimit(deps, t);
 }
 
 export const notifyTopupDone = (deps: Deps, t: TenantRecord, amountAzn: number, balanceAzn: unknown) =>

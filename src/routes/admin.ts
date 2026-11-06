@@ -6,9 +6,12 @@ import { isAdmin, isOwner } from "../deps.js";
 import { HttpError } from "../http.js";
 import { currentUser, requireAdmin, requireAuth } from "../middleware.js";
 import { notifyTopupDone, parseAmount } from "../billing.js";
+import { ALERT_KINDS, alertLog, getAlertSettings, healthState, saveAlertSettings, sendAlert } from "../alerts.js";
+import { notifyAvailable, notifyBotName, sendNotify, userLinkUrl } from "../operator-notify.js";
 import type { TenantRecord, User } from "../store/types.js";
 import type { ErrorSource } from "../store/types.js";
 
+const LARGE_AZN = 100;
 const SOURCES: ErrorSource[] = ["api", "ai", "mail", "widget", "process", "client", "job", "channel"];
 const RANGE_DAYS: Record<string, number> = { "1d": 1, "7d": 7, "30d": 30 };
 const csvCell = (v: unknown) => {
@@ -25,12 +28,43 @@ export function adminRoutes(deps: Deps) {
   const audit = (res: Parameters<typeof currentUser>[0], action: string, target?: string, detail?: string) =>
     store.addAudit({ actor: currentUser(res).email, action, ...(target ? { target } : {}), ...(detail ? { detail: detail.slice(0, 300) } : {}) }).catch(() => {});
 
-  r.get("/users", async (_req, res) => {
-    const [users, tenants, accounts] = await Promise.all([store.listUsers(500), store.listTenants(1000), ai.billingAccounts().catch(() => null)]);
+  /** Müştəri ID-lərindən ad, domen və sahibin e-poçtu (yalnız lazım olanlar oxunur, bütün baza yox) */
+  const tenantNames = async (tenantIds: string[]) => {
+    const tenants = await store.findTenantsByIds([...new Set(tenantIds)]);
+    const owners = await store.findUsersByIds([...new Set(tenants.map((t) => t.userId))]);
+    const email = new Map(owners.map((u) => [u.id, u.email]));
+    const map = new Map(tenants.map((t) => [t.tenantId, { businessName: t.businessName, domain: t.domain, email: email.get(t.userId) ?? "", suspended: Boolean(t.suspended) }]));
+    return (id: string) => map.get(id) ?? { businessName: "(silinib)", domain: "", email: "", suspended: false };
+  };
+  type Balance = { tenantId: string; totalAzn: number; paidAzn: number; spentAzn: number };
+  const USER_FILTERS = ["all", "tenants", "unverified", "admins", "lowbal", "suspended"] as const;
+
+  // Səhifələnmiş siyahı: axtarış (e-poçt, sayt adı, domen, müştəri ID) və süzgəc bazada işləyir
+  r.get("/users", async (req, res) => {
+    const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 100) : "";
+    const filter = (USER_FILTERS as readonly string[]).includes(String(req.query.filter)) ? String(req.query.filter) as (typeof USER_FILTERS)[number] : "all";
+    const limit = Math.min(100, Math.max(5, Number(req.query.limit) || 25));
+    const page = Math.max(1, Math.floor(Number(req.query.page) || 1));
+    const accounts = await ai.billingAccounts().catch(() => null);
+    const balances = new Map(((accounts?.accounts ?? []) as Balance[]).map((a) => [a.tenantId, a]));
+
+    let ids: string[] | undefined;
+    if (filter === "tenants") ids = await store.tenantUserIds({});
+    else if (filter === "suspended") ids = await store.tenantUserIds({ suspended: true });
+    else if (filter === "lowbal") ids = await store.tenantUserIds({ tenantIds: [...balances.values()].filter((b) => b.totalAzn <= 0).map((b) => b.tenantId) });
+    const search = q ? { text: q, ids: await store.tenantUserIds({ text: q }) } : undefined;
+    const base = { ...(ids && { ids }), ...(search && { search }), ...(filter === "unverified" && { verified: false }), ...(filter === "admins" && { admins: config.adminEmails }) };
+
+    const [{ items, total }, counts] = await Promise.all([
+      store.pageUsers({ ...base, skip: (page - 1) * limit, limit }),
+      Promise.all([store.countUsers(), store.tenantStats(new Date(0)), store.countUsers({ verified: true }), store.countUsers({ verified: false })]),
+    ]);
+    const tenants = await store.findTenantsByUserIds(items.map((u) => u.id));
     const byUser = new Map(tenants.map((t) => [t.userId, t]));
-    const balances = new Map(((accounts?.accounts ?? []) as { tenantId: string; totalAzn: number; paidAzn: number; spentAzn: number }[]).map((a) => [a.tenantId, a]));
     res.json({
-      users: users.map((u) => {
+      total, page, limit, pages: Math.max(1, Math.ceil(total / limit)),
+      counts: { users: counts[0], tenants: counts[1].total, verified: counts[2], unverified: counts[3] },
+      users: items.map((u) => {
         const t = byUser.get(u.id);
         return {
           id: u.id, email: u.email, verified: u.verified, isAdmin: isAdmin(config, u), isOwner: isOwner(config, u), createdAt: u.createdAt, twoFactor: Boolean(u.totp),
@@ -47,13 +81,10 @@ export function adminRoutes(deps: Deps) {
 
   // Bütün müştərilər üzrə ümumi token/sorğu statistikası (gündəlik, aylıq, müştəri üzrə)
   r.get("/usage", async (_req, res) => {
-    const [summary, tenants] = await Promise.all([ai.usageSummary(), store.listTenants(1000)]);
-    const names = new Map(tenants.map((t) => [t.tenantId, t]));
+    const summary = await ai.usageSummary();
     const rows = (summary.tenants ?? []) as { tenantId: string; requests: number; tokens: number }[];
-    res.json({
-      ...summary,
-      tenants: rows.map((x) => ({ ...x, businessName: names.get(x.tenantId)?.businessName ?? "(silinib)", domain: names.get(x.tenantId)?.domain ?? "" })),
-    });
+    const name = await tenantNames(rows.map((x) => x.tenantId));
+    res.json({ ...summary, tenants: rows.map((x) => ({ ...x, businessName: name(x.tenantId).businessName, domain: name(x.tenantId).domain })) });
   });
 
   r.get("/tenants/:tenantId/usage", async (req, res) => {
@@ -72,10 +103,10 @@ export function adminRoutes(deps: Deps) {
   const tenantInfo = async (tenantId: string) => store.findTenantById(tenantId);
   r.get("/billing/requests", async (req, res) => {
     const status = ["pending", "approved", "rejected"].includes(String(req.query.status)) ? String(req.query.status) : "pending";
-    const [out, tenants, users] = await Promise.all([ai.billingRequests(status), store.listTenants(1000), store.listUsers(1000)]);
-    const tmap = new Map(tenants.map((t) => [t.tenantId, t]));
-    const umap = new Map(users.map((u) => [u.id, u.email]));
-    res.json({ requests: ((out.requests ?? []) as { tenantId: string }[]).map((x) => { const t = tmap.get(x.tenantId); return { ...x, businessName: t?.businessName ?? "(silinib)", domain: t?.domain ?? "", email: t ? umap.get(t.userId) ?? "" : "" }; }) });
+    const out = await ai.billingRequests(status);
+    const rows = (out.requests ?? []) as { tenantId: string }[];
+    const name = await tenantNames(rows.map((x) => x.tenantId));
+    res.json({ requests: rows.map((x) => { const n = name(x.tenantId); return { ...x, businessName: n.businessName, domain: n.domain, email: n.email }; }) });
   });
   r.post("/billing/requests/:id/:action", async (req, res) => {
     const action = req.params.action;
@@ -92,8 +123,10 @@ export function adminRoutes(deps: Deps) {
   r.get("/tenants/:tenantId/billing", async (req, res) => { res.json(await ai.billing(await known(req.params.tenantId), true)); });
   r.post("/tenants/:tenantId/billing/topup", async (req, res) => {
     const tenantId = await known(req.params.tenantId);
-    const b = (req.body ?? {}) as { amountAzn?: unknown; note?: unknown };
+    const b = (req.body ?? {}) as { amountAzn?: unknown; note?: unknown; confirmLarge?: unknown };
     const amount = parseAmount(b.amountAzn, { allowNegative: true });
+    // Səhv rəqəm (artıq sıfır, mənfi işarə) pula başa gəlir: 100 AZN və daha böyük düzəliş ayrıca təsdiq istəyir
+    if (Math.abs(amount) >= LARGE_AZN && b.confirmLarge !== true) throw new HttpError(400, "Böyük məbləğ: təsdiq lazımdır", "CONFIRM_REQUIRED");
     const out = await ai.billingTopup(tenantId, { amountAzn: amount, note: typeof b.note === "string" ? b.note.slice(0, 200) : "", by: currentUser(res).email });
     void audit(res, "billing.topup", tenantId, `${amount} AZN${typeof b.note === "string" && b.note ? ` · ${b.note}` : ""}`);
     console.log(`[admin] ${currentUser(res).email} ${tenantId} balansını dəyişdi: ${amount} AZN`);
@@ -111,11 +144,13 @@ export function adminRoutes(deps: Deps) {
   });
   r.patch("/tenants/:tenantId/billing/settings", async (req, res) => {
     const tenantId = await known(req.params.tenantId);
-    const b = (req.body ?? {}) as { markup?: unknown; creditLimitAzn?: unknown };
-    const patch: { markup?: number | null; creditLimitAzn?: number } = {};
+    const b = (req.body ?? {}) as { markup?: unknown; creditLimitAzn?: unknown; dailyLimitAzn?: unknown };
+    const patch: { markup?: number | null; creditLimitAzn?: number; dailyLimitAzn?: number | null } = {};
     if (b.markup !== undefined) patch.markup = b.markup === null || b.markup === "" ? null : Number(b.markup);
     if (b.creditLimitAzn !== undefined) patch.creditLimitAzn = Number(b.creditLimitAzn);
-    if ((patch.markup !== undefined && patch.markup !== null && !Number.isFinite(patch.markup)) || (patch.creditLimitAzn !== undefined && !Number.isFinite(patch.creditLimitAzn))) throw new HttpError(400, "Dəyər düzgün deyil");
+    // null = ümumi qayda (BILLING_DAILY_LIMIT_AZN), 0 = limitsiz
+    if (b.dailyLimitAzn !== undefined) patch.dailyLimitAzn = b.dailyLimitAzn === null || b.dailyLimitAzn === "" ? null : Number(b.dailyLimitAzn);
+    if ((patch.markup !== undefined && patch.markup !== null && !Number.isFinite(patch.markup)) || (patch.creditLimitAzn !== undefined && !Number.isFinite(patch.creditLimitAzn)) || (patch.dailyLimitAzn != null && !Number.isFinite(patch.dailyLimitAzn))) throw new HttpError(400, "Dəyər düzgün deyil");
     void audit(res, "billing.settings", tenantId, JSON.stringify(patch));
     res.json(await ai.billingSettings(tenantId, patch));
   });
@@ -198,16 +233,10 @@ export function adminRoutes(deps: Deps) {
   // ---- Maliyyə: pul girişi, AI xərci, mənfəət, model və müştəri üzrə ----
   r.get("/finance", async (req, res) => {
     const months = Number(req.query.months) || 6;
-    const [fin, tenants, users] = await Promise.all([ai.billingFinance(months), store.listTenants(5000), store.listUsers(5000)]);
-    const tmap = new Map(tenants.map((t) => [t.tenantId, t]));
-    const umap = new Map(users.map((u) => [u.id, u.email]));
-    res.json({
-      ...fin,
-      tenants: ((fin.tenants ?? []) as { tenantId: string }[]).map((x) => {
-        const t = tmap.get(x.tenantId);
-        return { ...x, businessName: t?.businessName ?? "(silinib)", domain: t?.domain ?? "", email: t ? umap.get(t.userId) ?? "" : "", suspended: Boolean(t?.suspended) };
-      }),
-    });
+    const fin = await ai.billingFinance(months);
+    const rows = (fin.tenants ?? []) as { tenantId: string }[];
+    const name = await tenantNames(rows.map((x) => x.tenantId));
+    res.json({ ...fin, tenants: rows.map((x) => ({ ...x, ...name(x.tenantId) })) });
   });
 
   // İstifadəçini və onun müştərisini (AI servisində də) silir. Geri qaytarmaq olmur.
@@ -252,26 +281,27 @@ export function adminRoutes(deps: Deps) {
   // ---- Ümumi baxış və sistem vəziyyəti ----
   r.get("/overview", async (_req, res) => {
     const day = 86_400_000;
-    const [users, tenants, summary, accounts, pending, errors24, errors7, fin] = await Promise.all([
-      store.listUsers(5000), store.listTenants(5000), ai.usageSummary().catch(() => null), ai.billingAccounts().catch(() => null),
-      ai.billingRequests("pending").catch(() => null), store.countErrors(new Date(Date.now() - day)), store.countErrors(new Date(Date.now() - 7 * day)),
-      ai.billingFinance(1).catch(() => null),
-    ]);
     const now = Date.now();
-    const since = (n: number) => users.filter((u) => now - new Date(u.createdAt).getTime() < n * day).length;
+    const ago = (n: number) => new Date(now - n * day);
+    // Hamısı bazada sayılır: istifadəçi və müştəri siyahıları yaddaşa yüklənmir
+    const [total, verified, admins, last7d, last30d, signupRows, stats, summary, accounts, pending, errors24, errors7, fin, control] = await Promise.all([
+      store.countUsers(), store.countUsers({ verified: true }), store.countUsers({ admins: config.adminEmails }), store.countUsers({ since: ago(7) }), store.countUsers({ since: ago(30) }),
+      store.signupsByDay(ago(30)), store.tenantStats(ago(7)),
+      ai.usageSummary().catch(() => null), ai.billingAccounts().catch(() => null),
+      ai.billingRequests("pending").catch(() => null), store.countErrors(ago(1)), store.countErrors(ago(7)),
+      ai.billingFinance(1).catch(() => null), ai.aiControl().catch(() => null),
+    ]);
+    const byDay = new Map(signupRows.map((r) => [r.date, r.users]));
     const series: { date: string; users: number }[] = [];
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(now - i * day); const key = d.toISOString().slice(0, 10);
-      series.push({ date: key, users: users.filter((u) => new Date(u.createdAt).toISOString().slice(0, 10) === key).length });
-    }
-    const modes: Record<string, number> = {};
-    for (const t of tenants) { const m = modeOf(t.config); modes[m] = (modes[m] ?? 0) + 1; }
-    const bal = new Map(((accounts?.accounts ?? []) as { tenantId: string; totalAzn: number; spentAzn: number; paidAzn: number }[]).map((a) => [a.tenantId, a]));
-    const names = new Map(tenants.map((t) => [t.tenantId, t]));
-    const top = ((summary?.tenants ?? []) as { tenantId: string; requests: number; tokens: number }[]).slice(0, 5).map((x) => ({ ...x, businessName: names.get(x.tenantId)?.businessName ?? "(silinib)" }));
+    for (let i = 29; i >= 0; i--) { const key = ago(i).toISOString().slice(0, 10); series.push({ date: key, users: byDay.get(key) ?? 0 }); }
+    const bal = (accounts?.accounts ?? []) as Balance[];
+    const topRows = ((summary?.tenants ?? []) as { tenantId: string; requests: number; tokens: number }[]).slice(0, 5);
+    const name = await tenantNames(topRows.map((x) => x.tenantId));
+    const top = topRows.map((x) => ({ ...x, businessName: name(x.tenantId).businessName }));
     res.json({
-      users: { total: users.length, verified: users.filter((u) => u.verified).length, admins: users.filter((u) => isAdmin(config, u)).length, last7d: since(7), last30d: since(30) },
-      tenants: { total: tenants.length, modes, suspended: tenants.filter((t) => t.suspended).length, widgetActive7d: tenants.filter((t) => t.widget?.lastSeenAt && now - new Date(t.widget.lastSeenAt).getTime() < 7 * day).length, emptyBalance: tenants.filter((t) => { const b = bal.get(t.tenantId); return b && b.totalAzn <= 0; }).length },
+      users: { total, verified, admins, last7d, last30d },
+      tenants: { total: stats.total, modes: stats.modes, suspended: stats.suspended, widgetActive7d: stats.widgetActive, emptyBalance: bal.filter((b) => b.totalAzn <= 0).length },
+      aiControl: control,
       usage: summary ? { today: summary.today, thisMonth: summary.thisMonth, lastMonth: summary.lastMonth } : null,
       pendingTopups: ((pending?.requests ?? []) as unknown[]).length,
       // Əvvəllər burada qalan ödənişli balansların cəmi göstərilirdi (müştəri xərclədikcə azalırdı). İndi: balansa daxil olan real pul.
@@ -286,7 +316,7 @@ export function adminRoutes(deps: Deps) {
 
   r.get("/health", async (_req, res) => {
     const time = async (fn: () => Promise<unknown>) => { const t0 = Date.now(); try { await fn(); return { ok: true, ms: Date.now() - t0 }; } catch (e) { return { ok: false, ms: Date.now() - t0, error: e instanceof Error ? e.message.slice(0, 120) : "xəta" }; } };
-    const [db, aiSvc] = await Promise.all([time(() => store.listUsers(1)), time(() => ai.usageSummary())]);
+    const [db, aiSvc] = await Promise.all([time(() => store.countUsers({ ids: [] })), time(() => ai.ping())]);
     const mem = process.memoryUsage();
     res.json({
       database: db, ai: aiSvc,
@@ -296,7 +326,15 @@ export function adminRoutes(deps: Deps) {
   });
 
   // ---- Audit jurnalı ----
-  r.get("/audit", async (_req, res) => { res.json({ items: await store.listAudit(200) }); });
+  // Süzgəc: actor (kim), action (əməliyyat növü, prefiks: "billing", "user.role"), q (hədəf/təfərrüat); before ilə səhifələmə
+  r.get("/audit", async (req, res) => {
+    const str = (v: unknown, n = 80) => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : undefined);
+    const beforeRaw = str(req.query.before, 40);
+    const before = beforeRaw && !Number.isNaN(new Date(beforeRaw).getTime()) ? new Date(beforeRaw) : undefined;
+    const limit = Math.min(200, Math.max(10, Number(req.query.limit) || 50));
+    const items = await store.queryAudit({ actor: str(req.query.actor), action: str(req.query.action, 40), text: str(req.query.q), before, limit: limit + 1 });
+    res.json({ items: items.slice(0, limit), nextBefore: items.length > limit ? items[limit - 1]!.at : null });
+  });
 
   // ---- Elan: bütün müştərilərin panelində yuxarıda göstərilir ----
   r.get("/announcement", async (_req, res) => { res.json({ announcement: await store.getAnnouncement() }); });
@@ -314,12 +352,161 @@ export function adminRoutes(deps: Deps) {
 
   // ---- İstifadəçi siyahısı CSV (Excel-də formul inyeksiyasına qarşı qorunur) ----
   r.get("/users.csv", async (_req, res) => {
-    const [users, tenants] = await Promise.all([store.listUsers(5000), store.listTenants(5000)]);
+    const users = (await store.pageUsers({ skip: 0, limit: 50_000 })).items;
+    const tenants = await store.findTenantsByUserIds(users.map((u) => u.id));
     const byUser = new Map(tenants.map((t) => [t.userId, t]));
     const lines = [["email", "verified", "admin", "createdAt", "business", "domain", "mode"].join(",")];
     for (const u of users) { const t = byUser.get(u.id); lines.push([u.email, u.verified, isAdmin(config, u), new Date(u.createdAt).toISOString(), t?.businessName, t?.domain, t ? modeOf(t.config) : ""].map(csvCell).join(",")); }
     void audit(res, "users.export", undefined, `${users.length} sətir`);
     res.set({ "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="users.csv"' }).send("\uFEFF" + lines.join("\n"));
+  });
+
+  // ---- Ödənişlər: yükləmə sorğuları və balans hərəkətləri (bütün müştərilər) ----
+  const day = (v: unknown, endOfDay = false) => {
+    if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return undefined;
+    const d = new Date(`${v}T00:00:00.000Z`);
+    if (Number.isNaN(d.getTime())) return undefined;
+    return new Date(d.getTime() + (endOfDay ? 86_400_000 : 0)).toISOString();
+  };
+  /** Süzgəclər: from/to (YYYY-MM-DD, daxil), tenant (müştəri ID, ad və ya domen), before (səhifələmə), limit */
+  async function payQuery(q: Record<string, unknown>, extra: Record<string, string> = {}) {
+    const out: Record<string, string> = { ...extra };
+    const from = day(q.from), to = day(q.to, true);
+    if (from) out.since = from;
+    if (to) out.until = to;
+    if (typeof q.before === "string" && !Number.isNaN(new Date(q.before).getTime())) out.before = new Date(q.before).toISOString();
+    out.limit = String(Math.min(200, Math.max(10, Number(q.limit) || 50)));
+    let tenant: { tenantId: string; businessName: string; domain: string } | null = null;
+    const text = typeof q.tenant === "string" ? q.tenant.trim().slice(0, 100) : "";
+    if (text) {
+      const found = await store.searchTenants(text, 5);
+      if (!found.length) return { query: null, tenant: null, matches: [] };
+      tenant = { tenantId: found[0]!.tenantId, businessName: found[0]!.businessName, domain: found[0]!.domain };
+      out.tenantId = tenant.tenantId;
+      return { query: out, tenant, matches: found.map((t) => ({ tenantId: t.tenantId, businessName: t.businessName, domain: t.domain })) };
+    }
+    return { query: out, tenant, matches: [] };
+  }
+  r.get("/payments/requests", async (req, res) => {
+    const status = ["pending", "approved", "rejected"].includes(String(req.query.status)) ? String(req.query.status) : "all";
+    const p = await payQuery(req.query, { status });
+    if (!p.query) return void res.json({ requests: [], nextBefore: null, tenant: null, matches: [] });
+    const out = await ai.billingRequestsQuery(p.query);
+    const rows = (out.requests ?? []) as { tenantId: string }[];
+    const name = await tenantNames(rows.map((x) => x.tenantId));
+    res.json({ requests: rows.map((x) => ({ ...x, ...name(x.tenantId) })), nextBefore: out.nextBefore ?? null, tenant: p.tenant, matches: p.matches });
+  });
+  r.get("/payments/ledger", async (req, res) => {
+    const kind = ["payment", "manual", "adjust"].includes(String(req.query.kind)) ? { kind: String(req.query.kind) } : ({} as Record<string, string>);
+    const p = await payQuery(req.query, kind);
+    if (!p.query) return void res.json({ entries: [], nextBefore: null, tenant: null, matches: [], totals: null });
+    const out = await ai.billingLedger(p.query);
+    const rows = (out.entries ?? []) as { tenantId: string; amountAzn: number; kind: string }[];
+    const name = await tenantNames(rows.map((x) => x.tenantId));
+    res.json({ entries: rows.map((x) => ({ ...x, ...name(x.tenantId) })), nextBefore: out.nextBefore ?? null, tenant: p.tenant, matches: p.matches });
+  });
+  // CSV: eyni süzgəclə, ən çox 20 000 sətir (səhifə-səhifə oxunur)
+  r.get("/payments/ledger.csv", async (req, res) => {
+    const kind = ["payment", "manual", "adjust"].includes(String(req.query.kind)) ? { kind: String(req.query.kind) } : ({} as Record<string, string>);
+    const p = await payQuery({ ...req.query, limit: 200, before: undefined }, kind);
+    const rows: { id: string; tenantId: string; at: string; kind: string; amountAzn: number; note: string; by: string }[] = [];
+    let before: string | undefined;
+    while (p.query && rows.length < 20_000) {
+      const out = await ai.billingLedger({ ...p.query, ...(before && { before }) });
+      rows.push(...((out.entries ?? []) as typeof rows));
+      if (!out.nextBefore) break;
+      before = String(out.nextBefore);
+    }
+    const name = await tenantNames(rows.map((x) => x.tenantId));
+    const kindLabel: Record<string, string> = { payment: "ödəniş", manual: "əl ilə", adjust: "düzəliş" };
+    const lines = [["tarix", "növ", "məbləğ_azn", "müştəri", "domen", "e-poçt", "müştəri_id", "qeyd", "kim"].join(",")];
+    for (const x of rows) { const n = name(x.tenantId); lines.push([x.at, kindLabel[x.kind] ?? x.kind, x.amountAzn.toFixed(2), n.businessName, n.domain, n.email, x.tenantId, x.note, x.by].map(csvCell).join(",")); }
+    void audit(res, "payments.export", p.tenant?.tenantId, `${rows.length} sətir`);
+    res.set({ "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="odenisler.csv"' }).send("\uFEFF" + lines.join("\n"));
+  });
+
+  // ---- Kanallar: bütün müştərilər üzrə Telegram və WhatsApp vəziyyəti ----
+  r.get("/channels", async (_req, res) => {
+    const since = new Date(Date.now() - 86_400_000);
+    const [tenants, activity, errs] = await Promise.all([store.listChannelTenants(), store.lastChannelActivity(), store.countErrorsByTenant(since, "channel")]);
+    const owners = await store.findUsersByIds([...new Set(tenants.map((t) => t.userId))]);
+    const email = new Map(owners.map((u) => [u.id, u.email]));
+    const lastAt = new Map(activity.map((a) => [`${a.tenantId}|${a.channel}`, a.at]));
+    const stale = Date.now() - 7 * 86_400_000;
+    const rows = tenants.map((t) => {
+      const wa = t.whatsapp ? deps.whatsapp.view(t, config.secretKey) : null;
+      const waLast = lastAt.get(`${t.tenantId}|whatsapp`) ?? null, tgLast = lastAt.get(`${t.tenantId}|telegram`) ?? null;
+      const problems: string[] = [];
+      if (t.whatsapp?.enabled && wa && wa.state !== "open") problems.push(wa.state === "connecting" ? "wa_connecting" : "wa_down");
+      if ((errs[t.tenantId] ?? 0) >= 5) problems.push("errors");
+      if (t.suspended) problems.push("suspended");
+      return {
+        tenantId: t.tenantId, businessName: t.businessName, domain: t.domain, email: email.get(t.userId) ?? "",
+        telegram: t.telegram ? { enabled: t.telegram.enabled, bot: t.telegram.botUsername, connectedAt: t.telegram.connectedAt, lastAt: tgLast, idle: !tgLast || new Date(tgLast).getTime() < stale } : null,
+        whatsapp: t.whatsapp ? { enabled: t.whatsapp.enabled, phone: t.whatsapp.phone ? `${t.whatsapp.phone.slice(0, 5)}•••${t.whatsapp.phone.slice(-2)}` : null, connectedAt: t.whatsapp.connectedAt, state: wa?.state ?? "off", error: wa?.error ?? null, lastAt: waLast, idle: !waLast || new Date(waLast).getTime() < stale } : null,
+        errors24h: errs[t.tenantId] ?? 0, problems,
+      };
+    }).sort((a, b) => b.problems.length - a.problems.length || b.errors24h - a.errors24h);
+    res.json({
+      rows,
+      summary: {
+        telegram: rows.filter((x) => x.telegram).length, whatsapp: rows.filter((x) => x.whatsapp).length,
+        waOpen: rows.filter((x) => x.whatsapp?.state === "open").length, problems: rows.filter((x) => x.problems.some((p) => p !== "suspended")).length,
+        waCapacity: { used: deps.whatsapp.size(), max: 100 },
+      },
+    });
+  });
+
+  // ---- Xəbərdarlıqlar (admin → Ayarlar) ----
+  const alertView = async (res: Parameters<typeof currentUser>[0]) => {
+    const me = (await store.findUserById(currentUser(res).id)) ?? currentUser(res);
+    const admins = await store.listAdmins(config.adminEmails);
+    return {
+      settings: await getAlertSettings(deps), kinds: ALERT_KINDS,
+      telegram: { available: notifyAvailable(deps), bot: notifyBotName(), me: me.tgNotify ? { name: me.tgNotify.name, at: me.tgNotify.at } : null },
+      recipients: admins.filter((u) => u.verified).map((u) => ({ email: u.email, telegram: Boolean(u.tgNotify) })),
+      mailConfigured: Boolean(config.resendApiKey) || !config.isProd,
+      health: healthState(), log: alertLog().slice(0, 20),
+    };
+  };
+  r.get("/alerts", async (_req, res) => { res.json(await alertView(res)); });
+  r.put("/alerts", async (req, res) => {
+    const s = await saveAlertSettings(deps, req.body);
+    void audit(res, "alerts.settings", undefined, JSON.stringify(s));
+    res.json(await alertView(res));
+  });
+  r.post("/alerts/telegram", async (_req, res) => {
+    if (!notifyAvailable(deps)) throw new HttpError(503, "Telegram bildirişləri serverdə qoşulmayıb (NOTIFY_TELEGRAM_TOKEN)", "NOTIFY_OFF");
+    if (!deps.limiter.hit(`notify:code:${currentUser(res).id}`, 10, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez sorğu", "RATE_LIMITED");
+    res.json(userLinkUrl(currentUser(res).id));
+  });
+  r.delete("/alerts/telegram", async (_req, res) => {
+    const me = (await store.findUserById(currentUser(res).id))!;
+    if (me.tgNotify && notifyAvailable(deps)) await sendNotify(deps, me.tgNotify.chatId, "Bildirişlər ayrıldı.");
+    await store.updateUser(me.id, { tgNotify: null });
+    res.json(await alertView(res));
+  });
+  r.post("/alerts/test", async (_req, res) => {
+    const me = (await store.findUserById(currentUser(res).id))!;
+    if (!deps.limiter.hit(`alerts:test:${me.id}`, 5, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez sorğu", "RATE_LIMITED");
+    const out = await sendAlert(deps, "test", me.id, "Sınaq bildirişi", `Bu, ${me.email} üçün sınaq bildirişidir. Xəbərdarlıqlar belə görünəcək.`, { force: true, only: [me] });
+    res.json(out);
+  });
+
+  // ---- Ümumi AI açarı: bütün müştərilər üçün AI sorğularını dayandırır (məs. provayder problemi, xərc partlayışı) ----
+  r.get("/ai-control", async (_req, res) => { res.json(await ai.aiControl()); });
+  r.put("/ai-control", async (req, res) => {
+    const b = (req.body ?? {}) as { paused?: unknown; reason?: unknown };
+    if (typeof b.paused !== "boolean") throw new HttpError(400, "paused true/false olmalıdır");
+    const reason = typeof b.reason === "string" ? b.reason.trim().slice(0, 300) : "";
+    if (b.paused && reason.length < 3) throw new HttpError(400, "Səbəbi yaz", "REASON_REQUIRED");
+    const by = currentUser(res).email;
+    const out = await ai.setAiControl({ paused: b.paused, reason, by });
+    void audit(res, b.paused ? "ai.pause" : "ai.resume", undefined, reason);
+    console.log(`[admin] ${by} AI-ı ${b.paused ? "dayandırdı" : "yenidən açdı"}${reason ? `: ${reason}` : ""}`);
+    void sendAlert(deps, "ai", b.paused ? "pause" : "resume", b.paused ? "AI sorğuları dayandırıldı" : "AI sorğuları yenidən açıldı",
+      b.paused ? `${by} bütün müştərilər üçün AI-ı dayandırdı. Səbəb: ${reason}\n\nVidjetlər əlaqə formasını göstərir, kanallar "hazırda cavab vermir" yazır.` : `${by} AI-ı yenidən açdı. Çatlar normal işləyir.`);
+    res.json(out);
   });
 
   return r;

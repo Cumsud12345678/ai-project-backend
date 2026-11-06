@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery } from "./types.js";
 
 /** Test və DB-siz sınaq üçün. Proses bitəndə məlumat itir. */
 export function createMemoryStore(): Store {
@@ -16,6 +16,15 @@ export function createMemoryStore(): Store {
   const waAuth = new Map<string, string>();
   const audit: AuditRecord[] = [];
   let announcement: Announcement | null = null;
+  const settings = new Map<string, unknown>();
+  const userMatch = (u: User, q: UserQuery) =>
+    (!q.ids || q.ids.includes(u.id)) &&
+    (!q.search || u.email.toLowerCase().includes(q.search.text.toLowerCase()) || q.search.ids.includes(u.id)) &&
+    (q.verified === undefined || u.verified === q.verified) &&
+    (!q.admins || u.role === "admin" || q.admins.includes(u.email)) &&
+    (!q.since || u.createdAt >= q.since);
+  const byNewest = (a: User, b: User) => b.createdAt.getTime() - a.createdAt.getTime();
+  const tenantText = (t: TenantRecord, text: string) => t.tenantId === text || t.businessName.toLowerCase().includes(text.toLowerCase()) || t.domain.toLowerCase().includes(text.toLowerCase());
   const ck = (email: string, purpose: CodePurpose) => `${email}|${purpose}`;
 
   return {
@@ -137,6 +146,51 @@ export function createMemoryStore(): Store {
     async listAudit(limit) { return audit.slice(-limit).reverse(); },
     async getAnnouncement() { return announcement; },
     async setAnnouncement(a) { announcement = a; },
+    async getSetting(key) { return (structuredClone(settings.get(key)) as never) ?? null; },
+    async setSetting(key, value) { if (value === null || value === undefined) settings.delete(key); else settings.set(key, structuredClone(value)); },
+    async pageUsers(q) { const all = [...users.values()].filter((u) => userMatch(u, q)).sort(byNewest); return { items: all.slice(q.skip, q.skip + q.limit), total: all.length }; },
+    async countUsers(q = {}) { return [...users.values()].filter((u) => userMatch(u, q)).length; },
+    async signupsByDay(since) {
+      const m = new Map<string, number>();
+      for (const u of users.values()) if (u.createdAt >= since) { const k = u.createdAt.toISOString().slice(0, 10); m.set(k, (m.get(k) ?? 0) + 1); }
+      return [...m].map(([date, n]) => ({ date, users: n }));
+    },
+    async findUsersByIds(ids) { return ids.map((id) => users.get(id)).filter((u): u is User => Boolean(u)); },
+    async listAdmins(ownerEmails) { return [...users.values()].filter((u) => u.role === "admin" || ownerEmails.includes(u.email)); },
+    async findTenantsByIds(ids) { return [...tenants.values()].filter((t) => ids.includes(t.tenantId)); },
+    async findTenantsByUserIds(ids) { return [...tenants.values()].filter((t) => ids.includes(t.userId)); },
+    async tenantUserIds({ text, suspended, tenantIds }) {
+      return [...tenants.values()].filter((t) => (!text || tenantText(t, text)) && (!suspended || Boolean(t.suspended)) && (!tenantIds || tenantIds.includes(t.tenantId))).map((t) => t.userId);
+    },
+    async searchTenants(text, limit) {
+      const exact = tenants.get(text);
+      return exact ? [exact] : [...tenants.values()].filter((t) => tenantText(t, text)).slice(0, limit);
+    },
+    async tenantStats(activeSince) {
+      const all = [...tenants.values()];
+      const modes: Record<string, number> = {};
+      for (const t of all) { const m = (t.config as { profile?: { mode?: string } })?.profile?.mode; const k = m === "support" || m === "both" ? m : "listings"; modes[k] = (modes[k] ?? 0) + 1; }
+      return { total: all.length, suspended: all.filter((t) => t.suspended).length, widgetActive: all.filter((t) => t.widget?.lastSeenAt && new Date(t.widget.lastSeenAt) >= activeSince).length, modes };
+    },
+    async listChannelTenants() { return [...tenants.values()].filter((t) => t.telegram || t.whatsapp); },
+    async lastChannelActivity() {
+      const m = new Map<string, { tenantId: string; channel: ChannelSession["channel"]; at: Date }>();
+      for (const s of sessionsCh.values()) {
+        const k = `${s.tenantId}|${s.channel}`, at = new Date(s.updatedAt);
+        if (!m.has(k) || m.get(k)!.at < at) m.set(k, { tenantId: s.tenantId, channel: s.channel, at });
+      }
+      return [...m.values()];
+    },
+    async countErrorsByTenant(since, source) {
+      const out: Record<string, number> = {};
+      for (const e of errors) if (e.tenantId && e.at >= since && (!source || e.source === source)) out[e.tenantId] = (out[e.tenantId] ?? 0) + 1;
+      return out;
+    },
+    async queryAudit({ actor, action, text, before, limit }) {
+      const lc = (s?: string) => (s ?? "").toLowerCase();
+      return audit.filter((a) => (!actor || lc(a.actor).includes(lc(actor))) && (!action || a.action.startsWith(action)) && (!text || [a.target, a.detail, a.action].some((v) => lc(v).includes(lc(text)))) && (!before || a.at < before))
+        .slice().reverse().slice(0, limit);
+    },
     async close() {},
   };
 }

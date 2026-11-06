@@ -54,7 +54,7 @@ test("yükləmə sorğusu: məbləğ yoxlanır, AI-yə gedir, adminə email gedi
   assert.deepEqual(last("billingTopupRequest"), [t.tenantId, 10]);
   await new Promise((r) => setTimeout(r, 30));
   const mail = mailsTo("boss@example.com").slice(before).at(-1);
-  assert.ok(mail && /Balans yükləmə sorğusu/.test(mail.subject) && /10\.00 AZN/.test(mail.text));
+  assert.ok(mail && /yükləmə sorğusu/i.test(mail.subject) && /10\.00 AZN/.test(mail.text));
 });
 
 test("balans xəbərdarlığı və 402: widget chat sayt sahibinə email göndərir, ziyarətçiyə OFFLINE kodu", async () => {

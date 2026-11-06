@@ -763,7 +763,7 @@ export function tenantRoutes(deps: Deps) {
     const t = await mine(user.id);
     const amount = parseAmount((req.body as { amountAzn?: unknown } | undefined)?.amountAzn);
     const out = await ai.billingTopupRequest(t.tenantId, amount);
-    void notifyTopupRequest(deps, t, amount);
+    void notifyTopupRequest(deps, t, amount, typeof out.request?.id === "string" ? out.request.id : undefined);
     res.status(201).json(out);
   });
 

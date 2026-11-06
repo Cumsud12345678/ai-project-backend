@@ -7,6 +7,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { Router } from "express";
 import type { Deps } from "./deps.js";
+import { isAdmin } from "./deps.js";
 import { hub } from "./hub.js";
 import { HttpError } from "./http.js";
 import { currentUser, requireAuth } from "./middleware.js";
@@ -44,6 +45,15 @@ export async function initNotifyBot(deps: Deps): Promise<void> {
 
 /** Testlər üçün: bot adını əl ilə qoyur. */
 export const __setNotifyBot = (name: string) => { botUsername = name; codes.clear(); groupCodes.clear(); };
+
+/** İstifadəçinin şəxsi Telegram-ını bağlamaq üçün birdəfəlik link (operator bildirişləri və admin xəbərdarlıqları eyni botdan gəlir). */
+export function userLinkUrl(userId: string): { url: string; expiresInS: number } {
+  for (const [k, v] of codes) if (v.exp < Date.now() || v.userId === userId) codes.delete(k);
+  const code = randomBytes(12).toString("base64url");
+  codes.set(code, { userId, exp: Date.now() + CODE_TTL_MS });
+  return { url: `https://t.me/${botUsername}?start=${code}`, expiresInS: CODE_TTL_MS / 1000 };
+}
+export const notifyBotName = () => botUsername || null;
 
 /** Müraciət qrupu üçün link: açılanda Telegram qrup seçdirir, botu əlavə edir və qrupa "/start <kod>" göndərir. */
 export function groupLinkUrl(tenantId: string): { url: string; expiresInS: number } {
@@ -132,7 +142,11 @@ export function notifyWebhook(deps: Deps) {
     if (!c || c.exp < Date.now()) { await send(deps, chatId, "Link köhnəlib. Paneldən yenisini al (link 10 dəqiqə etibarlıdır)."); return; }
     const name = [msg.from?.first_name, msg.from?.username ? `@${msg.from.username}` : ""].filter(Boolean).join(" ").slice(0, 60);
     await deps.store.updateUser(c.userId, { tgNotify: { chatId, name, at: new Date() } });
-    await send(deps, chatId, "✅ Bildirişlər qoşuldu. Saytında yeni canlı söhbət başlayanda, panel bağlı olanda isə ziyarətçi yazanda burada xəbər alacaqsan.\n\nAyırmaq üçün paneldə “Ayır” düyməsini bas.");
+    const linked = await deps.store.findUserById(c.userId);
+    const admin = linked ? isAdmin(deps.config, linked) : false;
+    await send(deps, chatId, admin
+      ? "✅ Bildirişlər qoşuldu. Admin xəbərdarlıqları (xəta artımı, servis əlçatmazlığı, yeni yükləmə sorğusu, kanal problemləri) və öz saytının canlı söhbətləri burada gələcək.\n\nAyırmaq üçün admin paneldə “Ayarlar” bölməsinə bax."
+      : "✅ Bildirişlər qoşuldu. Saytında yeni canlı söhbət başlayanda, panel bağlı olanda isə ziyarətçi yazanda burada xəbər alacaqsan.\n\nAyırmaq üçün paneldə “Ayır” düyməsini bas.");
   });
   return r;
 }
@@ -153,10 +167,7 @@ export function notifyPanelRoutes(deps: Deps) {
     const u = await me(res);
     if (!notifyAvailable(deps)) throw new HttpError(503, "Telegram bildirişləri serverdə qoşulmayıb (NOTIFY_TELEGRAM_TOKEN)", "NOTIFY_OFF");
     if (!deps.limiter.hit(`notify:code:${u.id}`, 10, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez sorğu", "RATE_LIMITED");
-    for (const [k, v] of codes) if (v.exp < Date.now() || v.userId === u.id) codes.delete(k);
-    const code = randomBytes(12).toString("base64url");
-    codes.set(code, { userId: u.id, exp: Date.now() + CODE_TTL_MS });
-    res.json({ url: `https://t.me/${botUsername}?start=${code}`, expiresInS: CODE_TTL_MS / 1000 });
+    res.json(userLinkUrl(u.id));
   });
   r.delete("/notify/telegram", async (_req, res) => {
     const u = await me(res);

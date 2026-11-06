@@ -5,6 +5,7 @@ import QRCode from "qrcode";
 import { MAX_TEXT, clip, dedupe, handleChat } from "../channel-chat.js";
 import type { Deps } from "../deps.js";
 import { recordError } from "../errorlog.js";
+import { alertChannel } from "../alerts.js";
 import { fetchImage } from "../safe-image.js";
 import type { TenantRecord, WhatsAppLink } from "../store/types.js";
 
@@ -77,6 +78,10 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
 
   const fail = (e: Entry, code: string, message: string) => {
     void recordError(e.deps.store, { source: "channel", message: `WhatsApp: ${message}`, tenantId: e.tenantId, code });
+    // Bağlantının özü qırılıbsa (tək mesajın xətası deyil) adminə xəbər: müştəri yenidən QR ilə qoşmalıdır
+    if (code === "WA_REPLACED" || code === "WA_GIVEUP" || code === "WA_START") {
+      void e.deps.store.findTenantById(e.tenantId).then((t) => t && alertChannel(e.deps, e.tenantId, t.businessName, "WhatsApp", e.error ?? message)).catch(() => {});
+    }
   };
 
   async function wipe(e: Entry, logout: boolean) {

@@ -15,7 +15,7 @@ import type { Deps } from "./deps.js";
 import { HttpError } from "./http.js";
 import type { LiveChat, TenantRecord, WidgetImage, WidgetImageKind, WidgetSettings } from "./store/types.js";
 import { cleanContact } from "./kb.js";
-import { notifyBalance } from "./billing.js";
+import { notifyBalance, notifyDailyLimit } from "./billing.js";
 import { hub } from "./hub.js";
 import { beat, takeInvite, type ChatState } from "./presence.js";
 
@@ -325,7 +325,10 @@ export function widgetRoutes(deps: Deps) {
       if (e instanceof AiError) {
         console.warn(`[widget] ${t.tenantId}: ${e.status} ${e.code ?? ""} ${e.message}`);
         // Balans bitib: ziyarətçiyə texniki təfərrüat göstərilmir, çat əlaqə formasına keçir (müraciət itmir)
-        if (e.status === 402) throw new HttpError(503, "Çat hazırda cavab vermir", "OFFLINE");
+        if (e.status === 402) {
+          if (e.code === "DAILY_LIMIT") void notifyDailyLimit(deps, t);
+          throw new HttpError(503, "Çat hazırda cavab vermir", "OFFLINE");
+        }
         throw new HttpError(e.status === 429 || e.status === 503 ? 503 : 502, "Çat hazırda cavab verə bilmir, bir azdan yenidən cəhd et", "UNAVAILABLE");
       }
       throw e;

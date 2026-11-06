@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { MongoClient, MongoServerError, ObjectId, type AnyBulkWriteOperation, type Db } from "mongodb";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery } from "./types.js";
 
 type UserDoc = Omit<User, "id"> & { _id: ObjectId };
 
@@ -11,6 +11,9 @@ const strip = <T extends { _id?: unknown }>(d: T | null): Omit<T, "_id"> | null 
   return rest;
 };
 const isDup = (e: unknown) => e instanceof MongoServerError && e.code === 11000;
+/** İstifadəçinin yazdığı mətn regex-də hərfi axtarılsın (xüsusi simvollar zərərsizləşir) */
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const NO_LOGO = { "widget.logo.data": 0, "widget.avatar.data": 0 } as const;
 
 export async function createMongoStore(uri: string, dbName: string): Promise<Store> {
   const client = new MongoClient(uri);
@@ -58,11 +61,22 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     errors.createIndex({ at: 1 }, { expireAfterSeconds: 30 * 24 * 3600 }), // 30 gün sonra silinir
     errors.createIndex({ fingerprint: 1 }),
     audits.createIndex({ at: -1 }),
+    users.createIndex({ createdAt: -1 }),
+    errors.createIndex({ tenantId: 1, at: -1 }),
     audits.createIndex({ at: 1 }, { expireAfterSeconds: 365 * 24 * 3600 }),
     tenants.createIndex({ "widget.key": 1 }, { unique: true, partialFilterExpression: { "widget.key": { $type: "string" } } }),
   ]);
 
   const oid = (id: string) => (ObjectId.isValid(id) ? new ObjectId(id) : null);
+  const userFilter = (q: UserQuery): Record<string, unknown> => {
+    const and: Record<string, unknown>[] = [];
+    if (q.ids) and.push({ _id: { $in: q.ids.map(oid).filter(Boolean) } });
+    if (q.search) and.push({ $or: [{ email: new RegExp(escapeRe(q.search.text), "i") }, { _id: { $in: q.search.ids.map(oid).filter(Boolean) } }] });
+    if (q.verified !== undefined) and.push({ verified: q.verified });
+    if (q.admins) and.push({ $or: [{ role: "admin" }, { email: { $in: q.admins } }] });
+    if (q.since) and.push({ createdAt: { $gte: q.since } });
+    return and.length ? { $and: and } : {};
+  };
 
   return {
     async findUserByEmail(email) { const d = await users.findOne({ email }); return d ? toUser(d) : null; },
@@ -184,6 +198,71 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async setAnnouncement(a) {
       if (a) await settings.updateOne({ _id: "announcement" }, { $set: { value: a } }, { upsert: true });
       else await settings.deleteOne({ _id: "announcement" });
+    },
+    async getSetting(key) { const d = await settings.findOne({ _id: key }); return (d?.value as never) ?? null; },
+    async setSetting(key, value) {
+      if (value === null || value === undefined) await settings.deleteOne({ _id: key });
+      else await settings.updateOne({ _id: key }, { $set: { value } }, { upsert: true });
+    },
+    async pageUsers(q) {
+      const f = userFilter(q);
+      const [items, total] = await Promise.all([users.find(f).sort({ createdAt: -1 }).skip(q.skip).limit(q.limit).toArray(), users.countDocuments(f)]);
+      return { items: items.map(toUser), total };
+    },
+    async countUsers(q = {}) { return users.countDocuments(userFilter(q)); },
+    async signupsByDay(since) {
+      const rows = await users.aggregate<{ _id: string; n: number }>([{ $match: { createdAt: { $gte: since } } }, { $group: { _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } }, n: { $sum: 1 } } }]).toArray();
+      return rows.map((r) => ({ date: r._id, users: r.n }));
+    },
+    async findUsersByIds(ids) {
+      const oids = ids.map(oid).filter((x): x is ObjectId => Boolean(x));
+      return oids.length ? (await users.find({ _id: { $in: oids } }).toArray()).map(toUser) : [];
+    },
+    async listAdmins(ownerEmails) { return (await users.find({ $or: [{ role: "admin" }, { email: { $in: ownerEmails } }] }).limit(200).toArray()).map(toUser); },
+    async findTenantsByIds(tenantIds) { return tenantIds.length ? (await tenants.find({ tenantId: { $in: tenantIds } }).project(NO_LOGO).toArray()).map((d) => strip(d) as TenantRecord) : []; },
+    async findTenantsByUserIds(userIds) { return userIds.length ? (await tenants.find({ userId: { $in: userIds } }).project(NO_LOGO).toArray()).map((d) => strip(d) as TenantRecord) : []; },
+    async tenantUserIds({ text, suspended, tenantIds }) {
+      const f: Record<string, unknown> = {};
+      if (text) { const re = new RegExp(escapeRe(text), "i"); f.$or = [{ businessName: re }, { domain: re }, { tenantId: text }]; }
+      if (suspended) f.suspended = { $type: "object" };
+      if (tenantIds) f.tenantId = { $in: tenantIds };
+      return (await tenants.find(f).project<{ userId: string }>({ userId: 1, _id: 0 }).limit(50_000).toArray()).map((d) => d.userId);
+    },
+    async searchTenants(text, limit) {
+      const exact = await tenants.findOne({ tenantId: text }, { projection: NO_LOGO });
+      if (exact) return [strip(exact) as TenantRecord];
+      const re = new RegExp(escapeRe(text), "i");
+      return (await tenants.find({ $or: [{ businessName: re }, { domain: re }] }).project(NO_LOGO).limit(limit).toArray()).map((d) => strip(d) as TenantRecord);
+    },
+    async tenantStats(activeSince) {
+      const [total, suspended, widgetActive, modes] = await Promise.all([
+        tenants.countDocuments({}), tenants.countDocuments({ suspended: { $type: "object" } }), tenants.countDocuments({ "widget.lastSeenAt": { $gte: activeSince } }),
+        tenants.aggregate<{ _id: unknown; n: number }>([{ $group: { _id: "$config.profile.mode", n: { $sum: 1 } } }]).toArray(),
+      ]);
+      const m: Record<string, number> = {};
+      for (const r of modes) { const k = r._id === "support" || r._id === "both" ? r._id : "listings"; m[k] = (m[k] ?? 0) + r.n; }
+      return { total, suspended, widgetActive, modes: m };
+    },
+    async listChannelTenants() {
+      return (await tenants.find({ $or: [{ telegram: { $type: "object" } }, { whatsapp: { $type: "object" } }] }).project(NO_LOGO).limit(20_000).toArray()).map((d) => strip(d) as TenantRecord);
+    },
+    async lastChannelActivity() {
+      const rows = await channelSessions.aggregate<{ _id: { t: string; c: ChannelSession["channel"] }; at: Date }>([{ $group: { _id: { t: "$tenantId", c: "$channel" }, at: { $max: "$updatedAt" } } }]).toArray();
+      return rows.map((r) => ({ tenantId: r._id.t, channel: r._id.c, at: r.at }));
+    },
+    async countErrorsByTenant(since, source) {
+      const match: Record<string, unknown> = { at: { $gte: since }, tenantId: { $type: "string" } };
+      if (source) match.source = source;
+      const rows = await errors.aggregate<{ _id: string; n: number }>([{ $match: match }, { $group: { _id: "$tenantId", n: { $sum: 1 } } }]).toArray();
+      return Object.fromEntries(rows.map((r) => [r._id, r.n]));
+    },
+    async queryAudit({ actor, action, text, before, limit }) {
+      const f: Record<string, unknown> = {};
+      if (actor) f.actor = new RegExp(escapeRe(actor), "i");
+      if (action) f.action = new RegExp(`^${escapeRe(action)}`);
+      if (text) { const re = new RegExp(escapeRe(text), "i"); f.$or = [{ target: re }, { detail: re }, { action: re }]; }
+      if (before) f.at = { $lt: before };
+      return (await audits.find(f).sort({ at: -1 }).limit(limit).toArray()).map((d) => strip(d) as AuditRecord);
     },
     async close() { await client.close(); },
   };

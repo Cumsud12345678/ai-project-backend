@@ -2,7 +2,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { sniffImage } from "./safe-image.js";
 import { AiError } from "./ai.js";
-import { notifyBalance } from "./billing.js";
+import { notifyBalance, notifyDailyLimit } from "./billing.js";
 import type { Deps } from "./deps.js";
 import { recordError } from "./errorlog.js";
 import { AUDIO_MAX_SECONDS, checkBufferAudio, imageEnabled, checkBufferImage } from "./image-input.js";
@@ -250,6 +250,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     catch (e) {
       if (e instanceof AiError) {
         if (e.status !== 402) await recordError(store, { source: "channel", message: `${label}: AI cavab vermədi (${e.status}) ${e.message}`, tenantId: tenant.tenantId, code: e.code, status: e.status });
+        else if (e.code === "DAILY_LIMIT") void notifyDailyLimit(deps, tenant);
         await io.send(MSG.offline);
         return;
       }

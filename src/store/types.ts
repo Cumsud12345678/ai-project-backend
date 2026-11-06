@@ -143,6 +143,9 @@ export type Announcement = { text: string; level: "info" | "warn" | "critical"; 
 
 export class DuplicateError extends Error {}
 
+/** Admin istifadəçi siyahısı üçün süzgəc. admins: ADMIN_EMAILS (onlar bazada role="admin" olmaya bilər). */
+export type UserQuery = { ids?: string[]; /** e-poçtda axtarış VƏ YA bu ID-lər (müştəri adı/domeni uyğun gələn sahiblər) */ search?: { text: string; ids: string[] }; verified?: boolean; admins?: string[]; since?: Date };
+
 export interface Store {
   findUserByEmail(email: string): Promise<User | null>;
   findUserById(id: string): Promise<User | null>;
@@ -219,6 +222,34 @@ export interface Store {
 
   getAnnouncement(): Promise<Announcement | null>;
   setAnnouncement(a: Announcement | null): Promise<void>;
+
+  // ---- Admin: böyük siyahılar (səhifələmə, bazada sayma) və ümumi ayarlar ----
+  /** Ümumi ayar (məs. "admin_alerts"). null = sil. */
+  getSetting<T = unknown>(key: string): Promise<T | null>;
+  setSetting(key: string, value: unknown): Promise<void>;
+  /** İstifadəçi səhifəsi: ids verilibsə yalnız onlar arasından; search = e-poçtda (hərf fərqi yoxdur) və ya verilən ID-lər. Ən yenidən köhnəyə. */
+  pageUsers(q: UserQuery & { skip: number; limit: number }): Promise<{ items: User[]; total: number }>;
+  countUsers(q?: UserQuery): Promise<number>;
+  /** Gün üzrə yeni qeydiyyat sayı (UTC, "YYYY-MM-DD") */
+  signupsByDay(since: Date): Promise<{ date: string; users: number }[]>;
+  findUsersByIds(ids: string[]): Promise<User[]>;
+  /** Adminlər: role="admin" və ya e-poçtu ADMIN_EMAILS-dədir */
+  listAdmins(ownerEmails: string[]): Promise<User[]>;
+  findTenantsByIds(tenantIds: string[]): Promise<TenantRecord[]>;
+  findTenantsByUserIds(userIds: string[]): Promise<TenantRecord[]>;
+  /** Şərtə uyğun müştərilərin sahiblərinin ID-ləri (text: ad, domen və ya müştəri ID-də axtarış) */
+  tenantUserIds(q: { text?: string; suspended?: boolean; tenantIds?: string[] }): Promise<string[]>;
+  /** Müştəri axtarışı (Ödənişlər süzgəci üçün): ID tam uyğun gələn birinci, sonra ad/domen */
+  searchTenants(text: string, limit: number): Promise<TenantRecord[]>;
+  tenantStats(activeSince: Date): Promise<{ total: number; suspended: number; widgetActive: number; modes: Record<string, number> }>;
+  /** Telegram və ya WhatsApp qoşulmuş müştərilər (loqo baytları oxunmur) */
+  listChannelTenants(): Promise<TenantRecord[]>;
+  /** Kanal üzrə son söhbət vaxtı (müştəri + kanal) */
+  lastChannelActivity(): Promise<{ tenantId: string; channel: ChannelSession["channel"]; at: Date }[]>;
+  /** Müştəri üzrə xəta sayı */
+  countErrorsByTenant(since: Date, source?: ErrorSource): Promise<Record<string, number>>;
+  /** Audit jurnalı: süzgəc və səhifələmə (before: bu tarixdən köhnələr) */
+  queryAudit(q: { actor?: string; action?: string; text?: string; before?: Date; limit: number }): Promise<AuditRecord[]>;
 
   close(): Promise<void>;
 }

@@ -16,7 +16,7 @@ export const config: Config = {
   resendApiKey: undefined, mailFrom: "x", mailReplyTo: undefined, trustProxy: 1, secretKey: "test-secret-key-test-secret-key-0000", isProd: false,
 };
 
-export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown>; nextDraft?: Record<string, unknown>; heard?: string };
+export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown>; nextDraft?: Record<string, unknown>; heard?: string; aiState: Record<string, unknown>; pingFail: boolean };
 
 /** Saxta AI servisi: çağırışları qeyd edir, istənilsə xəta qaytarır. */
 export function fakeAi(): FakeAi {
@@ -86,6 +86,13 @@ export function fakeAi(): FakeAi {
     async billingAccounts() { return rec("billingAccounts", [], { accounts: [{ tenantId: "tenant-1", totalAzn: 6.2, paidAzn: 5, spentAzn: 0.8 }] }); },
     async billingFinance(...a) { return rec("billingFinance", a, { months: [{ month: "2026-11", cashIn: { paidAzn: 10, manualAzn: 2, adjustAzn: 0, totalAzn: 12 }, billedAzn: 3, freeAzn: 1, revenueAzn: 2, costAzn: 1.2, profitAzn: 0.8, marginPct: 40, requests: 90 }], models: [{ model: "claude-haiku-5-5", provider: "anthropic", costAzn: 1, calls: 80, tokens: 1000, months: { "2026-11": 1 } }], tenants: [{ tenantId: "tenant-1", requests: 90, billedAzn: 3, freeAzn: 1, revenueAzn: 2, costAzn: 1.2, profitAzn: 0.8, markup: 1.5, customMarkup: false, balanceAzn: 6.2 }], totals: { cashInAzn: 40, cashInMonthAzn: 12, outstandingPaidAzn: 5, creditUsedAzn: 0, defaultMarkup: 1.5, usdAzn: 1.7 } }); },
     async suspendTenant(...a) { return rec("suspendTenant", a, { ok: true, suspended: a[1] }); },
+    async billingRequestsQuery(q) { return rec("billingRequestsQuery", [q], { requests: [{ id: "r1", tenantId: "tenant-1", amountAzn: 10, status: "approved", provider: "manual", at: "2026-11-01T10:00:00.000Z", resolvedAt: "2026-11-01T11:00:00.000Z", resolvedBy: "boss@example.com" }], nextBefore: null }); },
+    async billingLedger(q) { return rec("billingLedger", [q], { entries: [{ id: "req:r1", tenantId: "tenant-1", at: "2026-11-01T11:00:00.000Z", kind: "payment", type: "topup", amountAzn: 10, note: "Yükləmə təsdiqləndi", by: "boss@example.com" }, { id: "x2", tenantId: "tenant-1", at: "2026-10-30T09:00:00.000Z", kind: "manual", type: "topup", amountAzn: 2, note: "=hədiyyə", by: "boss@example.com" }], nextBefore: null }); },
+    aiState: { paused: false } as Record<string, unknown>,
+    async aiControl() { return rec("aiControl", [], ai.aiState); },
+    async setAiControl(b) { ai.aiState = b.paused ? { ...b, at: new Date().toISOString() } : { paused: false }; return rec("setAiControl", [b], ai.aiState); },
+    pingFail: false,
+    async ping() { rec("ping", [], null); if (ai.pingFail) throw new Error("AI servisinə qoşulmaq olmur"); },
   };
   function rec<T>(fn: string, args: unknown[], value: T): T {
     calls.push({ fn, args });

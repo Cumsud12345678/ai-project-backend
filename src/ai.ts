@@ -63,7 +63,7 @@ export type AiClient = {
   billing(tenantId: string, admin?: boolean): Promise<AiResult>;
   billingTopupRequest(tenantId: string, amountAzn: number): Promise<AiResult>;
   billingTopup(tenantId: string, body: { amountAzn: number; note?: string; by?: string }): Promise<AiResult>;
-  billingSettings(tenantId: string, body: { markup?: number | null; creditLimitAzn?: number }): Promise<AiResult>;
+  billingSettings(tenantId: string, body: { markup?: number | null; creditLimitAzn?: number; dailyLimitAzn?: number | null }): Promise<AiResult>;
   billingRequests(status: string): Promise<AiResult>;
   billingResolve(requestId: string, action: "approve" | "reject", by: string): Promise<AiResult>;
   billingAccounts(): Promise<AiResult>;
@@ -71,6 +71,15 @@ export type AiClient = {
   billingFinance(months?: number): Promise<AiResult>;
   /** Admin: müştərinin AI sorğularını dayandırır / bərpa edir */
   suspendTenant(tenantId: string, suspended: boolean): Promise<AiResult>;
+  /** Admin "Ödənişlər": süzgəcli sorğu siyahısı (status=all, tenantId, since, until, before, limit) */
+  billingRequestsQuery(q: Record<string, string>): Promise<AiResult>;
+  /** Admin "Ödənişlər": balans hərəkətləri (kind, tenantId, since, until, before, limit) */
+  billingLedger(q: Record<string, string>): Promise<AiResult>;
+  /** Ümumi AI açarı */
+  aiControl(): Promise<AiResult>;
+  setAiControl(body: { paused: boolean; reason?: string; by?: string }): Promise<AiResult>;
+  /** AI servisinin sadə sağlamlıq yoxlaması (/health). Xəta atırsa servis əlçatmazdır. */
+  ping(): Promise<void>;
 };
 
 export function createAiClient(baseUrl: string, token: string): AiClient {
@@ -153,5 +162,13 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     billingAccounts: () => request("GET", "/billing/accounts"),
     billingFinance: (months = 6) => request("GET", `/billing/finance?months=${Math.min(24, Math.max(1, Math.round(months)))}`),
     suspendTenant: (id, suspended) => request("PATCH", `${t(id)}/suspend`, { suspended }),
+    billingRequestsQuery: (q) => request("GET", `/billing/requests?${new URLSearchParams({ status: "all", ...q })}`),
+    billingLedger: (q) => request("GET", `/billing/ledger?${new URLSearchParams(q)}`),
+    aiControl: () => request("GET", "/ai-control"),
+    setAiControl: (body) => request("PUT", "/ai-control", body),
+    async ping() {
+      const res = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error(`AI servisi ${res.status} qaytardı`);
+    },
   };
 }
