@@ -54,6 +54,7 @@ import { AiError } from "../ai.js";
 import { liveOpenNow, parseCanned, parseTags } from "../helpdesk.js";
 import { addBlock, blockKeyOfChat, isBlocked } from "../visitors.js";
 import { chatClosedEvent, runAutomations } from "../automations.js";
+import { buildReport } from "../reports.js";
 import { buildCustomers, type LeadLite } from "../customers.js";
 const liveItem = (c: LiveChat) => {
   const last = c.messages[c.messages.length - 1];
@@ -638,6 +639,13 @@ export function tenantRoutes(deps: Deps) {
     const t = await mine(currentUser(res).id);
     const d = Number(req.query.days);
     res.json(await funnel(deps, t, Number.isFinite(d) && d > 0 ? Math.min(Math.round(d), 90) : 30));
+  });
+  // Hesabatlar: dövr (7/30/90 gün) + əvvəlki dövrlə müqayisə, gündəlik bölgü, komanda
+  r.get("/reports", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const d = Number(req.query.days);
+    const days = [7, 30, 90].includes(d) ? d : 7;
+    res.set("cache-control", "no-store").json(await buildReport(deps, t, days));
   });
   // Analitika: gündəlik trend + bəyənmə nisbəti (pulsuz), mövzu/boşluq təhlili (AI, sahib basanda)
   r.get("/insights/trend", async (req, res) => {
