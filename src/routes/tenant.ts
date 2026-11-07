@@ -180,8 +180,10 @@ export function tenantRoutes(deps: Deps) {
     const cfg = extractConfig(req.body);
     const t = await mine(user.id);
     const result = await exclusive(user.id, () => ai.updateConfig(t.tenantId, cfg));
-    await store.updateTenant(t.tenantId, { config: withoutSecrets(cfg), businessName: String(cfg.businessName).trim(), domain: String(cfg.domain).trim() });
-    res.json({ tenant: publicTenant(await mine(user.id)), sampleListings: result.sampleListings ?? [] });
+    // Profil AI servisində birləşdirilir (JSON-da olmayan ayarlar, məs. rejim, saxlanır): panel həmin son vəziyyəti görməlidir
+    const profile = result.profile && typeof result.profile === "object" ? result.profile : undefined;
+    await store.updateTenant(t.tenantId, { config: { ...withoutSecrets(cfg), ...(profile && { profile }) }, businessName: String(cfg.businessName).trim(), domain: String(cfg.domain).trim() });
+    res.json({ tenant: publicTenant(await mine(user.id)), sampleListings: result.sampleListings ?? [], ...(result.modeChanged === true && profile && { modeChanged: profile.mode }) });
   });
 
   r.patch("/profile", async (req, res) => {

@@ -13,6 +13,8 @@
  * Saytın öz CSS-i ilə də dəyişmək olar (script atributlarından üstündür):
  *   [data-car-advisor]{ --ca-side:30px; --ca-bottom:90px; --ca-side-md:..; --ca-bottom-md:..; --ca-side-sm:..; --ca-bottom-sm:..; --ca-z:9999 }
  *   data-show-on="/,/products/*"       çat yalnız bu səhifələrdə görünür (vergüllə; /yol dəqiq, /yol/* altındakıların hamısı, * hər yer)
+ *   data-links="new-tab"               elan və linklər həmişə yeni vərəqdə açılsın (defolt: saytın öz linkləri eyni vərəqdə,
+ *                                      söhbət yeni səhifədə davam edir; başqa saytların linkləri yeni vərəqdə)
  *   data-hide-on="/checkout,/admin/*"  çat bu səhifələrdə gizlənir (ikisi də yazılıbsa: show-on-a uyğun və hide-on-a uyğun olmayan)
  *   Next.js və digər SPA saytlarda link ilə keçid (səhifə yenilənmədən) və geri düyməsi də izlənir.
  * Əl ilə idarə: window.CarAdvisor.open() / close() / toggle() / destroy()
@@ -159,6 +161,18 @@
   // gtag varsa gtag("event", ...), yoxdursa dataLayer.push({event, ...}). Hər hadisə "caradvisor:event" adlı DOM hadisəsi kimi də göndərilir
   // (Yandex Metrica, Facebook Pixel və s. üçün). Söndürmək: <script ... data-analytics="off">. Şəxsi məlumat (mesaj mətni, e-poçt) göndərilmir.
   var analyticsOn = script.getAttribute("data-analytics") !== "off";
+  // Saytın öz linki eyni vərəqdə açılır: söhbət (sessionStorage) yeni səhifədə də görünür.
+  // Yeni vərəqdə sessionStorage boş başlayır, istifadəçi yazışmanı itirmiş kimi görür.
+  var linksNewTab = script.getAttribute("data-links") === "new-tab";
+  function sameSite(u) {
+    try { var h = new URL(u, location.href).hostname.replace(/^www\./, ""); return h === location.hostname.replace(/^www\./, ""); } catch (e) { return false; }
+  }
+  function linkAttrs(u, extra) {
+    var a = extra || {};
+    a.href = u;
+    if (linksNewTab || !sameSite(u)) { a.target = "_blank"; a.rel = "noopener noreferrer"; }
+    return a;
+  }
   var opened = false;
   function track(name, params) {
     if (!analyticsOn) return;
@@ -179,7 +193,7 @@
     while ((m = INLINE.exec(text))) {
       if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
       if (m[1] !== undefined) parent.appendChild(el("strong", { text: m[1] }));
-      else parent.appendChild(el("a", { href: m[3], target: "_blank", rel: "noopener noreferrer", text: m[2] }));
+      else parent.appendChild(el("a", linkAttrs(m[3], { text: m[2] })));
       last = m.index + m[0].length;
     }
     if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
@@ -612,7 +626,7 @@
           kids.push(img);
         }
         kids.push(el("div", null, info));
-        var cardEl = isUrl(l.url) ? el("a", { class: "card", href: l.url, target: "_blank", rel: "noopener noreferrer" }, kids) : el("div", { class: "card" }, kids);
+        var cardEl = isUrl(l.url) ? el("a", linkAttrs(l.url, { class: "card" }), kids) : el("div", { class: "card" }, kids);
         // Klik sayğacı (hesabat üçün): məzmun göndərilmir, sorğu sadədir (preflight yoxdur)
         if (isUrl(l.url)) cardEl.addEventListener("click", function () { var ev = { item_name: String(l.title).slice(0, 100) }; if (typeof l.price === "number") { ev.value = l.price; ev.currency = String(l.currency || "").slice(0, 3); } track("ai_chat_listing_click", ev); try { fetch(api + "/click", { method: "POST", keepalive: true }).catch(function () { /* vacib deyil */ }); } catch (e) { /* vacib deyil */ } });
         wrap.appendChild(cardEl);
@@ -624,7 +638,7 @@
       if (!items.length) return;
       var wrap = el("div", { class: "srcs" }, [el("span", { text: L.src })]);
       items.forEach(function (s) {
-        wrap.appendChild(isUrl(s.url) ? el("a", { href: s.url, target: "_blank", rel: "noopener noreferrer", text: s.title }) : el("span", { text: s.title }));
+        wrap.appendChild(isUrl(s.url) ? el("a", linkAttrs(s.url, { text: s.title })) : el("span", { text: s.title }));
       });
       log.appendChild(wrap);
     }
@@ -970,6 +984,13 @@
       presenceSoon();
     }
     launcher.addEventListener("click", function () { setOpen(!state.open); });
+    // Telefonda çat tam ekrandır: saytın öz linkinə keçəndə yeni səhifədə bağlı açılsın ki, elan görünsün.
+    // Yazışma yerində qalır, düyməyə basanda davam edir. Kompüterdə açıq qalır (elanın yanında).
+    panel.addEventListener("click", function (e) {
+      var a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+      if (!a || a.target === "_blank" || e.defaultPrevented || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
+      if (mobile.matches) setOpen(false);
+    });
     if (hint) hint.addEventListener("click", function () { setOpen(true); });
     closeBtn.addEventListener("click", function () { setOpen(false); launcher.focus(); });
     // Yeni söhbət: yalnız ziyarətçinin brauzerindəki söhbət silinir (sayt sahibinin panelindəki qeydlərə toxunmur)
