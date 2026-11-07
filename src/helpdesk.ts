@@ -44,22 +44,62 @@ export function withinHours(h: WorkHours | null | undefined, now = new Date()): 
 /** Canlı operator hazırda ziyarətçiyə təklif olunurmu: açıqdır və işçi saatlarındadır. */
 export const liveOpenNow = (t: TenantRecord, now = new Date()) => Boolean(t.widget?.live?.enabled) && withinHours(t.widget?.live?.hours, now);
 
+export const MAX_CAMPAIGNS = 10;
+const clean = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max + 1) : "");
+const oneOf = <T extends string>(v: unknown, list: readonly T[], def: T): T => (v === undefined || v === null ? def : list.includes(v as T) ? (v as T) : (() => { throw new HttpError(400, `Kampaniya sahəsi düzgün deyil: ${String(v).slice(0, 20)}`); })());
+function isoOrNull(v: unknown, label: string): string | null {
+  if (v === undefined || v === null || v === "") return null;
+  const d = typeof v === "string" ? new Date(v) : null;
+  if (!d || Number.isNaN(d.getTime())) throw new HttpError(400, `${label} tarixi düzgün deyil`);
+  return d.toISOString();
+}
+
+/** Kampaniyalar (proaktiv mesajlar). Köhnə qaydalar (yalnız text/delaySec/match) olduğu kimi qəbul edilir. */
 export function parseProactive(v: unknown): { enabled: boolean; rules: ProactiveRule[] } {
   const p = v as { enabled?: unknown; rules?: unknown } | undefined;
   if (!p || typeof p !== "object" || typeof p.enabled !== "boolean" || !Array.isArray(p.rules)) throw new HttpError(400, "proactive: enabled və rules tələb olunur");
-  if (p.rules.length > 5) throw new HttpError(400, "Ən çox 5 proaktiv mesaj yaza bilərsiniz");
-  const rules = p.rules.map((r: unknown) => {
-    const x = r as { id?: unknown; text?: unknown; delaySec?: unknown; match?: unknown };
-    const text = typeof x?.text === "string" ? x.text.replace(/[\u0000-\u001f\u007f]/g, " ").trim() : "";
-    if (text.length < 3 || text.length > 140) throw new HttpError(400, "Proaktiv mesaj 3-140 simvol olmalıdır");
-    if (typeof x.delaySec !== "number" || !Number.isInteger(x.delaySec) || x.delaySec < 3 || x.delaySec > 300) throw new HttpError(400, "Gözləmə vaxtı 3-300 saniyə olmalıdır");
+  if (p.rules.length > MAX_CAMPAIGNS) throw new HttpError(400, `Ən çox ${MAX_CAMPAIGNS} kampaniya yarada bilərsiniz`);
+  const rules = p.rules.map((r: unknown): ProactiveRule => {
+    const x = (r ?? {}) as Record<string, unknown>;
+    const text = clean(x.text, 300);
+    if (text.length < 3 || text.length > 300) throw new HttpError(400, "Proaktiv mesaj 3-300 simvol olmalıdır");
+    if (typeof x.delaySec !== "number" || !Number.isInteger(x.delaySec) || x.delaySec < 0 || x.delaySec > 600) throw new HttpError(400, "Gözləmə vaxtı 0-600 saniyə olmalıdır");
     const match = typeof x.match === "string" ? x.match.trim() : "";
     if (!match || match.length > 200 || !/^[\w\-./*,\s%]+$/.test(match)) throw new HttpError(400, "Səhifə şablonu düzgün deyil (məs. /, /products/*, *)");
     const id = typeof x.id === "string" && /^[a-f0-9]{8}$/.test(x.id) ? x.id : randomBytes(4).toString("hex");
-    return { id, text, delaySec: x.delaySec, match };
+    const name = clean(x.name, 60), title = clean(x.title, 40);
+    if (name.length > 60) throw new HttpError(400, "Kampaniyanın adı ən çox 60 simvol ola bilər");
+    if (title.length > 40) throw new HttpError(400, "Kartın başlığı ən çox 40 simvol ola bilər");
+    if (x.buttons !== undefined && (!Array.isArray(x.buttons) || x.buttons.length > 3)) throw new HttpError(400, "Ən çox 3 düymə ola bilər");
+    const buttons = ((x.buttons as unknown[] | undefined) ?? []).map((b) => {
+      const y = (b ?? {}) as Record<string, unknown>;
+      const label = clean(y.label, 30);
+      if (!label || label.length > 30) throw new HttpError(400, "Düymənin yazısı 1-30 simvol olmalıdır");
+      return { label, kind: oneOf(y.kind, ["chat", "send", "close"] as const, "chat") };
+    });
+    const startAt = isoOrNull(x.startAt, "Başlama"), endAt = isoOrNull(x.endAt, "Bitmə");
+    if (startAt && endAt && endAt <= startAt) throw new HttpError(400, "Bitmə tarixi başlamadan sonra olmalıdır");
+    return {
+      id, text, delaySec: x.delaySec, match,
+      ...(name && { name }), ...(title && { title }), ...(buttons.length && { buttons }),
+      active: x.active !== false,
+      audience: oneOf(x.audience, ["all", "new", "returning"] as const, "all"),
+      device: oneOf(x.device, ["all", "mobile", "desktop"] as const, "all"),
+      freq: oneOf(x.freq, ["visit", "once"] as const, "visit"),
+      online: x.online === true,
+      startAt, endAt,
+    };
   });
   if (new Set(rules.map((r) => r.id)).size !== rules.length) throw new HttpError(400, "Proaktiv mesaj identifikatorları təkrarlanır");
   return { enabled: p.enabled, rules };
+}
+
+/** Kampaniyanın indi göstərilib-göstərilməyəcəyi (vaxt və operator şərti; ziyarətçi şərtlərini vidjet yoxlayır) */
+export function campaignRunning(r: ProactiveRule, liveOnline: boolean, now = new Date()): boolean {
+  if (r.active === false) return false;
+  if (r.startAt && new Date(r.startAt) > now) return false;
+  if (r.endAt && new Date(r.endAt) <= now) return false;
+  return !r.online || liveOnline;
 }
 
 export function parseCanned(v: unknown): CannedReply[] {

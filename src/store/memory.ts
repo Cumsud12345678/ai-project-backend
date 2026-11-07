@@ -84,6 +84,13 @@ export function createMemoryStore(): Store {
       delete rest[kind];
       tenants.set(tenantId, { ...t, widget: logo ? { ...rest, [kind]: logo } : rest, updatedAt: new Date() });
     },
+    async incCampaignStat(tenantId, id, field) {
+      const t = tenants.get(tenantId);
+      if (!t) return;
+      const all = { ...(t.campaignStats ?? {}) }, cur = { shown: 0, clicked: 0, chats: 0, ...all[id] };
+      cur[field] += 1; all[id] = cur;
+      tenants.set(tenantId, { ...t, campaignStats: all });
+    },
     async touchWidget(tenantId, at) {
       const t = tenants.get(tenantId);
       if (t?.widget) tenants.set(tenantId, { ...t, widget: { ...t.widget, lastSeenAt: at } });

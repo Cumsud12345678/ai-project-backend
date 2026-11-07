@@ -29,7 +29,22 @@ export type CodeRecord = { email: string; purpose: CodePurpose; codeHash: string
 
 /** Həftənin 7 günü (0 = bazar, JS getDay). null = həmin gün işləmir. Saat "HH:MM", gecəni keçən aralıq yoxdur. */
 export type WorkHours = { tz: string; days: ({ from: string; to: string } | null)[] };
-export type ProactiveRule = { id: string; text: string; /** səhifədə neçə saniyə qaldıqdan sonra */ delaySec: number; /** yol şablonu: "/", "/products/*", "*" (vergüllə) */ match: string };
+export type CampaignButton = { label: string; /** chat: çatı açır; send: çatı açıb düymənin yazısını sual kimi göndərir; close: kartı bağlayır */ kind: "chat" | "send" | "close" };
+/** Kampaniya (proaktiv mesaj): ziyarətçi yazmadan, şərtə görə çat düyməsinin yanında kart göstərilir. Köhnə qaydalarda yalnız id/text/delaySec/match olur. */
+export type ProactiveRule = {
+  id: string; text: string; /** səhifədə neçə saniyə qaldıqdan sonra */ delaySec: number; /** yol şablonu: "/", "/products/*", "*" (vergüllə) */ match: string;
+  /** Paneldə görünən ad */ name?: string;
+  /** Kartın iri başlığı (məs. "Xoş gəldin!"); boşdursa kiçik balon göstərilir */ title?: string;
+  /** false = deaktiv (qeyd qalır, göstərilmir); olmayanda aktivdir */ active?: boolean;
+  /** Kimə: hamıya, ilk dəfə gələnlərə, təkrar gələnlərə */ audience?: "all" | "new" | "returning";
+  device?: "all" | "mobile" | "desktop";
+  /** visit: hər ziyarətdə (sessiyada) bir dəfə; once: ziyarətçiyə ümumiyyətlə bir dəfə */ freq?: "visit" | "once";
+  /** Yalnız operator onlayn olanda (canlı söhbət açıq və iş saatı daxilində) */ online?: boolean;
+  buttons?: CampaignButton[];
+  /** Planlaşdırma (ISO): başlamazdan əvvəl və bitəndən sonra göstərilmir */ startAt?: string | null; endAt?: string | null;
+};
+/** Kampaniya statistikası: göstərilib, kliklənib, söhbətə çevrilib */
+export type CampaignStat = { shown: number; clicked: number; chats: number };
 export type LiveNote = { text: string; by: string; at: Date };
 export type CannedReply = { id: string; title: string; text: string };
 
@@ -94,6 +109,8 @@ export type TenantRecord = {
   leadForward?: LeadForward;
   /** Bloklanmış ziyarətçilər və kanal müştəriləri (spam, təhqir) */
   blocked?: BlockEntry[];
+  /** Kampaniya ID-si → statistika */
+  campaignStats?: Record<string, CampaignStat>;
 };
 
 /** Müştərinin Telegram botu. Token şifrələnmiş saxlanır, panelə qayıtmır. `hook` webhook ünvanındakı təsadüfi hissədir, `secret` Telegram-ın hər sorğuya qoyduğu başlıqdır. */
@@ -198,10 +215,12 @@ export interface Store {
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
   /** Yalnız vidjet loqosunu dəyişir (bütün vidjet sənədini yenidən yazmır). null = sil. */
   setWidgetLogo(tenantId: string, logo: WidgetImage | null, kind?: WidgetImageKind): Promise<void>;
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;
+  /** Kampaniya sayğacını artırır (digər sahələrə toxunmur) */
+  incCampaignStat(tenantId: string, id: string, field: keyof CampaignStat): Promise<void>;
   deleteTenant(tenantId: string): Promise<void>;
 
   // Canlı söhbət (hər müştəri yalnız öz tenantId-si ilə)

@@ -128,6 +128,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
       const f = `widget.${kind}`;
       await tenants.updateOne({ tenantId, widget: { $exists: true } }, logo ? { $set: { [f]: logo, updatedAt: new Date() } } : { $unset: { [f]: "" }, $set: { updatedAt: new Date() } });
     },
+    async incCampaignStat(tenantId, id, field) { await tenants.updateOne({ tenantId }, { $inc: { [`campaignStats.${id}.${field}`]: 1 } }); },
     async touchWidget(tenantId, at) { await tenants.updateOne({ tenantId, widget: { $exists: true } }, { $set: { "widget.lastSeenAt": at } }); },
     async deleteTenant(tenantId) {
       await tenants.deleteOne({ tenantId });

@@ -296,6 +296,14 @@
     ".pro .prot .who{display:block;margin-bottom:2px}",
     ".pro .prot{border:0;background:none;color:inherit;font-size:14px;font-weight:600;text-align:left;cursor:pointer;padding:12px 4px 12px 14px;line-height:1.35}",
     ".pro .prox{border:0;background:none;color:var(--muted);font-size:18px;cursor:pointer;padding:6px 10px;line-height:1}",
+    // Kampaniya kartı: başlıq, mətn, düymələr və yazı sahəsi
+    ".pro.card{flex-direction:column;align-items:stretch;width:min(300px,calc(100vw - 2 * var(--cx)));max-width:none;padding:10px;gap:10px;border-radius:20px}",
+    ".pc-top{display:flex;align-items:center;gap:8px}.pc-who{display:flex;align-items:center;gap:6px;min-width:0;font-size:13px;font-weight:600}.pc-who .av{width:24px;height:24px}.pc-who .av svg{width:14px;height:14px}.pc-who span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    ".pc-top .prox{margin-left:auto}",
+    ".pc-hero{border-radius:14px;padding:22px 16px;background:radial-gradient(120% 90% at 85% 0%,color-mix(in srgb,var(--accent) 35%,transparent),transparent 70%),color-mix(in srgb,var(--accent) 8%,var(--bg));font-size:26px;line-height:1.1;font-weight:800;letter-spacing:-.02em;text-align:center;word-break:break-word}",
+    ".pc-text{font-size:14px;line-height:1.45;color:var(--fg);padding:0 4px;margin:0;word-break:break-word}",
+    ".pc-btns{display:flex;flex-wrap:wrap;gap:6px}.pc-btns button{border:1px solid var(--border);background:var(--bg);color:var(--fg);border-radius:999px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer}.pc-btns button.main{background:var(--accent);color:var(--accent-fg);border-color:transparent}",
+    ".pc-in{display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:999px;padding:4px 4px 4px 14px}.pc-in input{flex:1;min-width:0;border:0;background:none;color:var(--fg);font:inherit;font-size:14px;outline:none;padding:6px 0}.pc-in button{width:32px;height:32px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-fg);cursor:pointer;display:grid;place-items:center;flex:none}.pc-in button svg{width:16px;height:16px}",
     ".acard{align-self:flex-start;max-width:92%;background:var(--bg);border:1px solid var(--accent-t);border-radius:12px;padding:10px 12px;font-size:13px;color:var(--fg);display:flex;flex-direction:column;gap:6px}",
     ".acard b{font-size:14px}",
     ".acard .ad{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;color:var(--muted)}",
@@ -961,6 +969,7 @@
     }
     var sentShot = ""; // göndərilən şəklin önizləməsi: serverdən qayıdan mesajda dərhal göstərilir
     function liveSubmit(text, shot) {
+      proChatted();
       if (liveBusy) return;
       var mail = state.live && state.live.pending ? String(state.live.email || "").trim() : "";
       if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) { bubble("error", L.bad); scroll(); return; }
@@ -1089,6 +1098,7 @@
       var userMsg = { role: "user", text: text, t: Date.now() };
       unlockAudio(); emoShow(false);
       track("ai_chat_message", { has_image: !!shot });
+      proChatted();
       if (shot) userMsg.img = true; // şəklin özü saxlanmır, yalnız "göndərilib" qeydi
       state.messages.push(userMsg);
       newBtn.hidden = false;
@@ -1222,29 +1232,82 @@
       x.addEventListener("click", function () { proHide(); });
     }
 
-    // ---------- proaktiv mesajlar: ziyarətçi yazmadan, şərtə görə balon ----------
+    // ---------- kampaniyalar (proaktiv mesajlar): ziyarətçi yazmadan, şərtə görə kart və ya balon ----------
     var proRules = Array.isArray(cfg.proactive) ? cfg.proactive : [];
-    var proEl = null, proTimers = [], PRO_KEY = STORE + "_pro";
+    var proEl = null, proTimers = [], PRO_KEY = STORE + "_pro", PRO_ONCE = STORE + "_pro1", PRO_CHAT = STORE + "_proc";
     function proMem() { try { return JSON.parse(sessionStorage.getItem(PRO_KEY) || "{}") || {}; } catch (e) { return {}; } }
-    function proMark(id) { try { var m = proMem(); m[id] = Date.now(); sessionStorage.setItem(PRO_KEY, JSON.stringify(m)); } catch (e) { /* məxfi rejim */ } }
+    function proOnce() { try { return JSON.parse(localStorage.getItem(PRO_ONCE) || "{}") || {}; } catch (e) { return {}; } }
+    function proMark(id, once) {
+      try { var m = proMem(); m[id] = Date.now(); sessionStorage.setItem(PRO_KEY, JSON.stringify(m)); } catch (e) { /* məxfi rejim */ }
+      if (once) try { var o = proOnce(); o[id] = Date.now(); localStorage.setItem(PRO_ONCE, JSON.stringify(o)); } catch (e) { /* məxfi rejim */ }
+    }
+    function proStat(id, ev) {
+      if (!/^[a-f0-9]{8}$/.test(String(id))) return;
+      try { fetch(api + "/campaign", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ id: id, ev: ev }) }).catch(function () { /* vacib deyil */ }); } catch (e) { /* vacib deyil */ }
+    }
+    // Kampaniya kliklənibsə, ziyarətçinin ilk mesajı "söhbətə çevrildi" kimi bir dəfə sayılır
+    function proEngaged(id) { try { sessionStorage.setItem(PRO_CHAT, id); } catch (e) { /* məxfi rejim */ } }
+    function proChatted() { try { var id = sessionStorage.getItem(PRO_CHAT); if (id) { sessionStorage.removeItem(PRO_CHAT); proStat(id, "chat"); } } catch (e) { /* məxfi rejim */ } }
+    function proFits(r) {
+      if (r.audience === "new" && visit.visits > 1) return false;
+      if (r.audience === "returning" && visit.visits < 2) return false;
+      if (r.device === "mobile" && !mobile.matches) return false;
+      if (r.device === "desktop" && mobile.matches) return false;
+      if (r.freq === "once" && proOnce()[r.id]) return false;
+      return true;
+    }
     function proHide() { if (proEl) { proEl.remove(); proEl = null; } }
-    function proShow(text, id) {
-      text = String(text || "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 140);
+    function proOpen(text, id) { proHide(); proEngaged(id); state.messages.push({ role: "model", text: text, t: Date.now() }); save(); setOpen(true); render(); }
+    function proShow(text, id, r) {
+      text = String(text || "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 300);
       if (!text || state.open || proEl || state.live || state.messages.length > 0) return;
-      var t = el("button", { class: "prot", type: "button", text: text });
+      r = r || {};
       var x = el("button", { class: "prox", type: "button", "aria-label": L.proClose, text: "\u00d7" });
-      proEl = el("div", { class: "pro", role: "status" }, [t, x]);
-      root.appendChild(proEl); proMark(id);
-      t.addEventListener("click", function () { proHide(); state.messages.push({ role: "model", text: text, t: Date.now() }); save(); setOpen(true); render(); });
       x.addEventListener("click", function () { proHide(); });
+      var hit = function () { proStat(id, "click"); };
+      if (!r.title && !(r.buttons && r.buttons.length)) {
+        var t = el("button", { class: "prot", type: "button", text: text });
+        proEl = el("div", { class: "pro", role: "status" }, [t, x]);
+        t.addEventListener("click", function () { hit(); proOpen(text, id); });
+      } else {
+        var who = el("span", { class: "pc-who" }, [botAv(), el("span", { text: cfg.title || "" })]);
+        var parts = [el("div", { class: "pc-top" }, [who, x])];
+        if (r.title) parts.push(el("div", { class: "pc-hero", text: String(r.title).slice(0, 40) }));
+        parts.push(el("p", { class: "pc-text", text: text }));
+        if (r.buttons && r.buttons.length) {
+          parts.push(el("div", { class: "pc-btns" }, r.buttons.slice(0, 3).map(function (b, i) {
+            var bt = el("button", { type: "button", class: b.kind !== "close" && i === 0 ? "main" : "", text: String(b.label || "").slice(0, 30) });
+            bt.addEventListener("click", function () {
+              hit();
+              if (b.kind === "close") return proHide();
+              proOpen(text, id);
+              if (b.kind === "send") { input.value = String(b.label).slice(0, 30); form.requestSubmit(); }
+            });
+            return bt;
+          })));
+        }
+        var qi = el("input", { type: "text", maxlength: "500", placeholder: L.ph, "aria-label": L.msgLabel });
+        var qs = el("button", { type: "submit", "aria-label": L.sendL }); qs.innerHTML = ICON_SEND; // sabit, yoxlanmış SVG
+        var qf = el("form", { class: "pc-in" }, [qi, qs]);
+        qf.addEventListener("submit", function (e) {
+          e.preventDefault(); hit();
+          var v = qi.value.trim();
+          proOpen(text, id);
+          if (v) { input.value = v; form.requestSubmit(); }
+        });
+        parts.push(qf);
+        proEl = el("div", { class: "pro card", role: "dialog", "aria-label": r.title || text.slice(0, 60) }, parts);
+      }
+      root.appendChild(proEl); proMark(id, r.freq === "once"); proStat(id, "shown");
     }
     function schedulePro(path, visible) {
       proTimers.forEach(clearTimeout); proTimers = []; proHide();
       if (!visible || !proRules.length) return;
       var mem = proMem();
       proRules.forEach(function (r) {
-        if (mem[r.id] || !pathMatches(String(r.match || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean), path)) return;
-        proTimers.push(setTimeout(function () { proShow(r.text, r.id); }, Math.max(3, Number(r.delaySec) || 10) * 1000));
+        if (mem[r.id] || !proFits(r) || !pathMatches(String(r.match || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean), path)) return;
+        var d = Number(r.delaySec);
+        proTimers.push(setTimeout(function () { if (proFits(r)) proShow(r.text, r.id, r); }, Math.max(0.5, isFinite(d) ? d : 10) * 1000));
       });
     }
     var shown = true;

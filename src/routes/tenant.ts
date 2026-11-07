@@ -800,6 +800,19 @@ export function tenantRoutes(deps: Deps) {
   });
 
   // ---- Bloklama (spam, təhqir): ziyarətçi çata yaza bilmir, kanalda bot cavab vermir ----
+  // Kampaniyaların statistikası (göstərilib / klik / söhbət); yalnız mövcud kampaniyalar
+  r.get("/campaigns/stats", async (_req, res) => {
+    const t = await mine(currentUser(res).id);
+    const ids = new Set((t.widget?.proactive?.rules ?? []).map((x) => x.id));
+    res.json({ stats: Object.fromEntries(Object.entries(t.campaignStats ?? {}).filter(([id]) => ids.has(id))) });
+  });
+  r.delete("/campaigns/:id/stats", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const id = String(req.params.id ?? "");
+    const { [id]: _drop, ...rest } = t.campaignStats ?? {};
+    await store.updateTenant(t.tenantId, { campaignStats: rest });
+    res.json({ ok: true });
+  });
   r.get("/blocks", async (_req, res) => {
     const t = await mine(currentUser(res).id);
     res.json({ items: (t.blocked ?? []).map((b) => ({ key: b.key, label: b.label, at: b.at, by: b.by })) });

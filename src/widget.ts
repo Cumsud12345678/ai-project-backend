@@ -5,7 +5,7 @@ import { notifyTeam } from "./team.js";
 import { notifyOperators } from "./operator-notify.js";
 import { forwardLead } from "./lead-forward.js";
 import { publicConfirm } from "./action-card.js";
-import { liveOpenNow, parseHours, parseProactive } from "./helpdesk.js";
+import { campaignRunning, liveOpenNow, parseHours, parseProactive } from "./helpdesk.js";
 import { checkBase64Image, imageEnabled } from "./image-input.js";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -242,7 +242,7 @@ export function widgetRoutes(deps: Deps) {
     const mode = modeOf(wt.config);
     // Quraşdırmanın işlədiyini göstərmək üçün: ən çox 10 dəqiqədən bir yazılır
     if (!w.lastSeenAt || Date.now() - new Date(w.lastSeenAt).getTime() > 10 * 60_000) void store.touchWidget(wt.tenantId, new Date()).catch(() => {});
-    res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, mode, contact: true, live: liveOpenNow(wt), csat: w.live?.csat !== false, proactive: w.proactive?.enabled ? w.proactive.rules.map((r) => ({ id: r.id, text: r.text, delaySec: r.delaySec, match: r.match })) : [], // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
+    res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, mode, contact: true, live: liveOpenNow(wt), csat: w.live?.csat !== false, proactive: w.proactive?.enabled ? w.proactive.rules.filter((r) => campaignRunning(r, liveOpenNow(wt))).map((r) => ({ id: r.id, text: r.text, delaySec: r.delaySec, match: r.match, ...(r.title && { title: r.title }), ...(r.buttons?.length && { buttons: r.buttons }), ...(r.audience && r.audience !== "all" && { audience: r.audience }), ...(r.device && r.device !== "all" && { device: r.device }), ...(r.freq === "once" && { freq: "once" }) })) : [], // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
       theme: w.theme ?? "light", brand: wt.brandRemoved ? null : { name: deps.config.brandName, url: deps.config.brandUrl }, imageSearch: imageEnabled(wt), presence: Boolean(w.live?.enabled), ...(w.logo && { logo: imageUrl(deps.config.publicPortalUrl, w, "logo") }), ...(w.avatar && { avatar: imageUrl(deps.config.publicPortalUrl, w, "avatar") }) });
   });
 
@@ -515,6 +515,18 @@ export function widgetRoutes(deps: Deps) {
     const b = req.body ?? {};
     const sid = typeof b.sid === "string" && /^[a-f0-9]{16,32}$/.test(b.sid) ? b.sid : "";
     if (sid && (typeof b.id === "string" || typeof b.id === "number")) void ai.recordClick(t.tenantId, sid, { id: String(b.id).slice(0, 80), title: typeof b.title === "string" ? b.title.slice(0, 120) : "" }).catch(() => {});
+    res.status(204).end();
+  });
+
+  // Kampaniya statistikası: kart göstərildi / klikləndi / söhbətə çevrildi. Məzmun saxlanmır.
+  r.post("/widget/:key/campaign", access, async (req, res) => {
+    const t = res.locals.widgetTenant as TenantRecord;
+    const b = req.body ?? {};
+    const id = typeof b.id === "string" && /^[a-f0-9]{8}$/.test(b.id) ? b.id : "";
+    const ev = b.ev === "shown" ? "shown" : b.ev === "click" ? "clicked" : b.ev === "chat" ? "chats" : null;
+    if (!id || !ev || !t.widget?.proactive?.rules.some((r) => r.id === id)) return void res.status(204).end();
+    if (!limiter.hit(`w:camp:${t.widget.key}:${req.ip ?? "unknown"}:${ev}`, 30, 60 * 60_000)) return void res.status(204).end();
+    await store.incCampaignStat(t.tenantId, id, ev);
     res.status(204).end();
   });
 

@@ -2,7 +2,7 @@
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { startPortal } from "./helpers.js";
-import { matchPath, parseCanned, parseHours, parseProactive, parseTags, withinHours } from "../src/helpdesk.js";
+import { matchPath, parseCanned, parseHours, campaignRunning, parseProactive, parseTags, withinHours } from "../src/helpdesk.js";
 
 let p: Awaited<ReturnType<typeof startPortal>>;
 before(async () => { p = await startPortal(); });
@@ -58,8 +58,21 @@ test("işçi saatları: gün/saat, saat qurşağı və yoxlama", () => {
 test("proaktiv, hazır cavab və etiket doğrulaması", () => {
   const ok = parseProactive({ enabled: true, rules: [{ text: "Kömək lazımdır?", delaySec: 20, match: "/products/*, /" }] });
   assert.match(ok.rules[0]!.id, /^[a-f0-9]{8}$/);
-  for (const bad of [{ enabled: true, rules: Array(6).fill({ text: "salam", delaySec: 10, match: "*" }) }, { enabled: true, rules: [{ text: "ab", delaySec: 10, match: "*" }] }, { enabled: true, rules: [{ text: "salam", delaySec: 1, match: "*" }] }, { enabled: true, rules: [{ text: "salam", delaySec: 10, match: "<script>" }] }, { enabled: "yes", rules: [] }, { enabled: true, rules: [{ text: "x".repeat(141), delaySec: 10, match: "*" }] }])
-    assert.throws(() => parseProactive(bad), /Proaktiv|proactive|Gözləmə|şablonu|Ən çox/);
+  assert.deepEqual({ ...ok.rules[0], id: "" }, { id: "", text: "Kömək lazımdır?", delaySec: 20, match: "/products/*, /", active: true, audience: "all", device: "all", freq: "visit", online: false, startAt: null, endAt: null }, "köhnə qayda defoltlarla");
+  const full = parseProactive({ enabled: true, rules: [{ name: "Geri qayıdanlar", title: "Xoş gəldin!", text: "Qaldığın yerdən davam edək?", delaySec: 0, match: "*", audience: "returning", device: "mobile", freq: "once", online: true, active: false,
+    buttons: [{ label: "Söhbətə başla", kind: "chat" }, { label: "Sadəcə baxıram", kind: "close" }], startAt: "2026-12-01T00:00:00Z", endAt: "2026-12-31T00:00:00Z" }] }).rules[0]!;
+  assert.equal(full.title, "Xoş gəldin!"); assert.equal(full.buttons!.length, 2); assert.equal(full.audience, "returning"); assert.equal(full.startAt, "2026-12-01T00:00:00.000Z");
+  assert.equal(campaignRunning(full, true, new Date("2026-12-10")), false, "deaktiv");
+  const on = { ...full, active: true };
+  assert.equal(campaignRunning(on, true, new Date("2026-11-10")), false, "hələ başlamayıb");
+  assert.equal(campaignRunning(on, true, new Date("2026-12-10")), true);
+  assert.equal(campaignRunning(on, false, new Date("2026-12-10")), false, "operator onlayn deyil");
+  assert.equal(campaignRunning(on, true, new Date("2027-01-02")), false, "bitib");
+  const r1 = { text: "salam", delaySec: 10, match: "*" };
+  for (const bad of [{ enabled: true, rules: Array(11).fill(r1) }, { enabled: true, rules: [{ ...r1, text: "ab" }] }, { enabled: true, rules: [{ ...r1, delaySec: 601 }] }, { enabled: true, rules: [{ ...r1, match: "<script>" }] }, { enabled: "yes", rules: [] }, { enabled: true, rules: [{ ...r1, text: "x".repeat(301) }] },
+    { enabled: true, rules: [{ ...r1, audience: "vip" }] }, { enabled: true, rules: [{ ...r1, buttons: Array(4).fill({ label: "a", kind: "chat" }) }] }, { enabled: true, rules: [{ ...r1, buttons: [{ label: "", kind: "chat" }] }] },
+    { enabled: true, rules: [{ ...r1, startAt: "2026-12-02", endAt: "2026-12-01" }] }, { enabled: true, rules: [{ ...r1, title: "x".repeat(41) }] }])
+    assert.throws(() => parseProactive(bad), /Proaktiv|proactive|Gözləmə|şablonu|Ən çox|Kampaniya|düymə|Düymə|tarix|başlığı/, JSON.stringify(bad).slice(0, 80));
   assert.equal(matchPath("/", "/"), true); assert.equal(matchPath("/products/*", "/products/1"), true); assert.equal(matchPath("/products/*", "/productsX"), false);
   assert.equal(matchPath("*", "/x"), true); assert.equal(matchPath("/a, /b", "/b"), true); assert.equal(matchPath("/a", "/a/b"), false);
   assert.throws(() => parseCanned(Array.from({ length: 31 }, () => ({ title: "a", text: "b" }))), /30/);
@@ -176,6 +189,24 @@ test("proaktiv mesajlar: saxlanır, vidjet konfiqurasiyasına yalnız aktivdirs�
   assert.equal((await c.call("PUT", "/tenant/widget", { proactive: { enabled: false, rules: put.body.widget.proactive.rules } })).status, 200);
   assert.deepEqual((await cfg()).proactive, []);
   assert.equal((await c.call("PUT", "/tenant/widget", { proactive: { enabled: true, rules: [{ id, text: "ab", delaySec: 15, match: "*" }] } })).status, 400);
+
+  // Kampaniya: başlıq/düymələr vidjetə gedir; deaktiv və "yalnız operator onlayn" (canlı söhbət söndürülüb) göstərilmir
+  const rules = [
+    { id, text: "Kömək lazımdır?", delaySec: 15, match: "*", title: "Salam!", buttons: [{ label: "Yaz", kind: "chat" }], audience: "returning", freq: "once" },
+    { text: "Deaktiv", delaySec: 5, match: "*", active: false },
+    { text: "Operator lazımdır?", delaySec: 5, match: "*", online: true },
+  ];
+  assert.equal((await c.call("PUT", "/tenant/widget", { live: { enabled: false }, proactive: { enabled: true, rules } })).status, 200);
+  const live = (await cfg()).proactive;
+  assert.equal(live.length, 1); assert.equal(live[0].title, "Salam!"); assert.equal(live[0].audience, "returning"); assert.equal(live[0].freq, "once"); assert.deepEqual(live[0].buttons, [{ label: "Yaz", kind: "chat" }]);
+  // statistika: göstərildi, klik, söhbət; tanınmayan ID sayılmır
+  const w = p.client();
+  for (const ev of ["shown", "shown", "click", "chat"]) assert.equal((await w.call("POST", `/widget/${key}/campaign`, { id, ev }, ORIGIN)).status, 204);
+  await w.call("POST", `/widget/${key}/campaign`, { id: "00000000", ev: "shown" }, ORIGIN);
+  const st = (await c.call("GET", "/tenant/campaigns/stats")).body.stats;
+  assert.deepEqual(st, { [id]: { shown: 2, clicked: 1, chats: 1 } });
+  assert.equal((await c.call("DELETE", `/tenant/campaigns/${id}/stats`)).status, 200);
+  assert.deepEqual((await c.call("GET", "/tenant/campaigns/stats")).body.stats, {});
 });
 
 test("kanal mesajlarının dili", async () => {
