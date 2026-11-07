@@ -1,5 +1,15 @@
 export type Role = "admin" | "user";
 /** `role` köhnə sənədlərdə olmaya bilər: yoxdursa "user" sayılır. */
+/** Avtomatlaşdırma: hadisə (nə vaxt) + şərt + addımlar. Göndərmə yerləri (Telegram qrupu, Bitrix24, webhook) leadForward-dakı bağlantılardır. */
+export type AutoTrigger = "lead" | "bad_rating" | "chat_closed" | "daily";
+export type AutoAction = { type: "telegram" | "email" | "webhook" | "bitrix" } | { type: "ticket"; priority: "normal" | "high" } | { type: "tag"; tag: string };
+export type Automation = {
+  id: string; name: string; trigger: AutoTrigger; enabled: boolean; actions: AutoAction[];
+  when?: { channel?: "any" | "site" | "telegram" | "whatsapp"; withContact?: boolean; source?: "any" | "csat" | "feedback"; hour?: number };
+  createdAt: string;
+  /** son işləmə (panel göstərir) və sayğac; lastDay: gündəlik hadisənin son günü (YYYY-MM-DD, saytın saat qurşağı) */
+  lastRun?: { at: string; ok: boolean; error?: string } | null; runs?: number; lastDay?: string;
+};
 export type LeadForward = { telegram?: { chatId: string; title: string } | null; bitrix?: { urlEnc: string; host: string } | null; webhook?: { urlEnc: string; host: string } | null };
 /** Operatorun canlı söhbət bildirişləri üçün bağladığı Telegram (platformanın bildiriş botu ilə). */
 export type TgNotify = { chatId: string; name: string; at: Date };
@@ -111,6 +121,8 @@ export type TenantRecord = {
   blocked?: BlockEntry[];
   /** Kampaniya ID-si → statistika */
   campaignStats?: Record<string, CampaignStat>;
+  /** Avtomatlaşdırmalar. Olmayanda (köhnə hesab) qoşulmuş ötürmə yerlərinə "yeni müraciət → göndər" işləyir. */
+  automations?: Automation[];
 };
 
 /** Müştərinin Telegram botu. Token şifrələnmiş saxlanır, panelə qayıtmır. `hook` webhook ünvanındakı təsadüfi hissədir, `secret` Telegram-ın hər sorğuya qoyduğu başlıqdır. */
@@ -215,12 +227,14 @@ export interface Store {
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
   /** Yalnız vidjet loqosunu dəyişir (bütün vidjet sənədini yenidən yazmır). null = sil. */
   setWidgetLogo(tenantId: string, logo: WidgetImage | null, kind?: WidgetImageKind): Promise<void>;
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats" | "automations">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;
   /** Kampaniya sayğacını artırır (digər sahələrə toxunmur) */
   incCampaignStat(tenantId: string, id: string, field: keyof CampaignStat): Promise<void>;
+  /** Avtomatlaşdırmanın son işləməsini yazır (siyahının qalanına toxunmur) */
+  setAutomationRun(tenantId: string, id: string, run: { at: string; ok: boolean; error?: string } | null, lastDay?: string): Promise<void>;
   deleteTenant(tenantId: string): Promise<void>;
 
   // Canlı söhbət (hər müştəri yalnız öz tenantId-si ilə)

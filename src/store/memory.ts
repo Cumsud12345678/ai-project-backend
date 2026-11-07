@@ -84,6 +84,11 @@ export function createMemoryStore(): Store {
       delete rest[kind];
       tenants.set(tenantId, { ...t, widget: logo ? { ...rest, [kind]: logo } : rest, updatedAt: new Date() });
     },
+    async setAutomationRun(tenantId, id, run, lastDay) {
+      const t = tenants.get(tenantId);
+      if (!t?.automations) return;
+      tenants.set(tenantId, { ...t, automations: t.automations.map((a) => (a.id !== id ? a : { ...a, ...(run && { lastRun: run, runs: (a.runs ?? 0) + 1 }), ...(lastDay && { lastDay }) })) });
+    },
     async incCampaignStat(tenantId, id, field) {
       const t = tenants.get(tenantId);
       if (!t) return;

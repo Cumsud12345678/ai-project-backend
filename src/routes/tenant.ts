@@ -53,6 +53,7 @@ const isWaiting = (c: LiveChat) => {
 import { AiError } from "../ai.js";
 import { liveOpenNow, parseCanned, parseTags } from "../helpdesk.js";
 import { addBlock, blockKeyOfChat, isBlocked } from "../visitors.js";
+import { chatClosedEvent, runAutomations } from "../automations.js";
 import { buildCustomers, type LeadLite } from "../customers.js";
 const liveItem = (c: LiveChat) => {
   const last = c.messages[c.messages.length - 1];
@@ -589,6 +590,7 @@ export function tenantRoutes(deps: Deps) {
       await store.pushLive(t.tenantId, chat.id, { from: "system", text: "closed", at: new Date() }, { status: "closed", operatorSeenAt: new Date() });
       hub.toChat(chat.id, { t: "new", total: chat.messages.length + 1 });
       hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "close" });
+      void runAutomations(deps, t, chatClosedEvent(chat, nameOf(currentUser(res))));
       if (chat.channel) void deliverToChannel(deps, t, chat, channelTexts(chatLang(t, [...chat.messages].reverse().find((m) => m.from === "visitor")?.text ?? ""), 0, 0).live.back).catch(() => {}); // bot geri qayıtdı xəbəri (alınmasa vacib deyil)
     }
     res.json({ ok: true });

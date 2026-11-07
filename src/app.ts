@@ -12,6 +12,7 @@ import { whatsappPanelRoutes } from "./whatsapp/routes.js";
 import { widgetRoutes } from "./widget.js";
 import { notifyPanelRoutes, notifyWebhook } from "./operator-notify.js";
 import { leadForwardRoutes } from "./lead-forward.js";
+import { automationRoutes } from "./automations.js";
 
 export function createApp(deps: Deps) {
   const app = express();
@@ -54,7 +55,7 @@ export function createApp(deps: Deps) {
     res.json({ announcement: a?.active ? { text: a.text, level: a.level } : null });
   });
   app.use("/tenant/channels", telegramPanelRoutes(deps), whatsappPanelRoutes(deps));
-  app.use("/tenant", notifyPanelRoutes(deps), leadForwardRoutes(deps));
+  app.use("/tenant", notifyPanelRoutes(deps), leadForwardRoutes(deps), automationRoutes(deps));
   app.use("/tenant", tenantRoutes(deps));
   app.use("/admin", adminRoutes(deps));
   app.use("/partner", partnerRoutes(deps));

@@ -1,5 +1,6 @@
 // Kanallar (Telegram, WhatsApp) üçün ortaq söhbət məntiqi: limitlər, tarixçə, AI çağırışı, cavab tapılmayanda kontakt yığımı.
 import { randomBytes, randomUUID } from "node:crypto";
+import { chatClosedEvent, runAutomations } from "./automations.js";
 import { sniffImage } from "./safe-image.js";
 import { AiError } from "./ai.js";
 import { notifyBalance, notifyDailyLimit } from "./billing.js";
@@ -134,10 +135,12 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     if (liveNow && Date.now() - liveNow.updatedAt.getTime() > LIVE_STALE_MS) {
       await store.pushLive(tenant.tenantId, liveNow.id, { from: "system", text: "closed", at: new Date() }, { status: "closed" });
       hub.toOperators(tenant.tenantId, { t: "live", id: liveNow.id, kind: "close" });
+      void runAutomations(deps, tenant, chatClosedEvent(liveNow));
     } else if (liveNow) {
       if (isBotCmd(text)) {
         await store.pushLive(tenant.tenantId, liveNow.id, { from: "system", text: "closed", at: new Date() }, { status: "closed" });
         hub.toOperators(tenant.tenantId, { t: "live", id: liveNow.id, kind: "close" });
+        void runAutomations(deps, tenant, chatClosedEvent(liveNow));
         await io.send(M.live.back);
         return;
       }

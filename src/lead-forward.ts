@@ -12,6 +12,7 @@ import { groupLinkUrl, notifyAvailable, sendNotify } from "./operator-notify.js"
 import { guardedFetch } from "./safe-image.js";
 import { decryptSecret, encryptSecret } from "./secrets.js";
 import type { LeadForward, TenantRecord } from "./store/types.js";
+import { runAutomations } from "./automations.js";
 
 export type Lead = { source: string; name: string; contact: string; question: string; conversation?: { role: string; text: string }[]; page?: string };
 export type PostResult = { ok: boolean; status: number; json: unknown };
@@ -30,14 +31,14 @@ export const safePost: HttpPost = async (url, body) => {
 
 const BITRIX_RE = /^https:\/\/[a-z0-9.-]+\.[a-z]{2,}(:\d+)?\/rest\/\d+\/[A-Za-z0-9]+\/?$/;
 export const isBitrixUrl = (v: string) => BITRIX_RE.test(v);
-const bitrixMethod = (base: string, method: string) => `${base.replace(/\/?$/, "/")}${method}.json`;
+export const bitrixMethod = (base: string, method: string) => `${base.replace(/\/?$/, "/")}${method}.json`;
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
-function leadText(t: TenantRecord, l: Lead): string {
+export function leadText(t: TenantRecord, l: Lead): string {
   const conv = (l.conversation ?? []).slice(-6).map((m) => `${m.role === "user" ? "Ziyarətçi" : "Çat"}: ${m.text.slice(0, 200)}`).join("\n");
   return [`📩 Yeni müraciət (${l.source}) · ${t.businessName}`, "", `Ad: ${l.name || "-"}`, `Əlaqə: ${l.contact}`, `Sual: ${l.question || "-"}`, ...(l.page ? [`Səhifə: ${l.page}`] : []), ...(conv ? ["", "Söhbətin son hissəsi:", conv] : [])].join("\n");
 }
-function bitrixFields(t: TenantRecord, l: Lead) {
+export function bitrixFields(t: TenantRecord, l: Lead) {
   const conv = (l.conversation ?? []).slice(-10).map((m) => `${m.role === "user" ? "Ziyarətçi" : "Çat"}: ${m.text.slice(0, 300)}`).join("\n");
   return {
     TITLE: `Çat müraciəti: ${(l.question || l.name || l.contact).slice(0, 80)}`,
@@ -55,7 +56,7 @@ const webhookBody = (t: TenantRecord, l: Lead, test = false) => ({
 
 type Target = "telegram" | "bitrix" | "webhook";
 /** Bir yerə göndərir. Qaytarır: "ok" | "gone" (Telegram qrupu artıq yoxdur) | xəta mətni. */
-async function sendTo(deps: Deps, t: TenantRecord, target: Target, l: Lead, test = false): Promise<"ok" | "gone" | string> {
+export async function sendTo(deps: Deps, t: TenantRecord, target: Target, l: Lead, test = false): Promise<"ok" | "gone" | string> {
   const f = t.leadForward ?? {};
   const post = deps.httpPost ?? safePost;
   try {
@@ -80,20 +81,14 @@ async function sendTo(deps: Deps, t: TenantRecord, target: Target, l: Lead, test
   }
 }
 
-/** Yeni müraciəti bütün qoşulmuş yerlərə göndərir (paralel). Səhvlər xəta jurnalına yazılır, ziyarətçiyə təsir etmir. */
+/** Yeni müraciət: avtomatlaşdırmalar işə düşür (köhnə hesablarda: bütün qoşulmuş yerlərə göndərilir). Ziyarətçini gözlətmir. */
 export async function forwardLead(deps: Deps, t: TenantRecord, l: Lead): Promise<void> {
-  const f = t.leadForward;
-  if (!f) return;
-  const targets = (["telegram", "bitrix", "webhook"] as const).filter((k) => f[k]);
-  await Promise.all(targets.map(async (k) => {
-    const r = await sendTo(deps, t, k, l);
-    if (r === "ok") return;
-    if (r === "gone") { await deps.store.updateTenant(t.tenantId, { leadForward: { ...f, telegram: null } }); return; }
-    await recordError(deps.store, { source: "channel", message: `Müraciət ötürülmədi (${k}): ${r}`, tenantId: t.tenantId, code: "LEAD_FORWARD" });
-  }));
+  const src = l.source.toLowerCase();
+  const channel = src.includes("telegram") ? "telegram" : src.includes("whatsapp") ? "whatsapp" : "site";
+  await runAutomations(deps, t, { trigger: "lead", lead: l, channel });
 }
 
-const view = (deps: Deps, f: LeadForward = {}) => ({
+export const forwardView = (deps: Deps, f: LeadForward = {}) => ({
   telegram: f.telegram ? { title: f.telegram.title } : null, telegramAvailable: notifyAvailable(deps),
   bitrix: f.bitrix ? { host: f.bitrix.host } : null, webhook: f.webhook ? { host: f.webhook.host } : null,
   keyReady: Boolean(deps.config.secretKey),
@@ -118,7 +113,7 @@ export function leadForwardRoutes(deps: Deps) {
   const needKey = () => { if (!config.secretKey) throw new HttpError(503, "Serverdə CHANNEL_SECRET_KEY təyin edilməyib: linki şifrəli saxlamaq mümkün deyil", "NO_SECRET_KEY"); };
   const rate = (res: Parameters<typeof currentUser>[0]) => { if (!limiter.hit(`leadfw:${currentUser(res).id}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez sorğu, bir az gözlə", "RATE_LIMITED"); };
 
-  r.get("/lead-forward", async (_req, res) => { res.json(view(deps, (await mine(res)).leadForward)); });
+  r.get("/lead-forward", async (_req, res) => { res.json(forwardView(deps, (await mine(res)).leadForward)); });
 
   r.post("/lead-forward/telegram", async (_req, res) => {
     const t = await mine(res); rate(res);
@@ -128,7 +123,7 @@ export function leadForwardRoutes(deps: Deps) {
   r.delete("/lead-forward/telegram", async (_req, res) => {
     const t = await mine(res);
     if (t.leadForward?.telegram) await sendNotify(deps, t.leadForward.telegram.chatId, "Müraciətlər artıq bu qrupa göndərilməyəcək. Botu qrupdan çıxara bilərsən.");
-    res.json(view(deps, await save(t, { telegram: null })));
+    res.json(forwardView(deps, await save(t, { telegram: null })));
   });
 
   // Bitrix24: link yoxlanılır (crm.lead.fields: heç nə yaratmır, yalnız CRM icazəsini yoxlayır), sonra şifrəli saxlanır
@@ -139,9 +134,9 @@ export function leadForwardRoutes(deps: Deps) {
     const probe = { ...t, leadForward: { ...(t.leadForward ?? {}), bitrix: { urlEnc: encryptSecret(url, config.secretKey), host: new URL(url).hostname } } };
     const r = await sendTo(deps, probe, "bitrix", SAMPLE, true);
     if (r !== "ok") throw new HttpError(400, `${r}. Webhook yaradanda “CRM” icazəsini seçdiyini yoxla.`, "BITRIX_FAILED");
-    res.json(view(deps, await save(t, { bitrix: probe.leadForward.bitrix })));
+    res.json(forwardView(deps, await save(t, { bitrix: probe.leadForward.bitrix })));
   });
-  r.delete("/lead-forward/bitrix", async (_req, res) => { res.json(view(deps, await save(await mine(res), { bitrix: null }))); });
+  r.delete("/lead-forward/bitrix", async (_req, res) => { res.json(forwardView(deps, await save(await mine(res), { bitrix: null }))); });
 
   // Webhook: sınaq göndərişi (event: "test") uğurlu olsa saxlanır
   r.put("/lead-forward/webhook", async (req, res) => {
@@ -153,9 +148,9 @@ export function leadForwardRoutes(deps: Deps) {
     const probe = { ...t, leadForward: { ...(t.leadForward ?? {}), webhook: { urlEnc: encryptSecret(url, config.secretKey), host: u.hostname } } };
     const r = await sendTo(deps, probe, "webhook", SAMPLE, true);
     if (r !== "ok") throw new HttpError(400, `${r}. Ünvanı və onun hamıya açıq olduğunu yoxla.`, "WEBHOOK_FAILED");
-    res.json(view(deps, await save(t, { webhook: probe.leadForward.webhook })));
+    res.json(forwardView(deps, await save(t, { webhook: probe.leadForward.webhook })));
   });
-  r.delete("/lead-forward/webhook", async (_req, res) => { res.json(view(deps, await save(await mine(res), { webhook: null }))); });
+  r.delete("/lead-forward/webhook", async (_req, res) => { res.json(forwardView(deps, await save(await mine(res), { webhook: null }))); });
 
   // Bütün qoşulmuş yerlərə sınaq müraciəti (Bitrix-də real lid yaranır, adında "Sınaq" yazılır)
   r.post("/lead-forward/test", async (_req, res) => {

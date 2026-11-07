@@ -6,6 +6,7 @@ import { notifyOperators } from "./operator-notify.js";
 import { forwardLead } from "./lead-forward.js";
 import { publicConfirm } from "./action-card.js";
 import { campaignRunning, liveOpenNow, parseHours, parseProactive } from "./helpdesk.js";
+import { liveEventBase, runAutomations } from "./automations.js";
 import { checkBase64Image, imageEnabled } from "./image-input.js";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -503,6 +504,7 @@ export function widgetRoutes(deps: Deps) {
     const comment = typeof b.comment === "string" ? b.comment.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 300) : "";
     await store.patchLive(t.tenantId, id, { csat: { rating: b.rating, ...(comment && { comment }), at: new Date() } });
     hub.toOperators(t.tenantId, { t: "live", id, kind: "csat" });
+    if (b.rating <= 2) void runAutomations(deps, t, { trigger: "bad_rating", source: "csat", rating: b.rating, ...liveEventBase(chat), ...(comment && { comment }) });
     res.status(201).json({ ok: true });
   });
 
@@ -543,6 +545,7 @@ export function widgetRoutes(deps: Deps) {
       question: logOn && typeof b.question === "string" ? b.question.trim().slice(0, 300) : "",
       answer: logOn && typeof b.answer === "string" ? b.answer.trim().slice(0, 600) : "",
     });
+        if (b.rating === -1) void runAutomations(deps, t, { trigger: "bad_rating", source: "feedback", rating: -1, channel: "site", ...(logOn && typeof b.question === "string" && { question: b.question.trim().slice(0, 300) }), ...(logOn && typeof b.answer === "string" && { answer: b.answer.trim().slice(0, 600) }) });
     res.status(201).json({ ok: true });
   });
 
