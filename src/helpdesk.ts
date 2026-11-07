@@ -16,7 +16,8 @@ export function parseHours(v: unknown): WorkHours | null {
   const days = h.days.map((d: unknown) => {
     if (d === null) return null;
     const x = d as { from?: unknown; to?: unknown };
-    if (!x || typeof x.from !== "string" || typeof x.to !== "string" || !HM.test(x.from) || !HM.test(x.to) || mins(x.from) >= mins(x.to)) throw new HttpError(400, "İşçi saatları: saat HH:MM formatında olmalı və başlanğıc bitişdən əvvəl olmalıdır");
+    // Bitiş başlanğıcdan kiçikdirsə gecə növbəsidir (22:00–02:00 ertəsi gün bitir); bərabərdirsə 24 saat (00:00–00:00)
+    if (!x || typeof x.from !== "string" || typeof x.to !== "string" || !HM.test(x.from) || !HM.test(x.to)) throw new HttpError(400, "İşçi saatları: saat HH:MM formatında olmalıdır");
     return { from: x.from, to: x.to };
   });
   if (!days.some(Boolean)) throw new HttpError(400, "İşçi saatları: ən azı bir iş günü olmalıdır");
@@ -29,10 +30,15 @@ export function withinHours(h: WorkHours | null | undefined, now = new Date()): 
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: h.tz, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
   const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday"));
+  const cur = (Number(get("hour")) % 24) * 60 + Number(get("minute"));
   const slot = h.days[day];
-  if (!slot) return false;
-  const cur = Number(get("hour")) * 60 + Number(get("minute"));
-  return cur >= mins(slot.from) && cur < mins(slot.to);
+  if (slot) {
+    const f = mins(slot.from), t = mins(slot.to);
+    if (t > f ? cur >= f && cur < t : cur >= f) return true;
+  }
+  // Dünənki gecə növbəsinin bu günə keçən hissəsi (məs. cümə 22:00–02:00 → şənbə 00:00–02:00)
+  const prev = h.days[(day + 6) % 7];
+  return Boolean(prev && mins(prev.to) <= mins(prev.from) && cur < mins(prev.to));
 }
 
 /** Canlı operator hazırda ziyarətçiyə təklif olunurmu: açıqdır və işçi saatlarındadır. */

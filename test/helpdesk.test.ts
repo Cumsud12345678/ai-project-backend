@@ -33,9 +33,24 @@ test("işçi saatları: gün/saat, saat qurşağı və yoxlama", () => {
   assert.equal(withinHours(h, new Date("2026-10-31T10:00:00Z")), false, "şənbə");
   assert.equal(withinHours(h, new Date("2026-10-25T10:00:00Z")), false, "bazar");
   assert.equal(withinHours(null), true);
+  // gecə növbəsi: yalnız cümə 22:00–02:00 (Bakı = UTC+4)
+  const night = parseHours({ tz: "Asia/Baku", days: [null, null, null, null, null, { from: "22:00", to: "02:00" }, null] })!;
+  assert.equal(withinHours(night, new Date("2026-10-30T18:30:00Z")), true, "cümə 22:30");
+  assert.equal(withinHours(night, new Date("2026-10-30T21:30:00Z")), true, "şənbə 01:30 (cümə növbəsi)");
+  assert.equal(withinHours(night, new Date("2026-10-30T22:00:00Z")), false, "şənbə 02:00 bitdi");
+  assert.equal(withinHours(night, new Date("2026-10-30T17:00:00Z")), false, "cümə 21:00");
+  assert.equal(withinHours(night, new Date("2026-10-23T21:30:00Z")), true, "əvvəlki şənbə 01:30");
+  // bütün gün
+  const all = parseHours({ tz: "Asia/Baku", days: [null, { from: "00:00", to: "00:00" }, null, null, null, null, null] })!;
+  assert.equal(withinHours(all, new Date("2026-10-26T19:59:00Z")), true, "bazar ertəsi 23:59");
+  assert.equal(withinHours(all, new Date("2026-10-26T20:00:00Z")), false, "çərşənbə axşamı 00:00");
+  // 18:00-a qədər: 00:00 bitiş = gecə yarısı
+  const eve = parseHours({ tz: "Asia/Baku", days: [null, { from: "18:00", to: "00:00" }, null, null, null, null, null] })!;
+  assert.equal(withinHours(eve, new Date("2026-10-26T19:30:00Z")), true, "23:30");
+  assert.equal(withinHours(eve, new Date("2026-10-26T20:10:00Z")), false, "çərşənbə axşamı 00:10");
   const ny = parseHours({ tz: "America/New_York", days: Array(7).fill({ from: "09:00", to: "17:00" }) })!;
   assert.equal(withinHours(ny, new Date("2026-10-28T14:00:00Z")), true, "10:00 Nyu-York");
-  for (const bad of [{ tz: "Mars/Base", days: Array(7).fill(null) }, { tz: "Asia/Baku", days: [] }, { tz: "Asia/Baku", days: Array(7).fill(null) }, { tz: "Asia/Baku", days: Array(7).fill({ from: "18:00", to: "09:00" }) }, { tz: "Asia/Baku", days: Array(7).fill({ from: "9:00", to: "18:00" }) }, "x", 5])
+  for (const bad of [{ tz: "Mars/Base", days: Array(7).fill(null) }, { tz: "Asia/Baku", days: [] }, { tz: "Asia/Baku", days: Array(7).fill(null) }, { tz: "Asia/Baku", days: Array(7).fill({ from: "9:00", to: "18:00" }) }, "x", 5])
     assert.throws(() => parseHours(bad), /İşçi saatları/, JSON.stringify(bad).slice(0, 50));
   assert.equal(parseHours(null), null);
 });
@@ -161,4 +176,18 @@ test("proaktiv mesajlar: saxlanır, vidjet konfiqurasiyasına yalnız aktivdirs�
   assert.equal((await c.call("PUT", "/tenant/widget", { proactive: { enabled: false, rules: put.body.widget.proactive.rules } })).status, 200);
   assert.deepEqual((await cfg()).proactive, []);
   assert.equal((await c.call("PUT", "/tenant/widget", { proactive: { enabled: true, rules: [{ id, text: "ab", delaySec: 15, match: "*" }] } })).status, 400);
+});
+
+test("kanal mesajlarının dili", async () => {
+  const { chatLang, channelTexts } = await import("../src/channel-i18n.js");
+  const t = (language?: string) => ({ config: language ? { profile: { language } } : {} }) as never;
+  assert.equal(chatLang(t(), "salam"), "az");
+  assert.equal(chatLang(t("en"), "привет"), "ru");
+  assert.equal(chatLang(t("ru"), "maşın lazımdır, nə qiymətə?"), "az");
+  assert.equal(chatLang(t("en"), "hello"), "en");
+  assert.equal(chatLang(t("xx"), "hello"), "az");
+  for (const l of ["az", "en", "ru", "tr"] as const) {
+    const m = channelTexts(l, 500, 60);
+    assert.match(m.tooLong, /500/); assert.match(m.voiceLong, /60/); assert.ok(m.live.offHours && m.live.on.includes("/bot"));
+  }
 });

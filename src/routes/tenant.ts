@@ -1,5 +1,7 @@
 import express, { Router } from "express";
-import { LIVE_MSG, deliverToChannel, startChannelLive } from "../channel-live.js";
+import { deliverFileToChannel, deliverToChannel, startChannelLive } from "../channel-live.js";
+import { parseOperatorFile } from "../live-files.js";
+import { channelTexts, chatLang } from "../channel-i18n.js";
 import { MAX_TEAM, memberTenant, nameOf, tenantFor, validEmail } from "../team.js";
 import type { Deps } from "../deps.js";
 import type { AiResult } from "../ai.js";
@@ -49,7 +51,9 @@ const isWaiting = (c: LiveChat) => {
   return c.status === "open" && (!last || last.from === "visitor") && (!c.operatorSeenAt || c.operatorSeenAt < (last?.at ?? c.createdAt));
 };
 import { AiError } from "../ai.js";
-import { parseCanned, parseTags } from "../helpdesk.js";
+import { liveOpenNow, parseCanned, parseTags } from "../helpdesk.js";
+import { addBlock, blockKeyOfChat, isBlocked } from "../visitors.js";
+import { buildCustomers, type LeadLite } from "../customers.js";
 const liveItem = (c: LiveChat) => {
   const last = c.messages[c.messages.length - 1];
   return { id: c.id, channel: c.channel?.type ?? null, assignee: c.assignee ? { id: c.assignee.userId, name: c.assignee.name } : null, name: c.name, contact: c.contact, status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt, count: c.messages.length, waiting: isWaiting(c), tags: c.tags ?? [], csat: c.csat?.rating ?? null, notes: c.notes?.length ?? 0, last: last ? { from: last.from, text: last.text.slice(0, 160), at: last.at } : null };
@@ -339,7 +343,8 @@ export function tenantRoutes(deps: Deps) {
   r.get("/live/count", async (_req, res) => {
     const { tenant: t } = await opTenant(currentUser(res));
     const open = await store.listLive(t.tenantId, "open", 200);
-    res.json({ enabled: Boolean(t.widget?.live?.enabled), open: open.length, waiting: open.filter(isWaiting).length });
+    // openNow: işçi saatları nəzərə alınmaqla ziyarətçiyə hazırda "Operatorla yaz" göstərilirmi
+    res.json({ enabled: Boolean(t.widget?.live?.enabled), openNow: liveOpenNow(t), hasHours: Boolean(t.widget?.live?.hours), open: open.length, waiting: open.filter(isWaiting).length });
   });
   r.get("/live", async (req, res) => {
     const { tenant: t } = await opTenant(currentUser(res));
@@ -469,14 +474,14 @@ export function tenantRoutes(deps: Deps) {
         .filter(same).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 5)
         .map((o) => ({ id: o.id, createdAt: o.createdAt, status: o.status, count: o.messages.length, tags: o.tags ?? [], csat: o.csat?.rating ?? null, first: o.messages[0]?.text.slice(0, 120) ?? "" }))
       : [];
-    res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt, channel: c.channel?.type ?? null, assignee: c.assignee ?? null, notes: c.notes ?? [], tags: c.tags ?? [], csat: c.csat ?? null, page: c.page ?? null, previous } });
+    res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt, channel: c.channel?.type ?? null, assignee: c.assignee ?? null, notes: c.notes ?? [], tags: c.tags ?? [], csat: c.csat ?? null, page: c.page ?? null, previous, visitor: c.visitor ? { ...c.visitor, pid: undefined } : null, blocked: isBlocked(t, blockKeyOfChat(c)) } });
   });
   // Canlı söhbətdə ziyarətçinin göndərdiyi şəkil: yalnız bu hesabın operatorları, yalnız həmin söhbətin faylı
   r.get("/live/:id/files/:fid", async (req, res) => {
     const { tenant: t } = await opTenant(currentUser(res));
     const f = await store.getLiveFile(t.tenantId, String(req.params.fid ?? "").slice(0, 60));
     if (!f || f.chatId !== String(req.params.id)) throw new HttpError(404, "Fayl tapılmadı", "FILE_NOT_FOUND");
-    res.set({ "Content-Type": f.mime, "Cache-Control": "private, max-age=3600", "Content-Security-Policy": "default-src 'none'; sandbox", "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline" });
+    res.set({ "Content-Type": f.mime, "Cache-Control": "private, max-age=3600", "Content-Security-Policy": "default-src 'none'; sandbox", "X-Content-Type-Options": "nosniff", "Content-Disposition": f.name ? `inline; filename*=UTF-8''${encodeURIComponent(f.name)}` : "inline" });
     res.send(Buffer.from(f.data, "base64"));
   });
 
@@ -499,9 +504,22 @@ export function tenantRoutes(deps: Deps) {
     if (v.chat === "live") throw new HttpError(409, "Bu ziyarətçi artıq operatorla yazışır", "VISITOR_IN_LIVE");
     if (hasInvite(t.tenantId, pid)) throw new HttpError(409, "Bu ziyarətçiyə artıq yazmısan, cavab gözlənilir", "ALREADY_INVITED");
     const who = nameOf(user), now = new Date(), token = randomBytes(24).toString("hex");
+    // Ziyarətçi AI ilə yazışırdısa (operator söhbəti "ələ alır"): son yazışma kontekst kimi söhbətə düşür
+    let context: LiveChat["context"] = [];
+    if (v.sid) {
+      try {
+        const conv = await ai.conversation(t.tenantId, v.sid);
+        const msgs = (Array.isArray(conv.messages) ? conv.messages : []) as { message?: unknown; answer?: unknown }[];
+        context = msgs.slice(-5).flatMap((m) => [
+          ...(typeof m.message === "string" && m.message ? [{ role: "user" as const, text: m.message.slice(0, 1000) }] : []),
+          ...(typeof m.answer === "string" && m.answer ? [{ role: "model" as const, text: m.answer.slice(0, 1000) }] : []),
+        ]).slice(-10);
+      } catch { /* sorğu jurnalı söndürülüb və ya AI servisi cavab vermədi: kontekstsiz davam */ }
+    }
     const chat: LiveChat = {
-      id: randomUUID(), tenantId: t.tenantId, tokenHash: sha(token).toString("hex"), name: "", contact: "", status: "open", context: [],
+      id: randomUUID(), tenantId: t.tenantId, tokenHash: sha(token).toString("hex"), name: "", contact: "", status: "open", context,
       page: { path: v.path, ...(v.title && { title: v.title }) },
+      visitor: { pid, ...(v.tz && { tz: v.tz }), ...(v.first && { first: v.first }), ...(v.visits && { visits: v.visits }), ...(v.lang && { lang: v.lang }), mobile: v.mobile, ...(v.ref && { ref: v.ref }) },
       messages: [{ from: "operator", text, at: now, by: who }], createdAt: now, updatedAt: now, operatorSeenAt: now, assignee: { userId: user.id, name: who },
     };
     await store.createLive(chat);
@@ -539,6 +557,30 @@ export function tenantRoutes(deps: Deps) {
     hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "message" });   // operatorun digər tabları və komanda yenilənir
     res.status(201).json({ total: next?.messages.length ?? chat.messages.length });
   });
+  // Operatorun faylı: şəkil və ya PDF (+ istəyə bağlı izah). Kanal söhbətində əvvəlcə kanala çatdırılır.
+  r.post("/live/:id/files", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`live:opfile:${user.id}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox sayda fayl göndərdin, bir az gözlə", "RATE_LIMITED");
+    const { tenant: t } = await opTenant(user);
+    const f = parseOperatorFile(req.body);
+    const caption = typeof req.body?.text === "string" ? req.body.text.trim().slice(0, 1000) : "";
+    const chat = await store.getLive(t.tenantId, String(req.params.id));
+    if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
+    if (chat.status === "closed") throw new HttpError(409, "Söhbət bağlanıb", "LIVE_CLOSED");
+    const id = randomUUID();
+    if (chat.channel) {
+      try { await deliverFileToChannel(deps, t, chat, { id, b64: f.b64, mime: f.mime, name: f.name, caption }); }
+      catch { throw new HttpError(502, chat.channel.type === "telegram" ? "Fayl Telegram-a göndərilə bilmədi" : "Fayl WhatsApp-a göndərilə bilmədi", "CHANNEL_SEND_FAILED"); }
+    }
+    await store.addLiveFile({ id, tenantId: t.tenantId, chatId: chat.id, mime: f.mime, name: f.name, data: f.b64, at: new Date() });
+    const who = nameOf(user);
+    const text = caption || (f.mime === "application/pdf" ? `📄 ${f.name}` : "📷");
+    const next = await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date(), by: who, file: { id, mime: f.mime, name: f.name } }, { operatorSeenAt: new Date(), ...(!chat.assignee && { assignee: { userId: user.id, name: who } }) });
+    const total = next?.messages.length ?? chat.messages.length;
+    hub.toChat(chat.id, { t: "new", total });
+    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "message" });
+    res.status(201).json({ total });
+  });
   r.post("/live/:id/close", async (req, res) => {
     const { tenant: t } = await opTenant(currentUser(res));
     const chat = await store.getLive(t.tenantId, String(req.params.id));
@@ -547,7 +589,7 @@ export function tenantRoutes(deps: Deps) {
       await store.pushLive(t.tenantId, chat.id, { from: "system", text: "closed", at: new Date() }, { status: "closed", operatorSeenAt: new Date() });
       hub.toChat(chat.id, { t: "new", total: chat.messages.length + 1 });
       hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "close" });
-      if (chat.channel) void deliverToChannel(deps, t, chat, LIVE_MSG.back).catch(() => {}); // bot geri qayıtdı xəbəri (alınmasa vacib deyil)
+      if (chat.channel) void deliverToChannel(deps, t, chat, channelTexts(chatLang(t, [...chat.messages].reverse().find((m) => m.from === "visitor")?.text ?? ""), 0, 0).live.back).catch(() => {}); // bot geri qayıtdı xəbəri (alınmasa vacib deyil)
     }
     res.json({ ok: true });
   });
@@ -743,9 +785,66 @@ export function tenantRoutes(deps: Deps) {
   r.get("/kb/unanswered", async (_req, res) => { res.json(await ai.kbUnanswered((await mine(currentUser(res).id)).tenantId)); });
   r.delete("/kb/unanswered/:id", async (req, res) => { res.json(await ai.kbDeleteUnanswered((await mine(currentUser(res).id)).tenantId, sid(req.params.id))); });
   r.get("/kb/leads", async (_req, res) => { res.json(await ai.kbLeads((await mine(currentUser(res).id)).tenantId)); });
+  // Müraciət: status, prioritet, məsul, daxili qeyd (kim etdiyi tarixçəyə yazılır)
   r.patch("/kb/leads/:id", async (req, res) => {
-    if (typeof req.body?.handled !== "boolean") throw new HttpError(400, "handled true/false olmalıdır");
-    res.json(await ai.kbHandleLead((await mine(currentUser(res).id)).tenantId, sid(req.params.id), req.body.handled));
+    const user = currentUser(res), b = req.body ?? {};
+    const patch: Record<string, unknown> = { by: nameOf(user) };
+    if (b.handled !== undefined && typeof b.handled !== "boolean") throw new HttpError(400, "handled true/false olmalıdır");
+    if (b.status !== undefined && !["new", "open", "pending", "solved"].includes(b.status)) throw new HttpError(400, "Status düzgün deyil");
+    if (b.priority !== undefined && !["low", "normal", "high"].includes(b.priority)) throw new HttpError(400, "Prioritet düzgün deyil");
+    if (b.assignee !== undefined && b.assignee !== null && !(typeof b.assignee?.name === "string" && b.assignee.name.trim())) throw new HttpError(400, "Məsul düzgün deyil");
+    if (b.note !== undefined && (typeof b.note !== "string" || b.note.length > 1000)) throw new HttpError(400, "Qeyd 1000 simvoldan uzun ola bilməz");
+    for (const k of ["handled", "status", "priority", "assignee", "note"] as const) if (b[k] !== undefined) patch[k] = b[k];
+    if (Object.keys(patch).length === 1) throw new HttpError(400, "Dəyişiklik yoxdur");
+    res.json(await ai.kbUpdateLead((await mine(user.id)).tenantId, sid(req.params.id), patch));
+  });
+
+  // ---- Bloklama (spam, təhqir): ziyarətçi çata yaza bilmir, kanalda bot cavab vermir ----
+  r.get("/blocks", async (_req, res) => {
+    const t = await mine(currentUser(res).id);
+    res.json({ items: (t.blocked ?? []).map((b) => ({ key: b.key, label: b.label, at: b.at, by: b.by })) });
+  });
+  const block = async (user: User, t: TenantRecord, key: string, label: string) => {
+    await store.updateTenant(t.tenantId, { blocked: addBlock(t.blocked, { key, label: label.slice(0, 80), at: new Date(), by: nameOf(user) }) });
+  };
+  r.post("/live/:id/block", async (req, res) => {
+    const user = currentUser(res);
+    const { tenant: t } = await opTenant(user);
+    const chat = await store.getLive(t.tenantId, String(req.params.id));
+    if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
+    const key = blockKeyOfChat(chat);
+    if (!key) throw new HttpError(409, "Bu söhbəti bloklamaq olmur (ziyarətçi tanınmır)", "NOT_BLOCKABLE");
+    await block(user, t, key, chat.name || chat.contact || (chat.channel ? chat.channel.type : "Ziyarətçi"));
+    if (chat.status === "open") {
+      await store.pushLive(t.tenantId, chat.id, { from: "system", text: "closed", at: new Date() }, { status: "closed", operatorSeenAt: new Date() });
+      hub.toChat(chat.id, { t: "new", total: chat.messages.length + 1 });
+    }
+    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "close" });
+    res.json({ ok: true });
+  });
+  r.post("/visitors/:pid/block", async (req, res) => {
+    const user = currentUser(res);
+    const { tenant: t } = await opTenant(user);
+    const pid = String(req.params.pid ?? "");
+    if (!/^[a-f0-9]{16}$/.test(pid)) throw new HttpError(400, "Ziyarətçi düzgün deyil");
+    const v = getVisitor(t.tenantId, pid);
+    await block(user, t, `v:${pid}`, v?.title ? `Ziyarətçi · ${v.title}` : "Ziyarətçi");
+    res.json({ ok: true });
+  });
+  r.delete("/blocks/:key", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const key = String(req.params.key ?? "");
+    await store.updateTenant(t.tenantId, { blocked: (t.blocked ?? []).filter((b) => b.key !== key) });
+    res.json({ ok: true });
+  });
+
+  // ---- Müştərilər: canlı söhbətlər, kanal yazışmaları və müraciətlər bir kartda (telefon/e-poçt/kanal ID-si ilə birləşir) ----
+  r.get("/customers", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const [open, closed, leadsRes] = await Promise.all([
+      store.listLive(t.tenantId, "open", 300).catch(() => []), store.listLive(t.tenantId, "closed", 700).catch(() => []), ai.kbLeads(t.tenantId).catch(() => ({ items: [] })),
+    ]);
+    res.json({ items: buildCustomers(t, [...open, ...closed], (leadsRes.items ?? []) as LeadLite[], typeof req.query.q === "string" ? req.query.q : "") });
   });
   r.delete("/kb/leads/:id", async (req, res) => { res.json(await ai.kbDeleteLead((await mine(currentUser(res).id)).tenantId, sid(req.params.id))); });
 

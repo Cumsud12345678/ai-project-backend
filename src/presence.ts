@@ -5,7 +5,8 @@
 // Tək server prosesi üçündür (hub.ts kimi). Çox serverdə ziyarətçi başqa serverə düşsə siyahı natamam olar.
 import { createHash } from "node:crypto";
 
-export const PRESENCE_TTL_MS = 45_000;
+// Gizli vərəqdə vidjet 30 saniyədən bir xəbər verir, brauzer isə arxa planda taymerləri dəqiqəyə qədər yavaşlada bilər
+export const PRESENCE_TTL_MS = 90_000;
 const INVITE_TTL_MS = 10 * 60_000;
 const MAX_PER_TENANT = 300;
 
@@ -13,6 +14,12 @@ export type ChatState = "none" | "ai" | "live";
 export type Visitor = {
   pid: string; path: string; title: string; ref: string; lang: string; mobile: boolean; chat: ChatState;
   since: number; seen: number; pages: number;
+  /** AI söhbətinin ID-si (sid): panel söhbəti canlı izləyir və operator onu ələ alanda kontekst kimi götürür */
+  sid?: string;
+  /** Ziyarətçi hazırda başqa vərəqdədir (sayt açıq qalıb) */
+  hidden?: boolean;
+  /** Brauzerin bildirdiyi: saat qurşağı, ilk ziyarət (ms), ziyarət sayı */
+  tz?: string; first?: number; visits?: number;
 };
 type Entry = Visitor & { lastPath: string };
 
@@ -26,7 +33,7 @@ function prune(m: Map<string, Entry>, now = Date.now()) {
 }
 
 /** Ziyarətçinin xəbəri. Qaytarır: { pid, isNew } (yeni gələn ziyarətçi panelə dərhal siqnal verir). Limit dolubsa null. */
-export function beat(tenantId: string, vid: string, info: Omit<Visitor, "pid" | "since" | "seen" | "pages">): { pid: string; isNew: boolean } | null {
+export function beat(tenantId: string, vid: string, info: Omit<Visitor, "pid" | "since" | "seen" | "pages" | "sid" | "hidden" | "tz" | "first" | "visits"> & { sid?: string; hidden?: boolean; tz?: string; first?: number; visits?: number }): { pid: string; isNew: boolean } | null {
   const now = Date.now();
   let m = byTenant.get(tenantId);
   if (!m) { m = new Map(); byTenant.set(tenantId, m); }
@@ -34,7 +41,7 @@ export function beat(tenantId: string, vid: string, info: Omit<Visitor, "pid" | 
   const cur = m.get(pid);
   if (cur && now - cur.seen <= PRESENCE_TTL_MS) {
     // Gəldiyi yer: ilk xarici mənbə saxlanır (sayt daxilində keçiddə referrer saytın özü olur)
-    Object.assign(cur, info, { ref: cur.ref || info.ref, seen: now, pages: cur.pages + (info.path !== cur.lastPath ? 1 : 0), lastPath: info.path });
+    Object.assign(cur, { sid: undefined, hidden: undefined }, info, { ref: cur.ref || info.ref, seen: now, pages: cur.pages + (info.path !== cur.lastPath ? 1 : 0), lastPath: info.path });
     return { pid, isNew: false };
   }
   prune(m, now);

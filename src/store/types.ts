@@ -92,6 +92,8 @@ export type TenantRecord = {
   canned?: CannedReply[];
   /** Yeni müraciətin ötürüldüyü yerlər. Bitrix24 və webhook linkləri sirr daşıyır: şifrəli saxlanır (CHANNEL_SECRET_KEY). */
   leadForward?: LeadForward;
+  /** Bloklanmış ziyarətçilər və kanal müştəriləri (spam, təhqir) */
+  blocked?: BlockEntry[];
 };
 
 /** Müştərinin Telegram botu. Token şifrələnmiş saxlanır, panelə qayıtmır. `hook` webhook ünvanındakı təsadüfi hissədir, `secret` Telegram-ın hər sorğuya qoyduğu başlıqdır. */
@@ -111,9 +113,9 @@ export type ChannelSession = {
   updatedAt: Date;
 };
 
-export type LiveMessage = { from: "visitor" | "operator" | "system"; text: string; at: Date; /** operator mesajını yazan komanda üzvü */ by?: string; /** ziyarətçinin göndərdiyi şəkil (baytlar ayrıca, live_files-da) */ file?: { id: string; mime: string } };
+export type LiveMessage = { from: "visitor" | "operator" | "system"; text: string; at: Date; /** operator mesajını yazan komanda üzvü */ by?: string; /** göndərilən fayl: ziyarətçinin şəkli və ya operatorun şəkli/PDF-i (baytlar ayrıca, live_files-da) */ file?: { id: string; mime: string; name?: string } };
 /** Canlı söhbətdə göndərilən şəkil. Söhbət sənədini böyütməmək üçün ayrıca saxlanır, söhbətlə eyni müddətdə silinir. */
-export type LiveFile = { id: string; tenantId: string; chatId: string; mime: "image/png" | "image/jpeg" | "image/webp"; data: string; at: Date };
+export type LiveFile = { id: string; tenantId: string; chatId: string; mime: "image/png" | "image/jpeg" | "image/webp" | "application/pdf"; name?: string; data: string; at: Date };
 /** Ziyarətçi ilə operator arasında canlı söhbət. Ziyarətçi yalnız `tokenHash`-ın sahibi olan token ilə oxuya/yaza bilər. */
 export type LiveChat = {
   id: string; tenantId: string; tokenHash: string;
@@ -140,7 +142,13 @@ export type LiveChat = {
   csat?: { rating: number; comment?: string; at: Date };
   /** Ziyarətçinin söhbəti başladığı səhifə (yalnız yol və başlıq, sorğu parametrləri saxlanmır) */
   page?: { path: string; title?: string };
+  /** Sayt ziyarətçisi: pid (brauzer ID-sindən törəmə, bloklamaq üçün) və brauzerin özü bildirdiyi məlumat */
+  visitor?: VisitorInfo & { pid: string };
 };
+/** Ziyarətçi haqqında (brauzer bildirir, IP saxlanmır): saat qurşağı, dil, cihaz, ilk ziyarət, ziyarət sayı, gəldiyi sayt */
+export type VisitorInfo = { tz?: string; lang?: string; mobile?: boolean; first?: number; visits?: number; ref?: string };
+/** Bloklanmış ziyarətçi və ya kanal müştərisi. key: "v:<pid>" | "tg:<chatId>" | "wa:<chatId>" */
+export type BlockEntry = { key: string; label: string; at: Date; by: string };
 export type FeedbackRecord = { tenantId: string; rating: 1 | -1; question: string; answer: string; at: Date };
 
 export type ErrorSource = "api" | "ai" | "mail" | "widget" | "process" | "client" | "job" | "channel";
@@ -190,7 +198,7 @@ export interface Store {
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
   /** Yalnız vidjet loqosunu dəyişir (bütün vidjet sənədini yenidən yazmır). null = sil. */
   setWidgetLogo(tenantId: string, logo: WidgetImage | null, kind?: WidgetImageKind): Promise<void>;
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;

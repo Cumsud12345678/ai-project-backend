@@ -4,6 +4,7 @@ import { liveOpenNow } from "./helpdesk.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Deps } from "./deps.js";
 import { decryptSecret } from "./secrets.js";
+import { signedFileUrl } from "./live-files.js";
 import type { LiveChat, TenantRecord } from "./store/types.js";
 import { hub } from "./hub.js";
 import { notifyTeam } from "./team.js";
@@ -24,13 +25,6 @@ export function wantsHuman(t: string): boolean {
 }
 export const isBotCmd = (t: string) => /^\/(bot|ai)(@\w+)?$/i.test(t.trim());
 
-export const LIVE_MSG = {
-  off: "Operatorla canlı yazışma hazırda aktiv deyil. Sualınızı yazın, mən cavab verim.",
-  on: "Operatora qoşulursunuz. Mesajınızı yazın, operator sizə burada cavab verəcək. Botla davam etmək üçün /bot yazın.",
-  back: "Operator söhbəti bitirdi. Yenə sualınız olsa, yazın.",
-  hint: "Operatorla yazışmaq üçün /operator yazın.",
-  failed: "Operatorun mesajı sizə çatdırıla bilmədi.",
-} as const;
 
 export const liveEnabled = (t: TenantRecord) => liveOpenNow(t);
 
@@ -44,6 +38,24 @@ export async function deliverToChannel(deps: Deps, t: TenantRecord, chat: LiveCh
   } else {
     if (!t.whatsapp?.enabled) throw new Error("WhatsApp qoşulu deyil");
     await deps.whatsapp.sendText(t.tenantId, ch.ref || `${ch.chatId}@s.whatsapp.net`, text);
+  }
+}
+
+/** Operatorun faylını kanala göndərir. Telegram faylı müddətli imzalı linkdən özü yükləyir. Alınmasa xəta atır. */
+export async function deliverFileToChannel(deps: Deps, t: TenantRecord, chat: LiveChat, f: { id: string; b64: string; mime: string; name: string; caption: string }): Promise<void> {
+  const ch = chat.channel;
+  if (!ch) return;
+  if (ch.type === "telegram") {
+    if (!t.telegram?.enabled) throw new Error("Telegram qoşulu deyil");
+    const url = signedFileUrl(deps.config, t.tenantId, f.id);
+    if (!url) throw new Error("CHANNEL_SECRET_KEY yoxdur");
+    const token = decryptSecret(t.telegram.tokenEnc, deps.config.secretKey);
+    if (f.mime.startsWith("image/")) await deps.telegram.sendPhoto(token, ch.chatId, url, f.caption);
+    else if (deps.telegram.sendDocument) await deps.telegram.sendDocument(token, ch.chatId, url, f.caption);
+    else throw new Error("Telegram sənəd göndərə bilmir");
+  } else {
+    if (!t.whatsapp?.enabled) throw new Error("WhatsApp qoşulu deyil");
+    await deps.whatsapp.sendFile(t.tenantId, ch.ref || `${ch.chatId}@s.whatsapp.net`, { data: Buffer.from(f.b64, "base64"), mime: f.mime, name: f.name, caption: f.caption });
   }
 }
 

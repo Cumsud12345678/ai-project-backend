@@ -36,6 +36,7 @@ export type AiClient = {
   clearActionLog(tenantId: string): Promise<AiResult>;
   conversations(tenantId: string, query: string): Promise<AiResult>;
   conversation(tenantId: string, sid: string): Promise<AiResult>;
+  recordClick(tenantId: string, sid: string, c: { id: string; title: string }): Promise<AiResult>;
   queries(tenantId: string, query: string): Promise<AiResult>;
   queryStats(tenantId: string, days?: number): Promise<AiResult>;
   queryTrend(tenantId: string, days?: number): Promise<AiResult>;
@@ -59,6 +60,7 @@ export type AiClient = {
   kbLeads(tenantId: string): Promise<AiResult>;
   kbAddLead(tenantId: string, lead: { name: string; contact: string; question: string; conversation?: { role: string; text: string }[] }): Promise<AiResult>;
   kbHandleLead(tenantId: string, id: string, handled: boolean): Promise<AiResult>;
+  kbUpdateLead(tenantId: string, id: string, patch: Record<string, unknown>): Promise<AiResult>;
   kbDeleteLead(tenantId: string, id: string): Promise<AiResult>;
   billing(tenantId: string, admin?: boolean): Promise<AiResult>;
   billingTopupRequest(tenantId: string, amountAzn: number): Promise<AiResult>;
@@ -132,6 +134,7 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     testPrivateData: (id, body) => request("POST", `${t(id)}/private-data/test`, body, 15_000),
     conversations: (id, query) => request("GET", `${t(id)}/conversations${query ? `?${query}` : ""}`),
     conversation: (id, sid) => request("GET", `${t(id)}/conversations/${encodeURIComponent(sid)}`),
+    recordClick: (id, sid, c) => request("POST", `${t(id)}/conversations/${encodeURIComponent(sid)}/clicks`, c),
     queries: (id, query) => request("GET", `${t(id)}/queries${query ? `?${query}` : ""}`),
     queryTrend: (id, days) => request("GET", `${t(id)}/queries/trend${days ? `?days=${days}` : ""}`),
     insights: (id, body) => request("POST", `${t(id)}/insights`, body, 75_000),
@@ -153,6 +156,7 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     kbLeads: (id) => request("GET", `${t(id)}/kb/leads`),
     kbAddLead: (id, lead) => request("POST", `${t(id)}/kb/leads`, lead),
     kbHandleLead: (id, x, handled) => request("PATCH", `${t(id)}/kb/leads/${encodeURIComponent(x)}`, { handled }),
+    kbUpdateLead: (id, x, patch) => request("PATCH", `${t(id)}/kb/leads/${encodeURIComponent(x)}`, patch),
     kbDeleteLead: (id, x) => request("DELETE", `${t(id)}/kb/leads/${encodeURIComponent(x)}`),
     billing: (id, admin) => request("GET", `${t(id)}/billing${admin ? "?admin=1" : ""}`),
     billingTopupRequest: (id, amountAzn) => request("POST", `${t(id)}/billing/topup-request`, { amountAzn }),

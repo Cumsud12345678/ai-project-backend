@@ -5,6 +5,8 @@ import { AiError } from "./ai.js";
 import { notifyBalance, notifyDailyLimit } from "./billing.js";
 import type { Deps } from "./deps.js";
 import { recordError } from "./errorlog.js";
+import { chatLang, channelTexts } from "./channel-i18n.js";
+import { isBlocked } from "./visitors.js";
 import { AUDIO_MAX_SECONDS, checkBufferAudio, imageEnabled, checkBufferImage } from "./image-input.js";
 import { cleanContact } from "./kb.js";
 import type { ChannelSession, TenantRecord } from "./store/types.js";
@@ -12,29 +14,13 @@ import { cardText, parseDecision, publicConfirm } from "./action-card.js";
 import { hub } from "./hub.js";
 import { notifyOperators } from "./operator-notify.js";
 import { forwardLead } from "./lead-forward.js";
-import { LIVE_MSG, LIVE_STALE_MS, isBotCmd, isOperatorCmd, liveEnabled, startChannelLive, wantsHuman } from "./channel-live.js";
+import { LIVE_STALE_MS, isBotCmd, isOperatorCmd, liveEnabled, startChannelLive, wantsHuman } from "./channel-live.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, limitsOf, modeOf } from "./widget.js";
 
 export const MAX_TEXT = 500;
 const HISTORY_KEEP = 10;
 const SESSION_IDLE_MS = 12 * 60 * 60_000; // 12 saat yazılmayıbsa yeni söhbət sayılır
 
-export const MSG = {
-  textOnly: "Hələlik yalnız yazılı mesajlara cavab verə bilirəm. Sualınızı yazın.",
-  tooLong: `Mesaj çox uzundur (maksimum ${MAX_TEXT} simvol). Qısaldıb yenidən yazın.`,
-  slowDown: "Çox tez-tez yazırsınız, bir az gözləyib yenidən yazın.",
-  dayLimit: "Bu gün üçün sual limitinə çatdınız. Sabah yenidən yazın.",
-  busy: "Çat müvəqqəti məşğuldur, bir azdan yenidən yazın.",
-  offline: "Çat hazırda cavab verə bilmir. Bir az sonra yenidən yazın.",
-  askContact: "Bu sualın cavabını tapa bilmədim. İstəsəniz operator sizinlə əlaqə saxlasın: telefon nömrənizi və ya e-poçtunuzu yazın.",
-  imageOff: "Şəkil qəbul edə bilmirəm. Sualınızı yazın.",
-  imageFail: "Şəkli oxuya bilmədim (PNG, JPG və ya WebP, kiçik ölçüdə olmalıdır). Başqa şəkil göndərin və ya sualı yazın.",
-  voiceLong: `Səsli mesaj çox uzundur (maksimum ${AUDIO_MAX_SECONDS} saniyə). Qısa göndərin və ya sualı yazın.`,
-  voiceFail: "Səsli mesajı eşidə bilmədim. Yenidən göndərin və ya sualı yazın.",
-  actionBusy: "Əməliyyat təsdiqi üçün çox cəhd etdiniz, bir az gözləyin.",
-  actionUnknown: "Əməliyyatın icra olunub-olunmadığı bəlli deyil. Təkrar etməyin, operatorla yoxlayın.",
-  thanks: "Təşəkkürlər, müraciətiniz qəbul edildi. Operator tezliklə sizinlə əlaqə saxlayacaq.",
-} as const;
 
 export const clip = (v: unknown, n: number) => String(v ?? "").trim().slice(0, n);
 const httpUrl = (v: unknown) => (typeof v === "string" && /^https?:\/\//i.test(v) && v.length < 2000 ? v : "");
@@ -105,33 +91,37 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
   const { store, ai, limiter, mailer } = deps;
   const { channel, chatId, label } = io;
   let text = io.text.trim();
+  // Sistem mesajları müştərinin dilində (kirill → rus, "ə" → az, əks halda biznesin dili)
+  const M = channelTexts(chatLang(tenant, text), MAX_TEXT, AUDIO_MAX_SECONDS);
   const lk = `${channel}:`;
   // Eyni mesajda xəbərdarlıq spamı olmasın: dəqiqədə ən çox 1 xəbərdarlıq
   const warn = async (m: string) => { if (limiter.hit(`${lk}warn:${tenant.tenantId}:${chatId}`, 1, 60_000)) await io.send(m); };
   // Admin hesabı dayandırıbsa bot susur (AI çağırılmır, limit sayılmır)
   if (tenant.suspended) return Promise.resolve();
+  // Bloklanmış müştəri (spam, təhqir): bot cavab vermir, AI çağırılmır
+  if (isBlocked(tenant, `${channel === "telegram" ? "tg" : "wa"}:${chatId}`)) return Promise.resolve();
 
   return serial(`${tenant.tenantId}:${channel}:${chatId}`, async () => {
     // Səsli mesaj əvvəlcə mətnə çevrilir: sonrakı bütün axın (limit, canlı operator, AI) adi mətnlə işləyir
     if (io.audio) {
-      if (typeof io.audio.seconds === "number" && io.audio.seconds > AUDIO_MAX_SECONDS) return warn(MSG.voiceLong);
-      if (!limiter.hit(`${lk}voice:${tenant.tenantId}:${chatId}`, 6, 10 * 60_000) || !limiter.hit(`${lk}voicesite:${tenant.tenantId}`, 200, 60 * 60_000)) return warn(MSG.slowDown);
+      if (typeof io.audio.seconds === "number" && io.audio.seconds > AUDIO_MAX_SECONDS) return warn(M.voiceLong);
+      if (!limiter.hit(`${lk}voice:${tenant.tenantId}:${chatId}`, 6, 10 * 60_000) || !limiter.hit(`${lk}voicesite:${tenant.tenantId}`, 200, 60 * 60_000)) return warn(M.slowDown);
       let buf: Buffer | null = null;
       try { buf = await io.audio.load(); } catch { buf = null; }
       const b64 = checkBufferAudio(buf);
-      if (!b64) return warn(MSG.voiceFail);
+      if (!b64) return warn(M.voiceFail);
       try { void Promise.resolve(io.typing()).catch(() => {}); } catch { /* göstərici vacib deyil */ }
       let heard = "";
       try { const r = await ai.transcribe(tenant.tenantId, b64); heard = typeof r.text === "string" ? r.text.trim() : ""; }
       catch (e) {
         if (e instanceof AiError) {
           if (e.status !== 402) await recordError(store, { source: "channel", message: `${label}: səs mətnə çevrilmədi (${e.status}) ${e.message}`, tenantId: tenant.tenantId, code: e.code, status: e.status });
-          await io.send(MSG.offline);
+          await io.send(M.offline);
           return;
         }
         throw e;
       }
-      if (!heard) return warn(MSG.voiceFail);
+      if (!heard) return warn(M.voiceFail);
       text = clip(`${text ? `${text} ` : ""}${heard}`, MAX_TEXT);
     }
     const mode = modeOf(tenant.config);
@@ -148,7 +138,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       if (isBotCmd(text)) {
         await store.pushLive(tenant.tenantId, liveNow.id, { from: "system", text: "closed", at: new Date() }, { status: "closed" });
         hub.toOperators(tenant.tenantId, { t: "live", id: liveNow.id, kind: "close" });
-        await io.send(LIVE_MSG.back);
+        await io.send(M.live.back);
         return;
       }
       if (!limiter.hit(`${lk}liverate:${tenant.tenantId}:${chatId}`, 20, 60_000)) return;
@@ -170,9 +160,9 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       void notifyOperators(deps, tenant, { kind: "message", chatId: liveNow.id, channel: label, name: liveNow.name || clip(io.senderName, 80), text: body });
       return;
     } else if ((isOperatorCmd(text) || (liveEnabled(tenant) && wantsHuman(text))) && !io.reset) {
-      if (!liveEnabled(tenant)) { await io.send(LIVE_MSG.off); return; }
+      if (!liveEnabled(tenant)) { await io.send(tenant.widget?.live?.enabled ? M.live.offHours : M.live.off); return; }
       await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), name: clip(io.senderName, 80), history: session.history, ...(!isOperatorCmd(text) && { first: text }) });
-      await io.send(LIVE_MSG.on);
+      await io.send(M.live.on);
       return;
     }
 
@@ -182,21 +172,21 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       return;
     }
     const imgOn = Boolean(io.image) && imageEnabled(tenant);
-    if (!text && !imgOn) return warn(io.image ? MSG.imageOff : MSG.textOnly);
-    if (text.length > MAX_TEXT) return warn(MSG.tooLong);
+    if (!text && !imgOn) return warn(io.image ? M.imageOff : M.textOnly);
+    if (text.length > MAX_TEXT) return warn(M.tooLong);
 
     // Gözləyən əməliyyat: yalnız TAM "BƏLİ"/"XEYR" cavabı qərar sayılır; başqa mesaj kartı ləğv edir və adi mesaj kimi davam edir
     if (session.pendingAction && !io.image) {
       const decision = parseDecision(text);
       if (decision) {
-        if (!limiter.hit(`${lk}act:${tenant.tenantId}:${chatId}`, 10, 10 * 60_000)) return warn(MSG.actionBusy);
+        if (!limiter.hit(`${lk}act:${tenant.tenantId}:${chatId}`, 10, 10 * 60_000)) return warn(M.actionBusy);
         let msg: string;
         try {
           const r = await ai.actionConfirm(tenant.tenantId, { id: session.pendingAction.id, decision, sid: session.sid });
-          msg = clip(r.message, 400) || MSG.actionUnknown;
+          msg = clip(r.message, 400) || M.actionUnknown;
         } catch (e) {
-          if (e instanceof AiError && e.code === "AI_UNREACHABLE") msg = MSG.actionUnknown;
-          else if (e instanceof AiError) { await recordError(store, { source: "channel", message: `${label}: əməliyyat təsdiqi alınmadı (${e.status}) ${e.message}`, tenantId: tenant.tenantId, code: e.code, status: e.status }); await io.send(MSG.offline); return; }
+          if (e instanceof AiError && e.code === "AI_UNREACHABLE") msg = M.actionUnknown;
+          else if (e instanceof AiError) { await recordError(store, { source: "channel", message: `${label}: əməliyyat təsdiqi alınmadı (${e.status}) ${e.message}`, tenantId: tenant.tenantId, code: e.code, status: e.status }); await io.send(M.offline); return; }
           else throw e;
         }
         await store.saveChannelSession({ ...session, pendingAction: null, updatedAt: new Date() });
@@ -214,7 +204,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
         const question = session.pending.question;
         try { await ai.kbAddLead(tenant.tenantId, { name, contact, question, conversation: session.history.slice(-10) }); }
         catch (e) {
-          if (e instanceof AiError) { await recordError(store, { source: "channel", message: `${label} müraciəti yazıla bilmədi: ${e.message}`, tenantId: tenant.tenantId, code: e.code }); await io.send(MSG.offline); return; }
+          if (e instanceof AiError) { await recordError(store, { source: "channel", message: `${label} müraciəti yazıla bilmədi: ${e.message}`, tenantId: tenant.tenantId, code: e.code }); await io.send(M.offline); return; }
           throw e;
         }
         void forwardLead(deps, tenant, { source: label, name, contact, question, conversation: session.history.slice(-10) });
@@ -223,7 +213,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
           if (owner) await mailer.send(owner.email, `Yeni müraciət (${label}): ${tenant.businessName}`, `${label} kanalından yeni müraciət var.\n\nAd: ${name || "-"}\nƏlaqə: ${contact}\nSual: ${question || "-"}`);
         } catch { /* bildiriş alınmasa da müraciət paneldə qalır; mailer xətası artıq jurnala yazılıb */ }
         await store.saveChannelSession({ ...session, pending: null, updatedAt: new Date() });
-        await io.send(MSG.thanks);
+        await io.send(M.thanks);
         return;
       }
       session = { ...session, pending: null };
@@ -231,18 +221,18 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
 
     // Limitlər vidjetlə eyni qaydadadır: müştərinin təyin etdiyi günlük və saatlıq həddlər
     const lim = limitsOf(tenant.widget);
-    if (!limiter.hit(`${lk}min:${tenant.tenantId}:${chatId}`, 10, 60_000)) return warn(MSG.slowDown);
-    if (lim.perVisitorDay > 0 && !limiter.hit(`${lk}day:${tenant.tenantId}:${chatId}`, lim.perVisitorDay, 24 * 60 * 60_000)) return warn(MSG.dayLimit);
-    if (lim.siteHour > 0 && !limiter.hit(`${lk}hour:${tenant.tenantId}`, lim.siteHour, 60 * 60_000)) return warn(MSG.busy);
+    if (!limiter.hit(`${lk}min:${tenant.tenantId}:${chatId}`, 10, 60_000)) return warn(M.slowDown);
+    if (lim.perVisitorDay > 0 && !limiter.hit(`${lk}day:${tenant.tenantId}:${chatId}`, lim.perVisitorDay, 24 * 60 * 60_000)) return warn(M.dayLimit);
+    if (lim.siteHour > 0 && !limiter.hit(`${lk}hour:${tenant.tenantId}`, lim.siteHour, 60 * 60_000)) return warn(M.busy);
 
     // Şəkil: ayrıca limit (ziyarətçi başına 10 dəqiqədə 6, sayt üzrə saatda 200), sonra yüklənir və yoxlanır
     let image: string | undefined;
     if (imgOn) {
-      if (!limiter.hit(`${lk}img:${tenant.tenantId}:${chatId}`, 6, 10 * 60_000) || !limiter.hit(`${lk}imgsite:${tenant.tenantId}`, 200, 60 * 60_000)) return warn(MSG.slowDown);
+      if (!limiter.hit(`${lk}img:${tenant.tenantId}:${chatId}`, 6, 10 * 60_000) || !limiter.hit(`${lk}imgsite:${tenant.tenantId}`, 200, 60 * 60_000)) return warn(M.slowDown);
       let buf: Buffer | null = null;
       try { buf = await io.image!.load(); } catch { buf = null; }
       image = checkBufferImage(buf) ?? undefined;
-      if (!image) return warn(MSG.imageFail);
+      if (!image) return warn(M.imageFail);
     }
     try { void Promise.resolve(io.typing()).catch(() => {}); } catch { /* göstərici vacib deyil */ }
     let out: Record<string, any>;
@@ -251,7 +241,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       if (e instanceof AiError) {
         if (e.status !== 402) await recordError(store, { source: "channel", message: `${label}: AI cavab vermədi (${e.status}) ${e.message}`, tenantId: tenant.tenantId, code: e.code, status: e.status });
         else if (e.code === "DAILY_LIMIT") void notifyDailyLimit(deps, tenant);
-        await io.send(MSG.offline);
+        await io.send(M.offline);
         return;
       }
       throw e;
@@ -269,7 +259,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     await store.saveChannelSession({ ...session, history, pending: unanswered ? { question: text.slice(0, 500) } : null, pendingAction: card ? { id: card.id } : null, ...(clip(io.senderName, 80) && { name: clip(io.senderName, 80) }), ...(io.ref && { ref: io.ref }), updatedAt: new Date() });
     // AI operatora ötürmə qərarı verdi: söhbət canlı operator qutusuna düşür, bot susur
     if (handoff) await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), name: clip(io.senderName, 80), history, ...(text && { first: text }) });
-    await io.send(unanswered ? `${answer}\n\n${MSG.askContact}${liveEnabled(tenant) ? `\n${LIVE_MSG.hint}` : ""}` : answer);
+    await io.send(unanswered ? `${answer}\n\n${M.askContact}${liveEnabled(tenant) ? `\n${M.live.hint}` : ""}` : answer);
     // Şəkilli elanlar ayrıca göndərilir; alınmayan olarsa mətn kimi
     for (const { l, img } of withPhoto) {
       const caption = listingText(l);

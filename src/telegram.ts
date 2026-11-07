@@ -10,6 +10,8 @@ export type TelegramApi = {
   deleteWebhook(token: string): Promise<void>;
   sendMessage(token: string, chatId: string, text: string): Promise<void>;
   sendPhoto(token: string, chatId: string, url: string, caption: string): Promise<void>;
+  /** Sənəd (PDF) linklə: Telegram faylı özü yükləyir */
+  sendDocument?(token: string, chatId: string, url: string, caption: string): Promise<void>;
   /** Mesajdakı şəkli endirir (Telegram fayl serveri; ölçü limiti ilə). Alınmasa null. */
   downloadFile(token: string, fileId: string, maxBytes: number): Promise<Buffer | null>;
   sendChatAction(token: string, chatId: string): Promise<void>;
@@ -33,6 +35,7 @@ export function createTelegramApi(fetchFn: typeof fetch = fetch): TelegramApi {
     async deleteWebhook(token) { await call(token, "deleteWebhook", { drop_pending_updates: true }); },
     async sendMessage(token, chatId, text) { await call(token, "sendMessage", { chat_id: chatId, text: text.slice(0, 4000) }); },
     async sendPhoto(token, chatId, url, caption) { await call(token, "sendPhoto", { chat_id: chatId, photo: url, caption: caption.slice(0, 1000) }); },
+    async sendDocument(token, chatId, url, caption) { await call(token, "sendDocument", { chat_id: chatId, document: url, caption: caption.slice(0, 1000) }); },
     async downloadFile(token, fileId, maxBytes) {
       const f = await call<{ file_path?: string; file_size?: number }>(token, "getFile", { file_id: fileId });
       if (!f.file_path || (f.file_size ?? 0) > maxBytes) return null;

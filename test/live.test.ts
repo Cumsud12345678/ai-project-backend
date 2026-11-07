@@ -37,7 +37,7 @@ test("canlı söhbət: ziyarətçi yazır, operator cavab verir, ziyarətçi oxu
   const { id, token } = start.body as { id: string; token: string };
   assert.equal(start.body.messages.length, 1);
 
-  assert.deepEqual((await c.call("GET", "/tenant/live/count")).body, { enabled: true, open: 1, waiting: 1 });
+  assert.deepEqual((await c.call("GET", "/tenant/live/count")).body, { enabled: true, openNow: true, hasHours: false, open: 1, waiting: 1 });
   const list = (await c.call("GET", "/tenant/live")).body.items;
   assert.equal(list.length, 1);
   assert.equal(list[0].waiting, true);

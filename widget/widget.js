@@ -136,6 +136,18 @@
   })();
   // Anonim ziyarətçi ID-si (təsadüfi, şəxsi məlumat deyil): eyni şəbəkədəki ziyarətçilər bir limiti bölüşməsin deyə.
   var memVid = "";
+  // Operator üçün: ilk ziyarət vaxtı və ziyarət sayı (bu brauzerdə; yeni vərəq sessiyası = yeni ziyarət). IP saxlanmır.
+  var visit = (function () {
+    var v = { first: Date.now(), visits: 1 };
+    try {
+      var o = JSON.parse(localStorage.getItem("ca_visit") || "null");
+      if (o && typeof o.first === "number" && typeof o.visits === "number") v = { first: o.first, visits: o.visits };
+      if (!sessionStorage.getItem("ca_visit_s")) { if (o) v.visits += 1; sessionStorage.setItem("ca_visit_s", "1"); }
+      localStorage.setItem("ca_visit", JSON.stringify(v));
+    } catch (e) { /* yaddaş bağlıdır */ }
+    return v;
+  })();
+  function visTz() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined; } catch (e) { return undefined; } }
   function visitorId() {
     var ok = function (v) { return typeof v === "string" && /^[a-f0-9]{16,32}$/.test(v); };
     var K = "ca_vid";
@@ -249,6 +261,7 @@
     ".close svg{width:20px;height:20px}",
     ".newb[hidden]{display:none}",
     ".log{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:14px 14px 12px;display:flex;flex-direction:column;gap:10px;background:var(--bg2)}",
+    ".opfile{display:inline-block;margin:2px 0 4px;padding:6px 10px;border-radius:10px;background:rgba(0,0,0,.06);color:inherit;text-decoration:none;font-weight:600;word-break:break-all}.opimg{display:block}",
     ".msg{max-width:88%;min-width:0;padding:9px 12px;border-radius:14px;font-size:14px;line-height:1.45;word-wrap:break-word;overflow-wrap:anywhere}",
     ".msg p{margin:0}.msg p+p,.msg ul+p,.msg p+ul{margin-top:6px}",
     ".msg ul{margin:0;padding-left:18px}",
@@ -628,7 +641,7 @@
         kids.push(el("div", null, info));
         var cardEl = isUrl(l.url) ? el("a", linkAttrs(l.url, { class: "card" }), kids) : el("div", { class: "card" }, kids);
         // Klik sayğacı (hesabat üçün): məzmun göndərilmir, sorğu sadədir (preflight yoxdur)
-        if (isUrl(l.url)) cardEl.addEventListener("click", function () { var ev = { item_name: String(l.title).slice(0, 100) }; if (typeof l.price === "number") { ev.value = l.price; ev.currency = String(l.currency || "").slice(0, 3); } track("ai_chat_listing_click", ev); try { fetch(api + "/click", { method: "POST", keepalive: true }).catch(function () { /* vacib deyil */ }); } catch (e) { /* vacib deyil */ } });
+        if (isUrl(l.url)) cardEl.addEventListener("click", function () { var ev = { item_name: String(l.title).slice(0, 100) }; if (typeof l.price === "number") { ev.value = l.price; ev.currency = String(l.currency || "").slice(0, 3); } track("ai_chat_listing_click", ev); try { fetch(api + "/click", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ sid: state.sid || undefined, id: l.id, title: String(l.title || "").slice(0, 120) }) }).catch(function () { /* vacib deyil */ }); } catch (e) { /* vacib deyil */ } });
         wrap.appendChild(cardEl);
       });
       log.appendChild(wrap);
@@ -746,18 +759,48 @@
       }
       log.appendChild(el("div", { class: withBack ? "note back" : "note" }, kids));
     }
-    function liveBubble(role, text, t, withFile) {
+    function liveBubble(role, text, t, withFile, opFile) {
       if (role === "system") return note(L.liveEnd, false);
       maybeDay(t);
       if (role === "operator") {
         var b = el("div", { class: "msg operator" }, [el("div", { class: "who", text: L.op })]);
-        b.appendChild(el("div", { text: text }));
+        if (opFile && opFile.id) {
+          b.appendChild(opFileEl(opFile));
+          if (text === "📷" || text === "📄 " + opFile.name) text = ""; // yalnız işarə idi
+        }
+        if (text) b.appendChild(el("div", { text: text }));
         return row("mb", b, t, opAv());
       }
       // Şəkil: bu tabda yenicə göndərilibsə önizləmə, yoxsa "Şəkil göndərildi" qeydi. Şəkilsiz mətn "📷" yalnız işarədir, göstərilmir.
       var url = withFile && sentShot ? sentShot : null;
       if (withFile) sentShot = "";
       bubble("user", withFile && text === "📷" ? "" : text, url, withFile, t);
+    }
+    // Operatorun faylı: söhbətin tokeni ilə POST edilir (token linkdə görünmür), blob kimi göstərilir
+    var fileUrls = {};
+    function loadOpFile(f) {
+      if (fileUrls[f.id]) return Promise.resolve(fileUrls[f.id]);
+      var lv = state.live;
+      if (!lv || !lv.id) return Promise.reject(new Error("no live"));
+      return fetch(api + "/live/" + lv.id + "/file", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: lv.token, fid: f.id }) })
+        .then(function (res) { if (!res.ok) throw new Error("file"); return res.blob(); })
+        .then(function (bl) { fileUrls[f.id] = URL.createObjectURL(bl); return fileUrls[f.id]; });
+    }
+    function opFileEl(f) {
+      var isImg = /^image\//.test(f.mime);
+      if (isImg) {
+        var img = el("img", { class: "up", alt: "" });
+        loadOpFile(f).then(function (u) { img.src = u; }).catch(function () { img.remove(); });
+        var a = el("a", { href: "#", class: "opimg" }, [img]);
+        a.addEventListener("click", function (e) { e.preventDefault(); loadOpFile(f).then(function (u) { window.open(u, "_blank", "noopener"); }).catch(function () {}); });
+        return a;
+      }
+      var link = el("a", { href: "#", class: "opfile", text: "📄 " + (f.name || "PDF") });
+      link.addEventListener("click", function (e) {
+        e.preventDefault();
+        loadOpFile(f).then(function (u) { var x = document.createElement("a"); x.href = u; x.download = f.name || "fayl.pdf"; x.rel = "noopener"; document.body.appendChild(x); x.click(); x.remove(); }).catch(function () {});
+      });
+      return link;
     }
     function liveBox() {
       if (!cfg.live || state.live) return;
@@ -793,7 +836,7 @@
       bubble("model", cfg.greeting || "");
       var q = "";
       state.messages.forEach(function (m) {
-        if (m.live) return liveBubble(m.role, m.text, m.t, m.img === true);
+        if (m.live) return liveBubble(m.role, m.text, m.t, m.img === true, m.file);
         maybeDay(m.t);
         bubble(m.role, m.text, null, m.img, m.t); if (m.role === "user") q = m.text; else extras(m, q);
       });
@@ -879,8 +922,10 @@
         var text = role === "system" ? "closed" : String(m.text || "");
         var at = Date.parse(m.at) || Date.now();
         var withFile = role === "user" && m.file === true;
-        state.messages.push({ role: role, text: text, live: true, t: at, img: withFile || undefined });
-        liveBubble(role, text, at, withFile);
+        // Operatorun faylı: { id, mime, name } (baytlar tokenlə ayrıca yüklənir)
+        var opFile = role === "operator" && m.file && typeof m.file.id === "string" ? { id: m.file.id, mime: String(m.file.mime || ""), name: String(m.file.name || "") } : null;
+        state.messages.push({ role: role, text: text, live: true, t: at, img: withFile || undefined, file: opFile || undefined });
+        liveBubble(role, text, at, withFile, opFile);
         if (role === "operator") gotOperator = true;
       });
       if (gotOperator) chime();
@@ -926,7 +971,7 @@
         var ai = state.messages.filter(function (m) { return !m.live; }).slice(-10).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; });
         go = fetch(api + "/live", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ message: text, chat: ai, vid: visitorId(), contact: mail || undefined, page: { path: location.pathname, title: document.title } }),
+          body: JSON.stringify({ message: text, chat: ai, vid: visitorId(), contact: mail || undefined, page: { path: location.pathname, title: document.title }, tz: visTz(), first: visit.first, visits: visit.visits, lang: (navigator.language || "").slice(0, 12), mobile: mobile.matches }),
         }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, d: d }; }); })
           .then(function (r) {
             if (!r.ok) throw new Error(r.d.code || "start");
@@ -1137,16 +1182,19 @@
       clearTimeout(presTimer);
       if (!cfg.presence || !shown) return;
       presTimer = setTimeout(presenceBeat, 15000);
-      if (document.hidden || presBusy) return;
-      presBusy = true;
+      // Vərəq gizlidirsə (ziyarətçi başqa vərəqə keçib) daha seyrək xəbər veririk, amma siyahıdan düşmürük:
+      // əks halda AI ilə yazışan ziyarətçi başqa vərəqə keçən kimi paneldən itirdi
+      if (presBusy || (document.hidden && Date.now() - presLast < 30000)) return;
+      presBusy = true; presLast = Date.now();
       fetch(api + "/presence", {
         method: "POST", headers: { "content-type": "application/json" }, keepalive: true,
-        body: JSON.stringify({ vid: visitorId(), path: location.pathname, title: document.title, ref: document.referrer || "", lang: (navigator.language || "").slice(0, 12), mobile: mobile.matches, chat: chatState() }),
+        body: JSON.stringify({ vid: visitorId(), path: location.pathname, title: document.title, ref: document.referrer || "", lang: (navigator.language || "").slice(0, 12), mobile: mobile.matches, chat: chatState(), sid: state.sid || undefined, hidden: document.hidden || undefined, tz: visTz(), first: visit.first, visits: visit.visits }),
       }).then(function (res) { return res.ok ? res.json() : {}; })
         .then(function (d) { if (d && d.invite && typeof d.invite.id === "string" && typeof d.invite.token === "string") acceptInvite(d.invite); })
         .catch(function () { /* növbəti dəfə */ })
         .then(function () { presBusy = false; });
     }
+    var presLast = 0;
     function presenceSoon() { clearTimeout(presSoonT); presSoonT = setTimeout(presenceBeat, 400); }
     document.addEventListener("visibilitychange", function () { if (!document.hidden) presenceSoon(); });
     // Operator ziyarətçiyə ilk yazıb: canlı söhbət bu brauzerdə açılır, operatorun mesajı balonda göstərilir

@@ -84,3 +84,69 @@ test("canlı söhbətdə şəkil: ziyarətçi göndərir, operator baxır; yad h
   assert.equal((await fetch(`${p.base}/tenant/live/${s.id}/files/${msg.file.id}`, { headers: { cookie: other.c.cookie } })).status, 404, "başqa hesab görmür");
   assert.equal((await fetch(`${p.base}/tenant/live/başqa/files/${msg.file.id}`, { headers: { cookie: c.cookie } })).status, 404, "fayl yalnız öz söhbətində");
 });
+
+test("AI söhbətini ələ almaq: sid presence-ə düşür, dəvət AI yazışmasını kontekst kimi götürür; operator şəkil və PDF göndərir", async () => {
+  const { c, key, visitor } = await setup();
+  const vid = "f0e1d2c3b4a5968778695a4b", sid = "aaaaaaaa11aaaaaa";
+  await visitor("POST", `/widget/${key}/presence`, { vid, path: "/elan/9", chat: "ai", sid });
+  let row = (await c.call("GET", "/tenant/visitors")).body.items.find((x: { sid?: string }) => x.sid === sid);
+  assert.ok(row, "sid panelə gəlir");
+  // ziyarətçi başqa vərəqə keçdi: siyahıda qalır, "gizli" işarəsi ilə
+  await visitor("POST", `/widget/${key}/presence`, { vid, path: "/elan/9", chat: "ai", sid, hidden: true });
+  row = (await c.call("GET", "/tenant/visitors")).body.items.find((x: { sid?: string }) => x.sid === sid);
+  assert.equal(row.hidden, true);
+  await visitor("POST", `/widget/${key}/presence`, { vid, path: "/elan/9", chat: "ai", sid });
+  assert.equal((await c.call("GET", "/tenant/visitors")).body.items.find((x: { sid?: string }) => x.sid === sid).hidden, undefined);
+  const inv = await c.call("POST", `/tenant/visitors/${row.pid}/invite`, { text: "Salam, mən operatoram." });
+  assert.equal(inv.status, 201);
+  const chat = (await c.call("GET", `/tenant/live/${inv.body.id}`)).body.chat;
+  assert.deepEqual(chat.context, [{ role: "user", text: "salam" }, { role: "model", text: "Salam!" }]);
+  const got = (await visitor("POST", `/widget/${key}/presence`, { vid, path: "/elan/9", chat: "ai", sid })).body.invite;
+
+  // operator şəkil göndərir, ziyarətçi tokenlə yükləyir
+  const up = await c.call("POST", `/tenant/live/${inv.body.id}/files`, { data: PNG.toString("base64"), name: "qiymet.png", text: "Qiymət cədvəli" });
+  assert.equal(up.status, 201);
+  const pdf = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(200, 32)]);
+  assert.equal((await c.call("POST", `/tenant/live/${inv.body.id}/files`, { data: pdf.toString("base64"), name: "muqavile" })).status, 201);
+  assert.equal((await c.call("POST", `/tenant/live/${inv.body.id}/files`, { data: Buffer.from("<html>").toString("base64"), name: "x.html" })).body.code, "BAD_FILE");
+  const sync = (await visitor("POST", `/widget/${key}/live/${inv.body.id}/sync`, { token: got.token, after: 0 })).body;
+  const files = sync.messages.filter((m: { file?: { id: string } }) => m.file && typeof m.file === "object");
+  assert.equal(files.length, 2);
+  assert.equal(files[1].file.name, "muqavile.pdf");
+  assert.equal(files[1].text, "📄 muqavile.pdf");
+  assert.equal((await visitor("POST", `/widget/${key}/live/${inv.body.id}/file`, { token: got.token, fid: files[0].file.id })).status, 200);
+  assert.equal((await visitor("POST", `/widget/${key}/live/${inv.body.id}/file`, { token: "yanlis", fid: files[0].file.id })).status, 404);
+  // imzasız/yanlış imzalı ictimai link işləmir
+  assert.equal((await p.client().call("GET", `/widget/f/x/${files[0].file.id}?e=9999999999&s=abc`)).status, 404);
+});
+
+test("bloklama, ziyarətçi məlumatı, müştəri kartı və elan klikinin söhbətə bağlanması", async () => {
+  const { c, key, visitor } = await setup();
+  const vid = "0a1b2c3d4e5f60718293a4b5", sid = "cccccccc33cccccc";
+  // canlı söhbət: ziyarətçi məlumatı (saat qurşağı, ilk ziyarət, ziyarət sayı)
+  const first = Date.now() - 3 * 86_400_000;
+  const live = await visitor("POST", `/widget/${key}/live`, { message: "salam", vid, tz: "Asia/Baku", first, visits: 4, lang: "az", mobile: true, contact: "+994 50 123 45 67" });
+  assert.equal(live.status, 201);
+  const chat = (await c.call("GET", `/tenant/live/${live.body.id}`)).body.chat;
+  assert.deepEqual({ tz: chat.visitor.tz, visits: chat.visitor.visits, mobile: chat.visitor.mobile, pid: chat.visitor.pid }, { tz: "Asia/Baku", visits: 4, mobile: true, pid: undefined });
+  assert.equal(chat.blocked, false);
+  // müştəri kartı: söhbət + eyni telefonla gələn müraciət birləşir (fake AI-dan müraciət gəlmir: yalnız söhbət)
+  const cust = (await c.call("GET", "/tenant/customers")).body.items;
+  assert.equal(cust[0].chats[0].id, live.body.id);
+  assert.deepEqual(cust[0].contacts, ["+994 50 123 45 67"]);
+  // blokla: söhbət bağlanır, ziyarətçi çata və canlı söhbətə yaza bilmir
+  assert.equal((await c.call("POST", `/tenant/live/${live.body.id}/block`)).status, 200);
+  assert.equal((await c.call("GET", "/tenant/blocks")).body.items.length, 1);
+  assert.equal((await visitor("POST", `/widget/${key}/chat`, { message: "yenə", vid })).body.code, "BLOCKED");
+  assert.equal((await visitor("POST", `/widget/${key}/live`, { message: "yenə", vid })).body.code, "BLOCKED");
+  assert.deepEqual((await visitor("POST", `/widget/${key}/presence`, { vid, path: "/" })).body, {});
+  assert.equal((await c.call("GET", "/tenant/customers")).body.items[0].blocked, true);
+  const k = (await c.call("GET", "/tenant/blocks")).body.items[0].key;
+  assert.equal((await c.call("DELETE", `/tenant/blocks/${encodeURIComponent(k)}`)).status, 200);
+  assert.notEqual((await visitor("POST", `/widget/${key}/chat`, { message: "indi", vid })).body.code, "BLOCKED");
+  // elan kliki AI söhbətinə bağlanır
+  p.ai.calls.length = 0;
+  assert.equal((await visitor("POST", `/widget/${key}/click`, { sid, id: 77, title: "Honda" })).status, 204);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(p.ai.calls.find((x: { fn: string }) => x.fn === "recordClick")?.args.slice(1), [sid, { id: "77", title: "Honda" }]);
+});

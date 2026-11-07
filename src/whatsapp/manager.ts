@@ -13,7 +13,7 @@ import type { TenantRecord, WhatsAppLink } from "../store/types.js";
 export type WaSocket = {
   ev: { on(event: string, fn: (arg: any) => void): unknown };
   user?: { id?: string } | undefined;
-  sendMessage(jid: string, content: { text: string } | { image: Buffer; caption: string }, opts?: { messageId?: string }): Promise<unknown>;
+  sendMessage(jid: string, content: { text: string } | { image: Buffer; caption: string } | { document: Buffer; mimetype: string; fileName: string; caption: string }, opts?: { messageId?: string }): Promise<unknown>;
   sendPresenceUpdate(type: "composing" | "paused", jid?: string): Promise<unknown>;
   readMessages(keys: unknown[]): Promise<unknown>;
   /** Gələn şəkilli mesajın baytlarını yükləyir (yoxdursa şəkil qəbul edilmir) */
@@ -305,6 +305,14 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
       const id = `3EB0${randomBytes(16).toString("hex").toUpperCase()}`;
       e.sentIds.add(id);
       await e.sock.sendMessage(jid, { text }, { messageId: id });
+    },
+    /** Operatorun faylı (şəkil və ya PDF) */
+    async sendFile(tenantId: string, jid: string, f: { data: Buffer; mime: string; name: string; caption: string }) {
+      const e = entries.get(tenantId);
+      if (!e?.sock || e.state !== "open" || !PRIVATE_JID.test(jid)) throw new Error("WA_NOT_CONNECTED");
+      const id = `3EB0${randomBytes(16).toString("hex").toUpperCase()}`;
+      e.sentIds.add(id);
+      await e.sock.sendMessage(jid, f.mime.startsWith("image/") ? { image: f.data, caption: f.caption } : { document: f.data, mimetype: f.mime, fileName: f.name, caption: f.caption }, { messageId: id });
     },
     link,
   };

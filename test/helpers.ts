@@ -41,6 +41,8 @@ export function fakeAi(): FakeAi {
     async insights(...a) { return rec("insights", a, { asked: 12, topics: [{ name: "Çatdırılma", count: 8, unanswered: 2, examples: ["çatdırılma var?"] }], gaps: [{ title: "Çatdırılma qaydası", why: "Cavabsız qalıb", count: 2, examples: ["çatdırılma var?"] }], cached: false, analyzedAt: new Date().toISOString() }); },
     async queryStats(...a) { return rec("queryStats", a, { enabled: true, days: 30, total: 1, noResults: 0, errors: 0, cached: 0, top: [{ message: "toyota", count: 1 }], topNoResults: [] }); },
     async conversations(...a) { return rec("conversations", a, { enabled: true, hasMore: false, nextCursor: null, conversations: [{ sid: "aaaaaaaa11", startedAt: "2026-10-17T00:00:00.000Z", lastAt: "2026-10-17T00:01:00.000Z", messages: 2, first: "salam", unanswered: 0, costAzn: 0.01 }] }); },
+    async kbUpdateLead(...a) { return rec("kbUpdateLead", a, { lead: { id: a[1], status: "open" } }); },
+    async recordClick(...a) { return rec("recordClick", a, { ok: true }); },
     async conversation(...a) { return rec("conversation", a, { sid: "aaaaaaaa11", messages: [{ id: "1", at: "2026-10-17T00:00:00.000Z", message: "salam", answer: "Salam!", results: 1 }] }); },
     async privateData(...a) { return rec("privateData", a, { configured: false, identity: { configured: false } }); },
     async setPrivateData(...a) { return rec("setPrivateData", a, { configured: true, ready: false, identity: { configured: false } }); },
@@ -120,7 +122,7 @@ export function fakeWhatsApp(batchMs = 0) {
       const s: FakeWaSocket = {
         tenantId, sent: [], images: [], presence: [], read: 0, loggedOut: false, ended: false, user: { id: "994501234567:7@s.whatsapp.net" },
         ev: { on: (e, fn) => ev.on(e, fn) },
-        async sendMessage(jid, c, o) { if ("image" in c) { s.images.push({ jid, bytes: c.image.length, caption: c.caption }); return { key: { id: o?.messageId } }; } s.sent.push({ jid, text: c.text, id: o?.messageId }); return { key: { id: o?.messageId } }; },
+        async sendMessage(jid, c, o) { if ("image" in c) { s.images.push({ jid, bytes: c.image.length, caption: c.caption }); return { key: { id: o?.messageId } }; } if ("document" in c) { s.images.push({ jid, bytes: c.document.length, caption: c.caption }); return { key: { id: o?.messageId } }; } s.sent.push({ jid, text: c.text, id: o?.messageId }); return { key: { id: o?.messageId } }; },
         async sendPresenceUpdate(t) { s.presence.push(t); },
         async readMessages() { s.read++; },
         async downloadMedia() { return s.media ?? null; },

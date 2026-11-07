@@ -17,7 +17,9 @@ import type { LiveChat, TenantRecord, WidgetImage, WidgetImageKind, WidgetSettin
 import { cleanContact } from "./kb.js";
 import { notifyBalance, notifyDailyLimit } from "./billing.js";
 import { hub } from "./hub.js";
-import { beat, takeInvite, type ChatState } from "./presence.js";
+import { beat, pidOf, takeInvite, type ChatState } from "./presence.js";
+import { isBlocked, parseVisitorInfo } from "./visitors.js";
+import { checkFileSig } from "./live-files.js";
 
 export const WIDGET_KEY_RE = /^wk_[a-f0-9]{32}$/;
 export const newWidgetKey = () => `wk_${randomBytes(16).toString("hex")}`;
@@ -155,7 +157,8 @@ export const sameToken = (token: unknown, hash: string) => typeof token === "str
 /** Vidjetə yalnız ziyarətçinin görməli olduğu sahələr çıxır. */
 const liveView = (c: LiveChat, after: number) => ({
   status: c.status, total: c.messages.length,
-  messages: c.messages.slice(after).map((m) => ({ from: m.from, text: m.text, at: m.at, ...(m.file && { file: true }) })),
+  // Ziyarətçinin öz şəkli: yalnız işarə. Operatorun faylı: ziyarətçi onu tokenlə ayrıca yükləyir (/live/:id/file).
+  messages: c.messages.slice(after).map((m) => ({ from: m.from, text: m.text, at: m.at, ...(m.file && (m.from === "operator" ? { file: { id: m.file.id, mime: m.file.mime, ...(m.file.name && { name: m.file.name }) } } : { file: true })) })),
 });
 /** Səhifə yolu: yalnız "/..." və sorğu/hash olmadan; başlıq qısaldılır. */
 const cleanPage = (v: unknown): { path: string; title?: string } | undefined => {
@@ -284,6 +287,7 @@ export function widgetRoutes(deps: Deps) {
     const vidRaw = (req.body as { vid?: unknown } | undefined)?.vid;
     const vid = typeof vidRaw === "string" && /^[a-f0-9]{16,32}$/.test(vidRaw) ? vidRaw : "";
     const who = vid ? `v:${vid}` : `ip:${ip}`;
+    if (vid && isBlocked(t, `v:${pidOf(t.tenantId, vid)}`)) throw new HttpError(403, "Çat hazırda əlçatan deyil", "BLOCKED");
     // Sabit qoruyucular (bot/spam): dəqiqədə ziyarətçi başına 10, IP başına 60. Real insan bu həddə çatmır.
     if (!limiter.hit(`w:min:${key}:${who}`, 10, 60_000) || !limiter.hit(`w:ipmin:${key}:${ip}`, 60, 60_000))
       throw new HttpError(429, "Çox tez-tez mesaj göndərdin, bir az gözləyib yenidən yaz", "RATE_LIMITED");
@@ -376,9 +380,13 @@ export function widgetRoutes(deps: Deps) {
       const u = new URL(str(b.ref, 300)), own = req.get("origin") ? new URL(req.get("origin")!).hostname : "";
       if ((u.protocol === "https:" || u.protocol === "http:") && u.hostname !== own) ref = u.hostname; // saytın öz səhifələri mənbə sayılmır
     } catch { /* yoxdur */ }
+    if (isBlocked(t, `v:${pidOf(t.tenantId, vid)}`)) return void res.json({});
     const out = beat(t.tenantId, vid, {
+      ...parseVisitorInfo(b),
       path: page?.path ?? "/", title: page?.title ?? "", ref, lang: str(b.lang, 12), mobile: b.mobile === true,
       chat: CHAT_STATES.includes(b.chat) ? b.chat : "none",
+      ...(typeof b.sid === "string" && /^[a-f0-9]{16,32}$/.test(b.sid) && { sid: b.sid }),
+      ...(b.hidden === true && { hidden: true }),
     });
     if (!out) return void res.json({});
     // Yeni ziyarətçi: panel siyahını dərhal yeniləsin (sayt üzrə 3 saniyədə bir siqnal)
@@ -403,11 +411,15 @@ export function widgetRoutes(deps: Deps) {
     const contact = contactRaw ? cleanContact(contactRaw) : "";
     if (contactRaw && !contact) throw new HttpError(400, "Düzgün telefon nömrəsi və ya e-poçt yazın", "BAD_CONTACT");
     const text = typeof b.message === "string" ? b.message.trim().slice(0, 1000) : "";
+    const vid = typeof b.vid === "string" && /^[a-f0-9]{16,32}$/.test(b.vid) ? b.vid : "";
+    const pid = vid ? pidOf(t.tenantId, vid) : "";
+    if (pid && isBlocked(t, `v:${pid}`)) throw new HttpError(403, "Çat hazırda əlçatan deyil", "BLOCKED");
     const token = randomBytes(24).toString("hex");
     const now = new Date();
     const chat: LiveChat = {
       id: randomUUID(), tenantId: t.tenantId, tokenHash: sha(token).toString("hex"), name, contact: contact || "", status: "open",
       context: cleanChat(b.chat), ...(cleanPage(b.page) && { page: cleanPage(b.page) }), messages: text ? [{ from: "visitor", text, at: now }] : [], createdAt: now, updatedAt: now, visitorSeenAt: now,
+      ...(pid && { visitor: { pid, ...parseVisitorInfo(b), ...(typeof b.lang === "string" && { lang: b.lang.slice(0, 12) }), ...(typeof b.mobile === "boolean" && { mobile: b.mobile }) } }),
     };
     await store.createLive(chat);
     // Sayt sahibinə və komandaya bildiriş (10 dəqiqədə bir, spam olmasın)
@@ -425,6 +437,7 @@ export function widgetRoutes(deps: Deps) {
     const chat = id.length <= 60 ? await store.getLive(t.tenantId, id) : null;
     if (!chat || !sameToken(b.token, chat.tokenHash)) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
     if (!limiter.hit(`w:livesync:${id}`, 40, 60_000)) throw new HttpError(429, "Çox tez-tez sorğu", "RATE_LIMITED");
+    if (chat.visitor && isBlocked(t, `v:${chat.visitor.pid}`)) throw new HttpError(403, "Çat hazırda əlçatan deyil", "BLOCKED");
     const after = Number.isInteger(b.after) && b.after >= 0 ? Math.min(b.after, 1000) : 0;
     let text = typeof b.text === "string" ? b.text.trim() : "";
     // Canlı söhbətdə şəkil (yalnız PNG/JPEG/WebP, ən çox 2 MB): baytlar ayrıca saxlanır, mesajda yalnız istinad qalır
@@ -453,6 +466,29 @@ export function widgetRoutes(deps: Deps) {
     res.json(liveView(chat, after));
   });
 
+  // Operatorun göndərdiyi fayl: yalnız söhbətin tokeni ilə, yalnız həmin söhbətin faylı
+  r.post("/widget/:key/live/:id/file", access, async (req, res) => {
+    const t = res.locals.widgetTenant as TenantRecord;
+    const id = String(req.params.id ?? ""), b = req.body ?? {};
+    const chat = id.length <= 60 ? await store.getLive(t.tenantId, id) : null;
+    if (!chat || !sameToken(b.token, chat.tokenHash)) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
+    if (!limiter.hit(`w:livefile:${id}`, 60, 60_000)) throw new HttpError(429, "Çox tez-tez sorğu", "RATE_LIMITED");
+    const fid = typeof b.fid === "string" ? b.fid.slice(0, 60) : "";
+    const f = fid ? await store.getLiveFile(t.tenantId, fid) : null;
+    if (!f || f.chatId !== chat.id) throw new HttpError(404, "Fayl tapılmadı", "FILE_NOT_FOUND");
+    res.set({ "Content-Type": f.mime, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
+    res.send(Buffer.from(f.data, "base64"));
+  });
+  // Telegram faylı bu müddətli imzalı linkdən özü yükləyir (deliverFileToChannel)
+  r.get("/widget/f/:tid/:fid", async (req, res) => {
+    const tid = String(req.params.tid ?? ""), fid = String(req.params.fid ?? "").slice(0, 60);
+    if (!checkFileSig(deps.config.secretKey, tid, fid, req.query.e, req.query.s)) throw new HttpError(404, "Fayl tapılmadı", "FILE_NOT_FOUND");
+    const f = await store.getLiveFile(tid, fid);
+    if (!f) throw new HttpError(404, "Fayl tapılmadı", "FILE_NOT_FOUND");
+    res.set({ "Content-Type": f.mime, "Cache-Control": "private, max-age=600", "X-Content-Type-Options": "nosniff", "Content-Disposition": f.name ? `inline; filename*=UTF-8''${encodeURIComponent(f.name)}` : "inline" });
+    res.send(Buffer.from(f.data, "base64"));
+  });
+
   // Söhbət bağlananda ziyarətçinin qiyməti (1-5): yalnız bağlı söhbət, token sahibi, bir dəfə
   r.post("/widget/:key/live/:id/csat", access, async (req, res) => {
     const t = res.locals.widgetTenant as TenantRecord;
@@ -475,6 +511,10 @@ export function widgetRoutes(deps: Deps) {
     const t = res.locals.widgetTenant as TenantRecord;
     if (!limiter.hit(`w:click:${t.widget!.key}:${req.ip ?? "unknown"}`, 60, 60 * 60_000)) return void res.status(204).end();
     await store.addClick(t.tenantId, new Date());
+    // Hansı söhbətdən hansı elana keçid olub: AI söhbətinə bağlanır (panel "elana keçdi" göstərir)
+    const b = req.body ?? {};
+    const sid = typeof b.sid === "string" && /^[a-f0-9]{16,32}$/.test(b.sid) ? b.sid : "";
+    if (sid && (typeof b.id === "string" || typeof b.id === "number")) void ai.recordClick(t.tenantId, sid, { id: String(b.id).slice(0, 80), title: typeof b.title === "string" ? b.title.slice(0, 120) : "" }).catch(() => {});
     res.status(204).end();
   });
 
