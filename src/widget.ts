@@ -391,7 +391,7 @@ export function widgetRoutes(deps: Deps) {
     });
     if (!out) return void res.json({});
     // Yeni ziyarətçi: panel siyahını dərhal yeniləsin (sayt üzrə 3 saniyədə bir siqnal)
-    if (out.isNew && Date.now() - (lastPush.get(t.tenantId) ?? 0) > 3000) { lastPush.set(t.tenantId, Date.now()); hub.toOperators(t.tenantId, { t: "visitors" }); }
+    if (out.isNew && Date.now() - (lastPush.get(t.tenantId) ?? 0) > 3000) { lastPush.set(t.tenantId, Date.now()); hub.toOperators(t.tenantId, { t: "visitors", fresh: true, returning: Number(b.visits) > 1 }); }
     const inv = takeInvite(t.tenantId, out.pid);
     res.json(inv ? { invite: inv } : {});
   });

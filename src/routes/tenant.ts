@@ -18,7 +18,7 @@ import { DuplicateError, type LiveChat, type TenantRecord, type User } from "../
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, imageUrl, WIDGET_IMAGE_KINDS, sha } from "../widget.js";
 
 const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret", "feedText"];
-const PROFILE_KEYS = ["language", "tone", "maxResults", "extraInstructions", "logQueries", "mode", "fallbackMessage", "generalKnowledge", "kbAutoRefresh", "imageSearch", "answerLength", "agentName"];
+const PROFILE_KEYS = ["language", "tone", "maxResults", "extraInstructions", "logQueries", "mode", "fallbackMessage", "generalKnowledge", "kbAutoRefresh", "imageSearch", "answerLength", "agentName", "company"];
 
 /** Müştərinin göndərdiyi JSON-dan yalnız tanınan sahələri götürür. */
 function extractConfig(body: unknown): Record<string, unknown> {
