@@ -1,5 +1,6 @@
 // Statistika: konversiya (söhbətdən müraciətə), CSV ixracı və aylıq e-poçt hesabatı.
 import { recordError } from "./errorlog.js";
+import type { MailLang } from "./mailer.js";
 import type { Deps } from "./deps.js";
 import type { TenantRecord } from "./store/types.js";
 
@@ -171,7 +172,8 @@ export async function sendMonthlyReports(deps: Deps, now = new Date()): Promise<
       await deps.store.updateTenant(t.tenantId, { report: { ...t.report, lastSent: period } }); // əvvəl qeyd et: təkrar göndərilməsin
       const owner = await deps.store.findUserById(t.userId);
       const rep = owner ? await buildReport(deps, t) : null;
-      if (owner && rep) { await deps.mailer.send(owner.email, rep.subject, rep.text); sent++; }
+      const panel = deps.config.allowedOrigins[0];
+      if (owner && rep) { await deps.mailer.send(owner.email, rep.subject, rep.text, { lang: ((l) => (["az", "en", "ru", "tr"].includes(l) ? l : "az") as MailLang)(String((t.config as { profile?: { language?: string } }).profile?.language ?? "az")), manageUrl: panel ? `${panel}/settings/notifications` : undefined, preheader: rep.text.split("\n").find((l) => l.includes(":"))?.slice(0, 120) }); sent++; }
     } catch (e) { console.warn(`[report] ${t.tenantId}:`, e instanceof Error ? e.message : e); }
   }
   return sent;

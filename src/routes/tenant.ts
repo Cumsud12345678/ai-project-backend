@@ -117,7 +117,7 @@ export function tenantRoutes(deps: Deps) {
     const member = { email, ...(other?.verified && { userId: other.id }), addedAt: new Date() };
     await store.updateTenant(t.tenantId, { team: [...(t.team ?? []), member] });
     const panel = config.allowedOrigins[0] ?? "";
-    void deps.mailer.send(email, `${t.businessName}: operator dəvəti`, `${t.businessName} sizi operator kimi əlavə etdi. Müştəri söhbətlərinə cavab vermək üçün bu e-poçtla ${other ? "daxil olun" : "qeydiyyatdan keçin"}:\n${panel}${other ? "/login" : "/register"}\n\nOperator yalnız canlı söhbətləri görür, hesab ayarlarına çıxışı olmur.`).catch(() => {});
+    void deps.mailer.send(email, `${t.businessName}: operator dəvəti`, `${t.businessName} sizi operator kimi əlavə etdi. Müştəri söhbətlərinə cavab vermək üçün bu e-poçtla ${other ? "daxil olun" : "qeydiyyatdan keçin"}:\n${panel}${other ? "/login" : "/register"}\n\nOperator yalnız canlı söhbətləri görür, hesab ayarlarına çıxışı olmur.`, { action: other ? "Daxil ol" : "Qeydiyyatdan keç", preheader: `${t.businessName} sizi komandaya dəvət etdi` }).catch(() => {});
     res.status(201).json({ ok: true });
   });
   r.delete("/team/:email", async (req, res) => {

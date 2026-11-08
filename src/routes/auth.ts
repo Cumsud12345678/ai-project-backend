@@ -18,9 +18,18 @@ const MIN = 60_000;
 
 const TWO_FA_TTL_MS = 5 * 60_000;
 
-const TEXT: Record<Exclude<CodePurpose, "2fa">, { subject: string; body: (code: string) => string }> = {
-  verify: { subject: "Car Advisor: email təsdiq kodu", body: (c) => `Təsdiq kodun: ${c}\n\nKod 15 dəqiqə etibarlıdır. Bu hesabı sən açmamısansa, bu məktuba məhəl qoyma.` },
-  reset: { subject: "Car Advisor: parol sıfırlama kodu", body: (c) => `Parol sıfırlama kodun: ${c}\n\nKod 15 dəqiqə etibarlıdır. Bunu sən istəməmisənsə, bu məktuba məhəl qoyma, parolun dəyişməyəcək.` },
+// Kod ayrıca abzasdadır: məktubda böyük, oxunaqlı blok kimi görünür (mailer.ts → renderHtml)
+const TEXT: Record<Exclude<CodePurpose, "2fa">, { subject: string; preheader: (code: string) => string; body: (code: string) => string }> = {
+  verify: {
+    subject: "E-poçtunu təsdiqlə",
+    preheader: (c) => `Təsdiq kodun: ${c}. 15 dəqiqə etibarlıdır.`,
+    body: (c) => `Qeydiyyatı tamamlamaq üçün bu kodu təsdiq səhifəsinə yaz:\n\n${c}\n\nKod 15 dəqiqə etibarlıdır.\n\nBu hesabı sən açmamısansa, bu məktuba məhəl qoyma: e-poçtun təsdiqlənməsə hesab aktiv olmayacaq.`,
+  },
+  reset: {
+    subject: "Parolu sıfırla",
+    preheader: (c) => `Sıfırlama kodun: ${c}. 15 dəqiqə etibarlıdır.`,
+    body: (c) => `Hesabının parolunu yeniləmək üçün bu kodu daxil et:\n\n${c}\n\nKod 15 dəqiqə etibarlıdır.\n\nBunu sən istəməmisənsə, bu məktuba məhəl qoyma: parolun dəyişməyəcək.`,
+  },
 };
 
 export function authRoutes(deps: Deps) {
@@ -58,7 +67,7 @@ export function authRoutes(deps: Deps) {
     if (existing && Date.now() - existing.sentAt.getTime() < RESEND_COOLDOWN_MS) return false;
     const code = newCode();
     await store.saveCode({ email, purpose, codeHash: hashCode(email, purpose, code), expiresAt: new Date(Date.now() + CODE_TTL_MS), attempts: 0, sentAt: new Date() });
-    try { await mailer.send(email, TEXT[purpose].subject, TEXT[purpose].body(code)); }
+    try { await mailer.send(email, TEXT[purpose].subject, TEXT[purpose].body(code), { security: true, preheader: TEXT[purpose].preheader(code) }); }
     catch (e) { console.error("[mail]", e); await store.deleteCode(email, purpose); throw new HttpError(502, "Email göndərilə bilmədi. Bir az sonra yenidən cəhd et.", "MAIL_FAILED"); }
     return true;
   }

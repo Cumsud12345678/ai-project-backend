@@ -273,7 +273,7 @@ export function widgetRoutes(deps: Deps) {
     // Sayt sahibinə bildiriş (alınmasa da müraciət panelda qalır)
     try {
       const owner = await store.findUserById(t.userId);
-      if (owner) await mailer.send(owner.email, `Yeni müraciət: ${t.businessName}`, `Saytınızın çatından yeni müraciət var.\n\nAd: ${name || "-"}\nƏlaqə: ${contact}\nSual: ${question || "-"}${conversation.length ? `\n\nSöhbətin son hissəsi:\n${conversation.slice(-6).map((m: { role: string; text: string }) => `${m.role === "user" ? "Ziyarətçi" : "Çat"}: ${m.text.slice(0, 300)}`).join("\n")}` : ""}\n\nPanelin "Müraciətlər" bölməsində görə bilərsiniz.`);
+      if (owner) await mailer.send(owner.email, `Yeni müraciət: ${t.businessName}`, `Saytınızın çatından yeni müraciət var.\n\nAd: ${name || "-"}\nƏlaqə: ${contact}\nSual: ${question || "-"}${conversation.length ? `\n\nSöhbətin son hissəsi:\n${conversation.slice(-6).map((m: { role: string; text: string }) => `${m.role === "user" ? "Ziyarətçi" : "Çat"}: ${m.text.slice(0, 300)}`).join("\n")}` : ""}\n\nCavab vermək üçün paneldə aç:\n${deps.config.allowedOrigins[0] ?? ""}/inbox`, { action: "Müraciətə bax", preheader: `${name || contact}: ${(question || "").slice(0, 80)}` });
     } catch (e) { console.warn("[widget] müraciət bildirişi göndərilmədi:", e instanceof Error ? e.message : e); }
     res.status(201).json({ ok: true });
   });

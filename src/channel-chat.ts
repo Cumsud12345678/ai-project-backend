@@ -213,7 +213,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
         void forwardLead(deps, tenant, { source: label, name, contact, question, conversation: session.history.slice(-10) });
         try {
           const owner = await store.findUserById(tenant.userId);
-          if (owner) await mailer.send(owner.email, `Yeni müraciət (${label}): ${tenant.businessName}`, `${label} kanalından yeni müraciət var.\n\nAd: ${name || "-"}\nƏlaqə: ${contact}\nSual: ${question || "-"}`);
+          if (owner) await mailer.send(owner.email, `Yeni müraciət (${label}): ${tenant.businessName}`, `${label} kanalından yeni müraciət var.\n\nAd: ${name || "-"}\nƏlaqə: ${contact}\nSual: ${question || "-"}\n\nCavab vermək üçün paneldə aç:\n${deps.config.allowedOrigins[0] ?? ""}/inbox`, { action: "Müraciətə bax", preheader: `${name || contact}: ${(question || "").slice(0, 80)}` });
         } catch { /* bildiriş alınmasa da müraciət paneldə qalır; mailer xətası artıq jurnala yazılıb */ }
         await store.saveChannelSession({ ...session, pending: null, updatedAt: new Date() });
         await io.send(M.thanks);

@@ -22,6 +22,8 @@ export type Config = {
   /** Resend API açarı (https://resend.com/api-keys). Boşdursa email göndərilmir, konsola yazılır (yalnız inkişaf). */
   resendApiKey: string | undefined;
   mailFrom: string;
+  /** Məktubların altındakı "Dəstək" linki (SUPPORT_EMAIL, yoxdursa MAIL_REPLY_TO) */
+  supportEmail?: string;
   mailReplyTo: string | undefined;
   trustProxy: number;
   /** Bazada saxlanan üçüncü tərəf sirlərinin (Telegram tokeni) şifrələmə açarı. Boşdursa kanallar qoşulmur. */
@@ -59,6 +61,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     resendApiKey: env.RESEND_API_KEY || undefined,
     mailFrom: env.MAIL_FROM || "Car Advisor <onboarding@resend.dev>",
     mailReplyTo: env.MAIL_REPLY_TO || undefined,
+    supportEmail: (env.SUPPORT_EMAIL || /<([^>]+)>/.exec(env.MAIL_REPLY_TO ?? "")?.[1] || env.MAIL_REPLY_TO || "").trim() || undefined,
     trustProxy: env.TRUST_PROXY === undefined ? 1 : Number(env.TRUST_PROXY),
     // Production-da açar verilməyibsə boş qalır: portal yenə qalxır, yalnız Telegram qoşmaq 503 verir (mövcud qurğular sınmasın)
     secretKey: (env.CHANNEL_SECRET_KEY ?? "").length >= 32 ? env.CHANNEL_SECRET_KEY! : isProd ? "" : "dev-only-secret-key-do-not-use-in-production",

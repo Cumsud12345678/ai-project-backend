@@ -14,7 +14,7 @@ test("Resend: düzgün sorğu (açar başlıqda, from/to/subject/text/html, repl
   assert.equal((calls[0]!.init.headers as Record<string, string>).authorization, "Bearer re_SECRET");
   const b = JSON.parse(String(calls[0]!.init.body));
   assert.deepEqual([b.from, b.to, b.subject, b.reply_to], ["Car <a@b.az>", ["x@y.az"], "Kod", "d@b.az"]);
-  assert.match(b.text, /123456/); assert.match(b.html, /letter-spacing:8px/);
+  assert.match(b.text, /123456/); assert.match(b.html, /letter-spacing:10px/);
 });
 
 test("Resend: 5xx/429 təkrarlanır, 4xx təkrarlanmır, xəta mətnində açar yoxdur", async () => {
@@ -42,4 +42,19 @@ test("production-da RESEND_API_KEY və MAIL_FROM məcburidir", () => {
   assert.throws(() => loadConfig(base), /RESEND_API_KEY/);
   assert.throws(() => loadConfig({ ...base, RESEND_API_KEY: "re_x" }), /MAIL_FROM/);
   assert.equal(loadConfig({ ...base, RESEND_API_KEY: "re_x", MAIL_FROM: "A <a@b.az>" }).resendApiKey, "re_x");
+});
+
+test("şablon: düymə, Ad: dəyər cədvəli, təhlükəsizlik qeydi, hüquqi linklər, ziyarətçi məktubu biznes adı ilə", async () => {
+  const brand = { name: "Car Advisor", url: "https://ca.az", supportEmail: "help@ca.az" };
+  const h = renderHtml("Dəvət", "Sizi dəvət etdi:\nhttps://p.az/login\n\nAd: Əli\nƏlaqə: +994 50\n\n123456", { action: "Daxil ol", security: true, preheader: "Gizli önbaxış" }, brand);
+  assert.match(h, />Daxil ol</); assert.match(h, /href="https:\/\/p\.az\/login"/);
+  assert.match(h, /Əlaqə<\/td>/); assert.match(h, /heç vaxt bu kodu soruşmur/);
+  assert.match(h, /https:\/\/ca\.az\/legal\/terms/); assert.match(h, /mailto:help@ca\.az/); assert.match(h, /Gizli önbaxış/);
+  const v = renderHtml("Cavab", "Salam", { sender: { name: "Moto Elan" }, lang: "en" }, brand);
+  assert.match(v, />Moto Elan</); assert.match(v, /Sent via Car Advisor/); assert.doesNotMatch(v, /legal\/terms/);
+  const calls: RequestInit[] = [];
+  const m = createMailer({ apiKey: "k", from: "Car Advisor <no-reply@ca.az>", replyTo: "d@ca.az", brand, fetchFn: (async (_u: string, init: RequestInit) => { calls.push(init); return res(200); }) as any });
+  await m.send("v@x.az", "S", "t", { sender: { name: 'Moto "Elan" <x>' } });
+  const b = JSON.parse(String(calls[0]!.body));
+  assert.equal(b.from, "Moto Elan x <no-reply@ca.az>"); assert.equal(b.reply_to, undefined);
 });

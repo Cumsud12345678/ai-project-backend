@@ -19,7 +19,11 @@ const config = loadConfig();
 const store = await createMongoStore(config.mongoUri, config.dbName);
 const deps = {
   config, store, limiter: createLimiter(),
-  mailer: loggedMailer(createMailer({ apiKey: config.resendApiKey, from: config.mailFrom, replyTo: config.mailReplyTo }), store),
+  mailer: loggedMailer(createMailer({
+    apiKey: config.resendApiKey, from: config.mailFrom, replyTo: config.mailReplyTo,
+    // Altdakı "Şərtlər / Məxfilik" linkləri açılış saytına aparır (BRAND_URL, yoxdursa panelin ünvanı)
+    brand: { name: config.brandName, url: config.brandUrl || config.allowedOrigins[0], supportEmail: config.supportEmail },
+  }), store),
   ai: createAiClient(config.aiServiceUrl, config.aiServiceToken),
   telegram: createTelegramApi(),
   whatsapp: createWhatsAppManager(),

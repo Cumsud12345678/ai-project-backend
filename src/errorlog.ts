@@ -41,8 +41,8 @@ export async function recordError(store: Store, e: ErrorInput): Promise<void> {
 /** Mailer-in göndərmə xətalarını jurnala yazır və olduğu kimi yenidən atır (çağıran öz davranışını saxlayır). */
 export function loggedMailer(mailer: Mailer, store: Store): Mailer {
   return {
-    async send(to, subject, text) {
-      try { return await mailer.send(to, subject, text); }
+    async send(to, subject, text, opts) {
+      try { return await mailer.send(to, subject, text, opts); }
       catch (e) {
         await recordError(store, { source: "mail", message: `E-poçt göndərilmədi: ${e instanceof Error ? e.message : String(e)}`, code: "MAIL_FAILED" });
         throw e;

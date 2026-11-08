@@ -155,7 +155,8 @@ async function runAction(deps: Deps, t: TenantRecord, a: AutoAction, ev: AutoEve
         const owner = await deps.store.findUserById(t.userId);
         if (!owner) return { type: a.type, ok: false, note: "Sahib tapılmadı" };
         const m = eventText(t, ev, test);
-        await deps.mailer.send(owner.email, m.subject, m.text);
+        const panel = deps.config.allowedOrigins[0];
+        await deps.mailer.send(owner.email, m.subject, m.text, { manageUrl: panel ? `${panel}/automations` : undefined });
         return { type: a.type, ok: true };
       }
       case "webhook": {

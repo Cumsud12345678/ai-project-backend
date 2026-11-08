@@ -1,5 +1,6 @@
 // Operator cavab yazanda ziyarətçi çatdan getmişsə ona e-poçt göndərir. Ziyarətçi çatdadırsa (cavabı birbaşa görür) e-poçt getmir.
 import type { Deps } from "./deps.js";
+import type { MailLang } from "./mailer.js";
 import type { LiveChat, TenantRecord } from "./store/types.js";
 
 /** Ziyarətçi bu müddətdən çox sorğu göndərməyibsə "çatda deyil" sayılır (vidjet açıqda 3 san, bağlıda 15 san, gizli tabda 30 san-dən bir sorğu göndərir). */
@@ -35,7 +36,9 @@ export async function mailVisitorReply(deps: Deps, t: TenantRecord, chat: LiveCh
   const m = T[lang] ?? T.az;
   try {
     await deps.store.patchLive(t.tenantId, chat.id, { notifiedAt: new Date(), notifyCount: (chat.notifyCount ?? 0) + 1 }); // əvvəl qeyd et: təkrar göndərilməsin
-    await deps.mailer.send(chat.contact, m.subject(t.businessName), `${m.intro}\n\n${text.slice(0, 1000)}\n\n${m.more}\n${siteUrl(t.domain)}\n\n--\n${m.foot}`);
+    // Ziyarətçiyə gedir: məktubun başlığında və "Kimdən" adında biznesin adı görünür
+    await deps.mailer.send(chat.contact, m.subject(t.businessName), `${m.intro}\n\n${text.slice(0, 1000)}\n\n${m.more}\n${siteUrl(t.domain)}\n\n--\n${m.foot}`,
+      { sender: { name: t.businessName, url: siteUrl(t.domain) }, action: ({ az: "Söhbətə qayıt", en: "Back to chat", ru: "Вернуться в чат", tr: "Sohbete dön" } as Record<string, string>)[lang] ?? "Söhbətə qayıt", lang: (["az", "en", "ru", "tr"].includes(lang) ? lang : "az") as MailLang, preheader: text.slice(0, 120) });
     return true;
   } catch (e) {
     console.warn("[live] ziyarətçiyə e-poçt göndərilmədi:", e instanceof Error ? e.message : e);
