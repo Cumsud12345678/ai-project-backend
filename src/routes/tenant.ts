@@ -16,6 +16,7 @@ import { makeTicket, wsUrlOf } from "../realtime.js";
 import { currentUser, requireAuth } from "../middleware.js";
 import { DuplicateError, type LiveChat, type TenantRecord, type User } from "../store/types.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, imageUrl, WIDGET_IMAGE_KINDS, sha } from "../widget.js";
+import { blockOf, domainRoot, recordDomain } from "../domains.js";
 
 const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret", "feedText"];
 const PROFILE_KEYS = ["language", "tone", "maxResults", "extraInstructions", "logQueries", "mode", "fallbackMessage", "generalKnowledge", "kbAutoRefresh", "imageSearch", "answerLength", "agentName", "company"];
@@ -159,6 +160,7 @@ export function tenantRoutes(deps: Deps) {
   r.post("/", async (req, res) => {
     const user = currentUser(res);
     const cfg = extractConfig(req.body);
+    if (await blockOf(store, String(cfg.domain ?? ""))) throw new HttpError(403, "Bu domen üçün qeydiyyat bağlanıb. Səhv olduğunu düşünürsənsə, dəstəyə yaz.", "DOMAIN_BLOCKED");
     if (await store.findTenantByUser(user.id)) throw new HttpError(409, "Artıq aktiv mənbən var. Konfiqurasiyanı yeniləyə bilərsən.", "TENANT_EXISTS");
     if (await memberTenant(store, user)) throw new HttpError(409, "Sən başqa hesabın operatorusan, öz hesabını yaratmaq olmur", "IS_OPERATOR");
     const result = await exclusive(user.id, async () => {
@@ -178,6 +180,7 @@ export function tenantRoutes(deps: Deps) {
       return created;
     });
     const t = await mine(user.id);
+    void recordDomain(deps, t, user.email);
     res.status(201).json({ apiKey: result.apiKey, tenant: publicTenant(t), sampleListings: result.sampleListings ?? [] });
   });
 
@@ -185,11 +188,15 @@ export function tenantRoutes(deps: Deps) {
     const user = currentUser(res);
     const cfg = extractConfig(req.body);
     const t = await mine(user.id);
+    const domainChanged = domainRoot(String(cfg.domain ?? "")) !== domainRoot(t.domain);
+    if (domainChanged && await blockOf(store, String(cfg.domain ?? ""))) throw new HttpError(403, "Bu domen üçün qeydiyyat bağlanıb. Səhv olduğunu düşünürsənsə, dəstəyə yaz.", "DOMAIN_BLOCKED");
     const result = await exclusive(user.id, () => ai.updateConfig(t.tenantId, cfg));
     // Profil AI servisində birləşdirilir (JSON-da olmayan ayarlar, məs. rejim, saxlanır): panel həmin son vəziyyəti görməlidir
     const profile = result.profile && typeof result.profile === "object" ? result.profile : undefined;
     await store.updateTenant(t.tenantId, { config: { ...withoutSecrets(cfg), ...(profile && { profile }) }, businessName: String(cfg.businessName).trim(), domain: String(cfg.domain).trim() });
-    res.json({ tenant: publicTenant(await mine(user.id)), sampleListings: result.sampleListings ?? [], ...(result.modeChanged === true && profile && { modeChanged: profile.mode }) });
+    const fresh = await mine(user.id);
+    if (domainChanged) void recordDomain(deps, fresh, user.email);
+    res.json({ tenant: publicTenant(fresh), sampleListings: result.sampleListings ?? [], ...(result.modeChanged === true && profile && { modeChanged: profile.mode }) });
   });
 
   r.patch("/profile", async (req, res) => {

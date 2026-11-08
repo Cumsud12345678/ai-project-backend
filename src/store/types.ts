@@ -191,7 +191,7 @@ export type ErrorRecord = {
 /** Admin əməliyyatlarının izi: kim, nəyi, nə vaxt dəyişdi. */
 export type AuditRecord = { id: string; at: Date; actor: string; action: string; target?: string; detail?: string };
 /** Bütün müştərilərə panelin yuxarısında göstərilən elan. */
-export type Announcement = { text: string; level: "info" | "warn" | "critical"; active: boolean; updatedAt: Date; by: string };
+export type Announcement = { text: string; level: "info" | "warn" | "critical"; active: boolean; updatedAt: Date; by: string; /** bu vaxtdan sonra müştərilərə göstərilmir */ expiresAt?: Date | null };
 
 export class DuplicateError extends Error {}
 

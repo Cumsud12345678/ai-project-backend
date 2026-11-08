@@ -121,6 +121,17 @@ describe("xəta jurnalı və admin əməliyyatları", () => {
     assert.equal((await user.call("GET", "/announcement")).body.announcement, null);
     await admin.call("DELETE", "/admin/announcement");
     assert.equal((await admin.call("GET", "/admin/announcement")).body.announcement, null);
+    // müddət: bitəndə müştəri görmür; keçmiş elanlar siyahısı və ondan silmə
+    const exp = await admin.call("PUT", "/admin/announcement", { text: "Endirim həftəsi", level: "info", expiresInH: 24 });
+    assert.ok(new Date(exp.body.announcement.expiresAt).getTime() > Date.now() + 23 * 3_600_000);
+    assert.equal((await user.call("GET", "/announcement")).body.announcement.text, "Endirim həftəsi");
+    await p.deps.store.setAnnouncement({ ...exp.body.announcement, updatedAt: new Date(), expiresAt: new Date(Date.now() - 1000) });
+    assert.equal((await user.call("GET", "/announcement")).body.announcement, null, "müddəti bitib");
+    const v = (await admin.call("GET", "/admin/announcement")).body;
+    assert.equal(v.expired, true);
+    assert.deepEqual(v.history.map((h: { text: string }) => h.text), ["Endirim həftəsi", "Bu gecə 02:00-da texniki işlər"]);
+    const del = await admin.call("DELETE", `/admin/announcement/history/${v.history[1].id}`);
+    assert.deepEqual(del.body.history.map((h: { text: string }) => h.text), ["Endirim həftəsi"]);
   });
 
   it("admin əməliyyatları audit jurnalına düşür", async () => {

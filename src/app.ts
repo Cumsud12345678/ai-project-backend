@@ -52,7 +52,8 @@ export function createApp(deps: Deps) {
   app.get("/announcement", async (_req, res) => {
     if (!res.locals.user) return void res.json({ announcement: null });
     const a = await deps.store.getAnnouncement();
-    res.json({ announcement: a?.active ? { text: a.text, level: a.level } : null });
+    const live = a?.active && (!a.expiresAt || new Date(a.expiresAt).getTime() > Date.now());
+    res.json({ announcement: live ? { text: a!.text, level: a!.level } : null });
   });
   app.use("/tenant/channels", telegramPanelRoutes(deps), whatsappPanelRoutes(deps));
   app.use("/tenant", notifyPanelRoutes(deps), leadForwardRoutes(deps), automationRoutes(deps));

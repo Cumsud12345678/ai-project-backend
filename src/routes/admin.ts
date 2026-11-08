@@ -11,6 +11,7 @@ import { ALERT_KINDS, alertLog, getAlertSettings, healthState, saveAlertSettings
 import { getPartnerSettings, normalizeCode, partnerCustomers, savePartnerSettings, syncThrottled, validCode, validRate } from "../partners.js";
 import { notifyAvailable, notifyBotName, sendNotify, userLinkUrl } from "../operator-notify.js";
 import type { TenantRecord, User } from "../store/types.js";
+import { blockDomain, domainGroups, domainRoot, markDomainOk, unblockDomain } from "../domains.js";
 import type { ErrorSource } from "../store/types.js";
 
 const LARGE_AZN = 100;
@@ -221,6 +222,68 @@ export function adminRoutes(deps: Deps) {
     if (req.body?.notify !== false) suspendMail(t, await store.findUserById(t.userId), true, reason);
     res.json({ ok: true, suspended });
   });
+  // ---- Domenlər: eyni sayt fərqli hesablarda (pulsuz balans sui-istifadəsi), domen bloku ----
+  r.get("/domains", async (req, res) => {
+    const f = String(req.query.f ?? "dup");
+    const q = String(req.query.q ?? "").trim().toLowerCase();
+    const all = await domainGroups(store);
+    const dup = (g: (typeof all)[number]) => g.suspicious;
+    const pick = f === "blocked" ? all.filter((g) => g.block) : f === "all" ? all : f === "ok" ? all.filter((g) => g.ok) : all.filter(dup);
+    const found = q ? pick.filter((g) => g.root.includes(q) || g.accounts.some((a) => a.email.toLowerCase().includes(q) || a.businessName.toLowerCase().includes(q) || a.host.includes(q))) : pick;
+    res.json({ groups: found.slice(0, 300), counts: { all: all.length, dup: all.filter(dup).length, blocked: all.filter((g) => g.block).length, ok: all.filter((g) => g.ok).length } });
+  });
+  r.post("/domains/ok", async (req, res) => {
+    const domain = domainRoot(String(req.body?.domain ?? ""));
+    const g = (await domainGroups(store)).find((x) => x.root === domain);
+    if (!g) throw new HttpError(404, "Domen tapılmadı", "NOT_FOUND");
+    const ok = req.body?.ok !== false;
+    await markDomainOk(store, domain, g.accounts.length, currentUser(res).email, ok);
+    void audit(res, ok ? "domain.ok" : "domain.unok", domain);
+    res.json({ ok: true });
+  });
+  r.post("/domains/block", async (req, res) => {
+    const domain = domainRoot(String(req.body?.domain ?? ""));
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 300) : "";
+    if (!domain || !domain.includes(".")) throw new HttpError(400, "Domen düzgün deyil", "BAD_DOMAIN");
+    if (reason.length < 3) throw new HttpError(400, "Səbəbi yaz", "REASON_REQUIRED");
+    const by = currentUser(res).email;
+    const suspendReason = `Domen bloklanıb: ${reason}`;
+    try {
+      const b = await blockDomain(deps, domain, reason, by, async (tenantId) => {
+        try {
+          const t = await store.findTenantById(tenantId);
+          if (!t) return false;
+          await ai.suspendTenant(tenantId, true);
+          await store.updateTenant(tenantId, { suspended: { at: new Date(), by, reason: suspendReason } });
+          if (req.body?.notify !== false) suspendMail(t, await store.findUserById(t.userId), true, suspendReason);
+          return true;
+        } catch (e) { console.error(`[admin] domen bloku: ${tenantId} dayandırıla bilmədi`, e); return false; }
+      }, req.body?.suspend === true);
+      void audit(res, "domain.block", domain, `${reason}${b.suspended.length ? ` · ${b.suspended.length} hesab dayandırıldı` : ""}`);
+      res.json({ ok: true, block: b });
+    } catch (e) {
+      if ((e as { code?: string }).code === "ALREADY_BLOCKED") throw new HttpError(409, "Bu domen artıq bloklanıb", "ALREADY_BLOCKED");
+      throw e;
+    }
+  });
+  r.post("/domains/unblock", async (req, res) => {
+    const domain = domainRoot(String(req.body?.domain ?? ""));
+    const b = await unblockDomain(store, domain);
+    if (!b) throw new HttpError(404, "Bu domen bloklanmayıb", "NOT_BLOCKED");
+    let restored = 0;
+    if (req.body?.restore !== false) {
+      for (const tenantId of b.suspended) {
+        const t = await store.findTenantById(tenantId);
+        // Yalnız blokun dayandırdığı və hələ də o səbəblə dayanan hesablar (sonra başqa səbəblə dayandırılanlara toxunulmur)
+        if (!t?.suspended || !t.suspended.reason.startsWith("Domen bloklanıb")) continue;
+        try { await ai.suspendTenant(tenantId, false); await store.updateTenant(tenantId, { suspended: null }); restored++; suspendMail(t, await store.findUserById(t.userId), false, ""); }
+        catch (e) { console.error(`[admin] domen bloku götürüldü, amma ${tenantId} bərpa olunmadı`, e); }
+      }
+    }
+    void audit(res, "domain.unblock", domain, restored ? `${restored} hesab bərpa olundu` : undefined);
+    res.json({ ok: true, restored });
+  });
+
   r.post("/tenants/:tenantId/unsuspend", async (req, res) => {
     const tenantId = await known(req.params.tenantId);
     const t = (await store.findTenantById(tenantId))!;
@@ -286,12 +349,13 @@ export function adminRoutes(deps: Deps) {
     const now = Date.now();
     const ago = (n: number) => new Date(now - n * day);
     // Hamısı bazada sayılır: istifadəçi və müştəri siyahıları yaddaşa yüklənmir
-    const [total, verified, admins, last7d, last30d, signupRows, stats, summary, accounts, pending, errors24, errors7, fin, control] = await Promise.all([
+    const [total, verified, admins, last7d, last30d, signupRows, stats, summary, accounts, pending, errors24, errors7, fin, control, domains] = await Promise.all([
       store.countUsers(), store.countUsers({ verified: true }), store.countUsers({ admins: config.adminEmails }), store.countUsers({ since: ago(7) }), store.countUsers({ since: ago(30) }),
       store.signupsByDay(ago(30)), store.tenantStats(ago(7)),
       ai.usageSummary().catch(() => null), ai.billingAccounts().catch(() => null),
       ai.billingRequests("pending").catch(() => null), store.countErrors(ago(1)), store.countErrors(ago(7)),
       ai.billingFinance(1).catch(() => null), ai.aiControl().catch(() => null),
+      domainGroups(store).catch(() => []),
     ]);
     const byDay = new Map(signupRows.map((r) => [r.date, r.users]));
     const series: { date: string; users: number }[] = [];
@@ -312,6 +376,7 @@ export function adminRoutes(deps: Deps) {
       outstandingPaidAzn: fin?.totals ? Math.round(Number(fin.totals.outstandingPaidAzn) * 100) / 100 : null,
       monthProfitAzn: fin?.months?.length ? Math.round(Number(fin.months[fin.months.length - 1].profitAzn) * 100) / 100 : null,
       errors: { last24h: errors24, last7d: errors7 },
+      domains: { suspicious: domains.filter((g) => g.suspicious).length, blocked: domains.filter((g) => g.block).length },
       signups: series, topTenants: top,
     });
   });
@@ -339,18 +404,41 @@ export function adminRoutes(deps: Deps) {
   });
 
   // ---- Elan: bütün müştərilərin panelində yuxarıda göstərilir ----
-  r.get("/announcement", async (_req, res) => { res.json({ announcement: await store.getAnnouncement() }); });
+  // Keçmiş elanlar (son 20): təkrar istifadə və ya silmək üçün
+  type AnnHist = { id: string; text: string; level: "info" | "warn" | "critical"; by: string; at: string };
+  const HIST = "announcement_history";
+  const EXPIRES_H = [1, 6, 24, 72, 168];
+  const annView = async () => {
+    const a = await store.getAnnouncement();
+    const expired = Boolean(a?.expiresAt && new Date(a.expiresAt).getTime() <= Date.now());
+    return { announcement: a, expired, history: (await store.getSetting<AnnHist[]>(HIST)) ?? [] };
+  };
+  r.get("/announcement", async (_req, res) => { res.json(await annView()); });
   r.put("/announcement", async (req, res) => {
-    const b = (req.body ?? {}) as { text?: unknown; level?: unknown; active?: unknown };
+    const b = (req.body ?? {}) as { text?: unknown; level?: unknown; active?: unknown; expiresInH?: unknown };
     const text = typeof b.text === "string" ? b.text.trim().slice(0, 300) : "";
     if (!text) throw new HttpError(400, "Elan mətni boşdur");
-    const level = b.level === "warn" || b.level === "critical" ? b.level : "info";
-    const a = { text, level, active: b.active !== false, updatedAt: new Date(), by: currentUser(res).email } as const;
+    const level: AnnHist["level"] = b.level === "warn" || b.level === "critical" ? b.level : "info";
+    const prev = await store.getAnnouncement();
+    // expiresInH verilməyibsə (məs. "Gizlət") əvvəlki müddət qalır; null = müddətsiz
+    const expiresAt = b.expiresInH === undefined ? prev?.expiresAt ?? null
+      : typeof b.expiresInH === "number" && EXPIRES_H.includes(b.expiresInH) ? new Date(Date.now() + b.expiresInH * 3_600_000) : null;
+    const by = currentUser(res).email;
+    const a = { text, level, active: b.active !== false, updatedAt: new Date(), by, expiresAt };
     await store.setAnnouncement({ ...a });
+    if (a.active && (prev?.text !== text || prev?.level !== level)) {
+      const hist = ((await store.getSetting<AnnHist[]>(HIST)) ?? []).filter((h) => h.text !== text);
+      await store.setSetting(HIST, [{ id: Math.random().toString(36).slice(2, 10), text, level, by, at: new Date().toISOString() }, ...hist].slice(0, 20));
+    }
     void audit(res, a.active ? "announcement.set" : "announcement.hide", undefined, text);
-    res.json({ announcement: a });
+    res.json(await annView());
   });
-  r.delete("/announcement", async (_req, res) => { await store.setAnnouncement(null); void audit(res, "announcement.delete"); res.json({ ok: true }); });
+  r.delete("/announcement", async (_req, res) => { await store.setAnnouncement(null); void audit(res, "announcement.delete"); res.json(await annView()); });
+  r.delete("/announcement/history/:id", async (req, res) => {
+    const hist = (await store.getSetting<AnnHist[]>(HIST)) ?? [];
+    await store.setSetting(HIST, hist.filter((h) => h.id !== req.params.id));
+    res.json(await annView());
+  });
 
   // ---- İstifadəçi siyahısı CSV (Excel-də formul inyeksiyasına qarşı qorunur) ----
   r.get("/users.csv", async (_req, res) => {
