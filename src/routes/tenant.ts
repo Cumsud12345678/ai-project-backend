@@ -41,6 +41,7 @@ function withoutSecrets(cfg: Record<string, unknown>): Record<string, unknown> {
 
 const publicTenant = (t: TenantRecord) => ({
   tenantId: t.tenantId, businessName: t.businessName, domain: t.domain, config: t.config,
+  setup: { goals: t.setup?.goals ?? [], tested: Boolean(t.testedAt) },
   createdAt: t.createdAt, updatedAt: t.updatedAt, keyRotatedAt: t.keyRotatedAt ?? null,
   // Sahib panelində xəbərdarlıq göstərmək üçün (kim dayandırıb göstərilmir)
   suspended: t.suspended ? { at: t.suspended.at, reason: t.suspended.reason } : null,
@@ -153,8 +154,21 @@ export function tenantRoutes(deps: Deps) {
 
   r.post("/config/test", async (req, res) => {
     const user = currentUser(res);
-    if (!limiter.hit(`cfgtest:${user.id}`, 30, 10 * 60_000)) throw new HttpError(429, "Çox sınaq oldu, bir neçə dəqiqə sonra yenidən yoxla", "RATE_LIMITED");
-    res.json(await ai.testConfig(extractConfig(req.body)));
+    if (!limiter.hit(`cfgtest:${user.id}`, 60, 10 * 60_000)) throw new HttpError(429, "Çox sınaq oldu, bir neçə dəqiqə sonra yenidən yoxla", "RATE_LIMITED");
+    // testFilters: sehirbazda bir filtri sınamaq üçün (məs. { "make": "Honda" }), yalnız sadə dəyərlər
+    const tf = (req.body as { testFilters?: unknown } | undefined)?.testFilters;
+    const testFilters = tf && typeof tf === "object" && !Array.isArray(tf)
+      ? Object.fromEntries(Object.entries(tf as Record<string, unknown>).filter(([k, v]) => /^[A-Za-z][A-Za-z0-9]{0,40}$/.test(k) && ["string", "number", "boolean"].includes(typeof v)).slice(0, 10))
+      : undefined;
+    res.json(await ai.testConfig({ ...extractConfig(req.body), ...(testFilters && { testFilters }) }));
+  });
+
+  r.post("/config/sample", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`cfgsample:${user.id}`, 40, 10 * 60_000)) throw new HttpError(429, "Çox sorğu oldu, bir neçə dəqiqə sonra yenidən yoxla", "RATE_LIMITED");
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const pick = ["url", "method", "body", "auth", "apiSecret"];
+    res.json(await ai.fetchSample(Object.fromEntries(Object.entries(b).filter(([k]) => pick.includes(k)))));
   });
 
   r.post("/", async (req, res) => {
@@ -197,6 +211,16 @@ export function tenantRoutes(deps: Deps) {
     const fresh = await mine(user.id);
     if (domainChanged) void recordDomain(deps, fresh, user.email);
     res.json({ tenant: publicTenant(fresh), sampleListings: result.sampleListings ?? [], ...(result.modeChanged === true && profile && { modeChanged: profile.mode }) });
+  });
+
+  // Sehirbazın "Məqsəd" addımı: serverdə saxlanır ki, hazırlıq göstəricisi hər cihazda və hər səhifədə eyni olsun
+  r.put("/setup", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const raw = (req.body as { goals?: unknown } | undefined)?.goals;
+    const goals = Array.isArray(raw) ? [...new Set(raw.filter((g): g is "answer" | "catalog" => g === "answer" || g === "catalog"))] : [];
+    if (!goals.length) throw new HttpError(400, "Ən azı bir məqsəd seç");
+    await store.updateTenant(t.tenantId, { setup: { goals, at: new Date() } });
+    res.json({ goals });
   });
 
   r.patch("/profile", async (req, res) => {
@@ -310,6 +334,13 @@ export function tenantRoutes(deps: Deps) {
     ])).map(ok) as [AiResult | null, AiResult | null, AiResult | null, AiResult | null, AiResult | null];
 
     const sources = (kb?.sources ?? []) as { status: string }[];
+    // Hazırlıq: quraşdırma sehirbazının addımları ilə eyni (Məlumat → Sınaq → Yayım)
+    const src = t.config.source as { type?: string } | undefined;
+    const company = (t.config.profile as { company?: Record<string, unknown> } | undefined)?.company;
+    const catalogReady = mode !== "support" && Boolean(src?.type);
+    const kbReady = sources.some((s) => s.status === "ready") || Boolean(company && Object.values(company).some((v) => typeof v === "string" && v.trim()));
+    const channels = { telegram: Boolean(t.telegram?.enabled), whatsapp: Boolean(t.whatsapp?.enabled) };
+    const goals = t.setup?.goals ?? [];
     const week = Date.now() - 7 * 86_400_000;
     const unanswered7 = ((un?.items ?? []) as { at: string }[]).filter((x) => new Date(x.at).getTime() >= week).length;
     const failed = sources.filter((s) => s.status === "failed").length;
@@ -330,7 +361,17 @@ export function tenantRoutes(deps: Deps) {
       feedback: fb,
       billing: billing ? { state: billing.state, balanceAzn: billing.balance?.totalAzn, freeAzn: billing.balance?.freeAzn, paidAzn: billing.balance?.paidAzn, monthAzn: billing.spend?.monthAzn, enforced: billing.enforced } : null,
       setup: {
-        dataReady: kbOn ? sources.some((s) => s.status === "ready") : true,
+        // both: elan mənbəyi VƏ YA bilik kifayətdir; listings: yalnız mənbə; support: yalnız bilik (və ya şirkət məlumatı)
+        // Məqsəd seçilibsə sehirbazla eyni qayda: elan axtarışı seçilibsə kataloq, yalnız suallar seçilibsə bilik.
+        // Seçilməyibsə (köhnə hesablar) rejimə görə.
+        dataReady: goals.length ? (goals.includes("catalog") ? catalogReady : kbReady) : mode === "listings" ? catalogReady : mode === "support" ? kbReady : catalogReady || kbReady,
+        goals, goalsSet: goals.length > 0,
+        catalogReady, kbReady,
+        tested: Boolean(t.testedAt) || total > 0,
+        hasSite: !String(t.domain).toLowerCase().endsWith(".invalid"),
+        channels,
+        // Yayımda: vidjet saytda görünüb və ya Telegram/WhatsApp qoşulub (saytı olmayan müştəri üçün də)
+        launched: Boolean(t.widget?.lastSeenAt) || channels.telegram || channels.whatsapp,
         dataCount: sources.filter((s) => s.status === "ready").length,
         widgetInstalled: Boolean(t.widget?.lastSeenAt),
         widgetEnabled: t.widget?.enabled ?? true,
@@ -905,7 +946,11 @@ export function tenantRoutes(deps: Deps) {
     const clean = (Array.isArray(history) ? history : []).slice(-10)
       .filter((h: any) => h && (h.role === "user" || h.role === "model") && typeof h.text === "string")
       .map((h: any) => ({ role: h.role, text: h.text.slice(0, 2000) }));
-    res.json(await ai.chat(t.tenantId, message.trim(), clean, { test: true })); // sınaq söhbəti sorğu qeydinə düşmür
+    const r = await ai.chat(t.tenantId, message.trim(), clean, { test: true }); // sınaq söhbəti sorğu qeydinə düşmür
+    // Quraşdırmanın "Sınaq" addımı: köməkçi müştərinin öz məlumatı ilə cavab veribsə (elan və ya bilik mənbəyi) bir dəfə qeyd olunur
+    const fromData = (Array.isArray(r.listings) && r.listings.length > 0) || (Array.isArray(r.sources) && r.sources.length > 0);
+    if (!t.testedAt && fromData && !r.unanswered) await store.updateTenant(t.tenantId, { testedAt: new Date() }).catch(() => {});
+    res.json(r);
   });
 
   return r;

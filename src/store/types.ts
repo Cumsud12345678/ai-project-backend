@@ -102,6 +102,10 @@ export type TenantRecord = {
   createdAt: Date;
   updatedAt: Date;
   keyRotatedAt?: Date;
+  /** Sahib panelin sınaq çatında köməkçini öz məlumatı ilə ilk dəfə uğurla yoxlayıb (quraşdırma addımı) */
+  testedAt?: Date;
+  /** Quraşdırma sehirbazında seçilən məqsədlər: hansı məlumat addımının lazım olduğunu həll edir (panelin hər yerində eyni hazırlıq) */
+  setup?: { goals: ("answer" | "catalog")[]; at: Date };
   widget?: WidgetSettings;
   /** "Powered by" yazısı vidjetdə defolt görünür; yalnız admin söndürə bilir (ödənişli xidmət). */
   brandRemoved?: boolean;
@@ -227,7 +231,7 @@ export interface Store {
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
   /** Yalnız vidjet loqosunu dəyişir (bütün vidjet sənədini yenidən yazmır). null = sil. */
   setWidgetLogo(tenantId: string, logo: WidgetImage | null, kind?: WidgetImageKind): Promise<void>;
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats" | "automations">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "testedAt" | "setup" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats" | "automations">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;

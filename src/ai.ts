@@ -7,6 +7,8 @@ export type AiResult = Record<string, any>;
 
 export type AiClient = {
   testConfig(config: object): Promise<AiResult>;
+  /** Qoşulma sehirbazı: API ünvanının xam cavabı (server çağırır, CORS olmur) */
+  fetchSample(body: object): Promise<AiResult>;
   createTenant(config: object): Promise<AiResult>;
   updateConfig(tenantId: string, config: object): Promise<AiResult>;
   patchProfile(tenantId: string, profile: object): Promise<AiResult>;
@@ -105,6 +107,7 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
   const t = (id: string) => `/tenants/${encodeURIComponent(id)}`;
   return {
     testConfig: (config) => request("POST", "/config/test", config),
+    fetchSample: (body) => request("POST", "/config/sample", body),
     createTenant: (config) => request("POST", "/tenants", config),
     updateConfig: (id, config) => request("PUT", `${t(id)}/config`, config),
     feedPreview: (body) => request("POST", "/feed/preview", body, 60_000),

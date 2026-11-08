@@ -154,3 +154,14 @@ test("admin: adi istifadəçi 403, admin siyahı görür və başqa müştərini
   assert.equal((await admin.call("POST", "/admin/tenants/yoxdur/rotate-key")).status, 404);
   assert.equal((await user.call("POST", `/admin/tenants/${withTenant.tenant.tenantId}/rotate-key`)).status, 403);
 });
+
+test("sehirbaz: config/sample yalnız tanınan sahələri ötürür; config/test sadə testFilters-i ötürür", async () => {
+  const c = await p.signedIn("t-sample@example.com");
+  const r = await c.call("POST", "/tenant/config/sample", { url: "https://api.example.com/a", auth: { type: "bearer" }, apiSecret: "S", extra: 1 });
+  assert.equal(r.status, 200);
+  const sent = p.ai.calls.filter((x) => x.fn === "fetchSample").at(-1)!.args[0] as Record<string, unknown>;
+  assert.deepEqual(Object.keys(sent).sort(), ["apiSecret", "auth", "url"]);
+  await c.call("POST", "/tenant/config/test", { config, testFilters: { make: "Honda", maxPrice: 5000, bad: { x: 1 }, "1x": "y" } });
+  const t = p.ai.calls.filter((x) => x.fn === "testConfig").at(-1)!.args[0] as Record<string, unknown>;
+  assert.deepEqual(t.testFilters, { make: "Honda", maxPrice: 5000 });
+});

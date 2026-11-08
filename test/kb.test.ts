@@ -199,3 +199,44 @@ test("ssenari: yaradılır və yenilənir, sahib olmayan 401, uzun mətn kəsili
   assert.equal((await c.call("PUT", "/tenant/kb/proc/kısa", { name: "x" })).status, 400, "yanlış id");
   assert.equal((await p.client().call("POST", "/tenant/kb/proc", { name: "x" })).status, 401);
 });
+
+test("overview hazırlığı: sınaq çatı məlumatla cavab verəndə 'tested', kanal qoşulanda 'launched'; saytsız müştəri", async () => {
+  const { c } = await supportTenant();
+  const orig = { ...p.ai };
+  p.ai.kbInfo = async () => ({ sources: [] });
+  p.ai.queryStats = async () => ({ enabled: true, total: 0, noResults: 0, errors: 0, top: [] });
+  try {
+    let o = (await c.call("GET", "/tenant/overview")).body;
+    assert.equal(o.setup.dataReady, false);
+    assert.equal(o.setup.tested, false);
+    assert.equal(o.setup.launched, false);
+    // məlumatsız "salam" cavabı sınaq sayılmır
+    await c.call("POST", "/tenant/chat", { message: "salam" });
+    assert.equal((await c.call("GET", "/tenant/overview")).body.setup.tested, false);
+    // şirkət məlumatı da bilikdir
+    await c.call("PATCH", "/tenant/profile", { company: { phone: "+994 50 000 00 00" } });
+    p.ai.nextChat = { answer: "Çatdırılma 1-2 gün", listings: [], sources: [{ title: "FAQ" }], usage: { tokens: 5 } };
+    await c.call("POST", "/tenant/chat", { message: "çatdırılma?" });
+    o = (await c.call("GET", "/tenant/overview")).body;
+    assert.equal(o.setup.tested, true);
+    assert.equal(o.setup.hasSite, true);
+  } finally { Object.assign(p.ai, orig); }
+});
+
+test("sehirbaz məqsədləri serverdə saxlanır və hazırlığı müəyyən edir", async () => {
+  const { c } = await supportTenant();
+  const orig = { ...p.ai };
+  p.ai.kbInfo = async () => ({ sources: [{ status: "ready" }] });
+  try {
+    assert.equal((await c.call("PUT", "/tenant/setup", { goals: [] })).status, 400);
+    assert.equal((await c.call("PUT", "/tenant/setup", { goals: ["x"] })).status, 400);
+    assert.deepEqual((await c.call("PUT", "/tenant/setup", { goals: ["catalog", "catalog", "x"] })).body.goals, ["catalog"]);
+    let o = (await c.call("GET", "/tenant/overview")).body;
+    assert.equal(o.setup.goalsSet, true);
+    assert.equal(o.setup.dataReady, false, "elan seçilib, kataloq qoşulmayıb: bilik bazası kifayət deyil");
+    await c.call("PUT", "/tenant/setup", { goals: ["answer"] });
+    o = (await c.call("GET", "/tenant/overview")).body;
+    assert.equal(o.setup.dataReady, true);
+    assert.deepEqual((await c.call("GET", "/tenant")).body.tenant.setup.goals, ["answer"]);
+  } finally { Object.assign(p.ai, orig); }
+});

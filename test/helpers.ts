@@ -24,6 +24,7 @@ export function fakeAi(): FakeAi {
   let n = 0;
   const ai: FakeAi = {
     calls,
+    async fetchSample(...a) { return rec("fetchSample", a, { ok: true, json: { data: [{ id: 1, title: "A", price: 10 }] }, ms: 5 }); },
     async testConfig(...a) { return rec("testConfig", a, { ok: true, sampleCount: 2, sampleListings: [{ id: "1", title: "A", price: 1 }], supportedFilters: ["maxPrice"], debug: { dropped: [] } }); },
     async createTenant(...a) { return rec("createTenant", a, { ok: true, tenantId: `tenant-${++n}`, apiKey: `ca_live_key${n}`, sampleCount: 2, sampleListings: [] }); },
     async updateConfig(...a) { return rec("updateConfig", a, { ok: true, sampleCount: 2, sampleListings: [] }); },
