@@ -37,7 +37,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const isProd = env.NODE_ENV === "production";
   const missing = ["MONGODB_URI", "AI_SERVICE_URL", "AI_SERVICE_TOKEN"].filter((k) => !env[k]);
   if (isProd && !env.RESEND_API_KEY) missing.push("RESEND_API_KEY (production-da email göndərmək üçün lazımdır)");
-  if (isProd && !env.MAIL_FROM) missing.push("MAIL_FROM (Resend-də təsdiqlənmiş domen, məs. Car Advisor <no-reply@senin-saytin.az>)");
+  if (isProd && !env.MAIL_FROM) missing.push("MAIL_FROM (Resend-də təsdiqlənmiş domen, məs. Hazırcavab <no-reply@hazircavab.az>)");
   if (missing.length) throw new Error(`Bu mühit dəyişənləri yoxdur: ${missing.join(", ")}`);
 
   const list = (v: string | undefined) => (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -50,7 +50,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     aiServiceToken: env.AI_SERVICE_TOKEN!,
     publicAdvisorUrl: (env.PUBLIC_ADVISOR_URL || aiServiceUrl).replace(/\/+$/, ""),
     publicPortalUrl: (env.PUBLIC_PORTAL_URL || `http://localhost:${Number(env.PORT) || 4000}`).replace(/\/+$/, ""),
-    brandName: (env.BRAND_NAME || "Car Advisor").slice(0, 40),
+    brandName: (env.BRAND_NAME || "Hazırcavab").slice(0, 40),
     brandUrl: /^https?:\/\//.test(env.BRAND_URL || "") ? env.BRAND_URL! : "",
     adminEmails: list(env.ADMIN_EMAILS).map((e) => e.toLowerCase()),
     allowedOrigins: list(env.ALLOWED_ORIGINS || "http://localhost:3001"),
@@ -59,7 +59,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     adminSessionHours: Number(env.ADMIN_SESSION_HOURS) || 12,
     adminTwoFactor: env.ADMIN_2FA === "optional" ? "optional" : env.ADMIN_2FA === "required" || (isProd && (env.CHANNEL_SECRET_KEY ?? "").length >= 32) ? "required" : "optional",
     resendApiKey: env.RESEND_API_KEY || undefined,
-    mailFrom: env.MAIL_FROM || "Car Advisor <onboarding@resend.dev>",
+    mailFrom: env.MAIL_FROM || "Hazırcavab <onboarding@resend.dev>",
     mailReplyTo: env.MAIL_REPLY_TO || undefined,
     supportEmail: (env.SUPPORT_EMAIL || /<([^>]+)>/.exec(env.MAIL_REPLY_TO ?? "")?.[1] || env.MAIL_REPLY_TO || "").trim() || undefined,
     trustProxy: env.TRUST_PROXY === undefined ? 1 : Number(env.TRUST_PROXY),

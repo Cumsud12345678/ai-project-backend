@@ -1,5 +1,5 @@
 /*!
- * Car Advisor çat vidjeti
+ * Hazırcavab çat vidjeti
  * Quraşdırma (saytın </body> teqindən əvvəl):
  *   <script src="https://PORTAL/widget.js" data-key="wk_..." defer></script>
  * İstəyə bağlı (hamısı piksellə, yalnız rəqəm). Ekran 3 pilləyə bölünür:

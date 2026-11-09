@@ -22,7 +22,7 @@ export type HttpPost = (url: string, body: unknown) => Promise<PostResult>;
 export const safePost: HttpPost = async (url, body) => {
   const u = new URL(url);
   if (u.protocol !== "https:" || u.username || u.password) throw new Error("Yalnız https ünvan");
-  const res = await guardedFetch(u, { method: "POST", redirect: "manual", signal: AbortSignal.timeout(8000), headers: { "content-type": "application/json", "user-agent": "CarAdvisor-Leads/1.0" }, body: JSON.stringify(body) });
+  const res = await guardedFetch(u, { method: "POST", redirect: "manual", signal: AbortSignal.timeout(8000), headers: { "content-type": "application/json", "user-agent": "Hazircavab-Leads/1.0" }, body: JSON.stringify(body) });
   const text = res.body ? (await res.text()).slice(0, 65_536) : "";
   let json: unknown = null;
   try { json = text ? JSON.parse(text) : null; } catch { json = null; }

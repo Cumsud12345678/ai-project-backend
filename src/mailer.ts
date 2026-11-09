@@ -88,7 +88,7 @@ function facts(lines: string[]): string {
 }
 
 /** Düz mətni məktub HTML-inə çevirir. Mətnin quruluşu: boş sətirlə ayrılmış abzaslar. */
-export function renderHtml(subject: string, text: string, opts: MailOptions = {}, brand: Brand = { name: "Car Advisor" }): string {
+export function renderHtml(subject: string, text: string, opts: MailOptions = {}, brand: Brand = { name: "Hazırcavab" }): string {
   const m = L[opts.lang ?? "az"] ?? L.az;
   let buttonUsed = false;
   let footNote = "";
@@ -144,7 +144,7 @@ ${esc(why)}${links ? `<br>${links}` : ""}<br>${opts.sender ? esc(m.via(brand.nam
 }
 
 export function createMailer(o: MailerOptions): Mailer {
-  const brand = o.brand ?? { name: "Car Advisor" };
+  const brand = o.brand ?? { name: "Hazırcavab" };
   if (!o.apiKey) {
     // İnkişaf rejimi: email göndərilmir, mətn konsola yazılır.
     return { async send(to, subject, text) { console.log(`\n[mail → ${to}] ${subject}\n${text}\n`); } };

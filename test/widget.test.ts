@@ -43,7 +43,7 @@ test("/widget.js ictimaidir, JavaScript kimi və qısa keş ilə verilir", async
   assert.match(res.headers.get("content-type") ?? "", /javascript/);
   assert.match(res.headers.get("cache-control") ?? "", /max-age=300/);
   const text = await res.text();
-  assert.match(text, /Car Advisor çat vidjeti/);
+  assert.match(text, /Hazırcavab çat vidjeti/);
   const assigned = [...text.matchAll(/\.innerHTML\s*=\s*([^;]+);/g)].map((m) => m[1]!.trim());
   assert.ok(assigned.length > 0 && assigned.every((v) => /^ICON_[A-Z]+$/.test(v)), `innerHTML yalnız sabit SVG üçün: ${assigned}`);
   assert.ok(!/insertAdjacentHTML|document\.write|eval\(/.test(text));
