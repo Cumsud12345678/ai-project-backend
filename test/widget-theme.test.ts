@@ -82,11 +82,21 @@ test("loqo: SVG, səhv format və böyük fayl rədd olunur; söndürülmüş vi
 test("çat düyməsinin effektləri: standart narıncı rəng, effektlər defolt bağlı, ayrıca açılır və ictimai konfiqdə görünür", async () => {
   const { c, key } = await tenant();
   const cfg0 = await cfgOf(key);
-  assert.equal(cfg0.color, "#ea580c");
+  assert.equal(cfg0.color, "#18181b");
   assert.deepEqual(cfg0.effects, { pulse: false, bounce: false });
   assert.equal((await c.call("PUT", "/tenant/widget", { effects: { pulse: "yes" } })).status, 400);
   assert.equal((await c.call("PUT", "/tenant/widget", { effects: { pulse: true } })).status, 200);
   assert.deepEqual((await cfgOf(key)).effects, { pulse: true, bounce: false });
   const r = await c.call("PUT", "/tenant/widget", { effects: { bounce: true } });
   assert.deepEqual(r.body.widget.effects, { pulse: true, bounce: true }, "biri dəyişəndə digəri qalır");
+});
+
+test("köhnə qara standart rəng: sahib seçməyibsə narıncı göstərilir, özü seçəndə qara da saxlanır", async () => {
+  const { c, key } = await tenant();
+  const cur = (await p.store.findTenantByWidgetKey(key))!;
+  await p.store.updateTenant(cur.tenantId, { widget: { ...cur.widget!, color: "#18181b", colorSet: undefined } });
+  assert.equal((await cfgOf(key)).color, "#18181b");
+  assert.equal((await c.call("GET", "/tenant/widget")).body.widget.color, "#18181b");
+  assert.equal((await c.call("PUT", "/tenant/widget", { color: "#18181b" })).status, 200);
+  assert.equal((await cfgOf(key)).color, "#18181b", "sahibin öz seçimi qorunur");
 });

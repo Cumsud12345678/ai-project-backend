@@ -27,7 +27,14 @@ export const WIDGET_KEY_RE = /^wk_[a-f0-9]{32}$/;
 export const newWidgetKey = () => `wk_${randomBytes(16).toString("hex")}`;
 
 export const DEFAULT_GREETING = "Salam! Axtardığınız nəqliyyat vasitəsini və büdcənizi yazın, sizə uyğun elanları tapım.";
-export const DEFAULT_COLOR = "#ea580c";
+export const DEFAULT_COLOR = "#18181b";
+/** Köhnə hesablarda standart rəng qara idi. Sahib rəngi özü seçməyibsə və rəng qaraya yaxın boz-qaradırsa, narıncı standart işləyir. */
+export function widgetColor(w: Pick<WidgetSettings, "color" | "colorSet">): string {
+  if (w.colorSet || !/^#[0-9a-fA-F]{6}$/.test(w.color)) return /^#[0-9a-fA-F]{6}$/.test(w.color) ? w.color : DEFAULT_COLOR;
+  const n = parseInt(w.color.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const darkNeutral = Math.max(r, g, b) < 60 && Math.max(r, g, b) - Math.min(r, g, b) < 30;
+  return darkNeutral ? DEFAULT_COLOR : w.color;
+}
 export const DEFAULT_GREETING_SUPPORT = "Salam! Sualınızı yazın, şirkətin məlumatlarına əsasən cavab verim.";
 export const DEFAULT_LABEL = "AI-dan soruş";
 
@@ -102,6 +109,7 @@ export function parseWidgetPatch(body: unknown, current: WidgetSettings): Widget
   if (b.color !== undefined) {
     if (typeof b.color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(b.color)) throw new HttpError(400, "Rəng #rrggbb formatında olmalıdır");
     next.color = b.color.toLowerCase();
+    next.colorSet = true;
   }
   if (b.theme !== undefined) {
     if (b.theme !== "light" && b.theme !== "dark" && b.theme !== "auto") throw new HttpError(400, "Mövzu light, dark və ya auto olmalıdır");
@@ -249,7 +257,7 @@ export function widgetRoutes(deps: Deps) {
     const mode = modeOf(wt.config);
     // Quraşdırmanın işlədiyini göstərmək üçün: ən çox 10 dəqiqədən bir yazılır
     if (!w.lastSeenAt || Date.now() - new Date(w.lastSeenAt).getTime() > 10 * 60_000) void store.touchWidget(wt.tenantId, new Date()).catch(() => {});
-    res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, effects: { pulse: Boolean(w.effects?.pulse), bounce: Boolean(w.effects?.bounce) }, mode, contact: true, live: liveOpenNow(wt), csat: w.live?.csat !== false, proactive: w.proactive?.enabled ? w.proactive.rules.filter((r) => campaignRunning(r, liveOpenNow(wt))).map((r) => ({ id: r.id, text: r.text, delaySec: r.delaySec, match: r.match, ...(r.title && { title: r.title }), ...(r.buttons?.length && { buttons: r.buttons }), ...(r.audience && r.audience !== "all" && { audience: r.audience }), ...(r.device && r.device !== "all" && { device: r.device }), ...(r.freq === "once" && { freq: "once" }) })) : [], // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
+    res.json({ title: w.title, greeting: w.greeting, color: widgetColor(w), label: w.label ?? DEFAULT_LABEL, effects: { pulse: Boolean(w.effects?.pulse), bounce: Boolean(w.effects?.bounce) }, mode, contact: true, live: liveOpenNow(wt), csat: w.live?.csat !== false, proactive: w.proactive?.enabled ? w.proactive.rules.filter((r) => campaignRunning(r, liveOpenNow(wt))).map((r) => ({ id: r.id, text: r.text, delaySec: r.delaySec, match: r.match, ...(r.title && { title: r.title }), ...(r.buttons?.length && { buttons: r.buttons }), ...(r.audience && r.audience !== "all" && { audience: r.audience }), ...(r.device && r.device !== "all" && { device: r.device }), ...(r.freq === "once" && { freq: "once" }) })) : [], // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
       theme: w.theme ?? "light", brand: wt.brandRemoved ? null : { name: deps.config.brandName, url: deps.config.brandUrl }, imageSearch: imageEnabled(wt), presence: Boolean(w.live?.enabled), ...(w.logo && { logo: imageUrl(deps.config.publicPortalUrl, w, "logo") }), ...(w.avatar && { avatar: imageUrl(deps.config.publicPortalUrl, w, "avatar") }) });
   });
 

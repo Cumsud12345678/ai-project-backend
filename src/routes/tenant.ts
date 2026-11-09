@@ -15,7 +15,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { makeTicket, wsUrlOf } from "../realtime.js";
 import { currentUser, requireAuth } from "../middleware.js";
 import { DuplicateError, type LiveChat, type TenantRecord, type User } from "../store/types.js";
-import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, imageUrl, WIDGET_IMAGE_KINDS, sha } from "../widget.js";
+import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, imageUrl, widgetColor, WIDGET_IMAGE_KINDS, sha } from "../widget.js";
 import { blockOf, domainRoot, recordDomain } from "../domains.js";
 
 const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret", "feedText"];
@@ -254,7 +254,7 @@ export function tenantRoutes(deps: Deps) {
   };
   const widgetView = (t: TenantRecord, widget: NonNullable<TenantRecord["widget"]>) => ({
     // Loqonun baytları panelə qayıtmır: yalnız ünvan
-    widget: { ...widget, logo: undefined, avatar: undefined, logoUrl: widget.logo ? imageUrl(config.publicPortalUrl, widget, "logo") : null, avatarUrl: widget.avatar ? imageUrl(config.publicPortalUrl, widget, "avatar") : null, theme: widget.theme ?? "light", label: widget.label ?? DEFAULT_LABEL, limits: limitsOf(widget) }, scriptUrl: `${config.publicPortalUrl}/widget.js`, domain: t.domain, brandRemoved: Boolean(t.brandRemoved), brandName: config.brandName,
+    widget: { ...widget, color: widgetColor(widget), colorSet: undefined, logo: undefined, avatar: undefined, logoUrl: widget.logo ? imageUrl(config.publicPortalUrl, widget, "logo") : null, avatarUrl: widget.avatar ? imageUrl(config.publicPortalUrl, widget, "avatar") : null, theme: widget.theme ?? "light", label: widget.label ?? DEFAULT_LABEL, limits: limitsOf(widget) }, scriptUrl: `${config.publicPortalUrl}/widget.js`, domain: t.domain, brandRemoved: Boolean(t.brandRemoved), brandName: config.brandName,
   });
 
   r.get("/widget", async (_req, res) => {
