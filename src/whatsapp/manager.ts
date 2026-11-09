@@ -23,7 +23,30 @@ export type WaSocket = {
 };
 export type WaFactory = (o: { tenantId: string; deps: Deps }) => Promise<WaSocket>;
 export type WaState = "off" | "connecting" | "qr" | "open" | "error" | "replaced";
-export type WaView = { connected: boolean; enabled: boolean; phone: string | null; connectedAt: Date | null; state: WaState; qr: string | null; error: string | null; pauseOnOwnReply: boolean; keyReady: boolean };
+/** Siyahı sətrini yoxlayır: rəqəmlidirsə nömrə (yerli 050… və ya beynəlxalq +994… yazılışı eyni sayılır), yoxsa WhatsApp adı (hərf böyüklüyü nəzərə alınmır). */
+export function isIgnored(list: string[], phone: string, name: unknown): boolean {
+  const nm = typeof name === "string" ? name.trim().toLocaleLowerCase("az") : "";
+  return list.some((raw) => {
+    const v = raw.trim();
+    const digits = v.replace(/\D/g, "");
+    if (digits.length >= 7 && /^[\d\s()+-]+$/.test(v)) {
+      const d = digits.replace(/^0+/, "");
+      return Boolean(phone) && d.length >= 7 && (phone.endsWith(d) || d.endsWith(phone));
+    }
+    return Boolean(nm) && v.toLocaleLowerCase("az") === nm;
+  });
+}
+
+/** Paneldən gələn siyahını təmizləyir: boş və təkrar sətirlər atılır */
+export function parseIgnore(v: unknown): string[] {
+  const rows = Array.isArray(v) ? v : typeof v === "string" ? v.split(/\r?\n/) : null;
+  if (!rows || rows.some((x) => typeof x !== "string")) throw new Error("BAD");
+  const out = [...new Set((rows as string[]).map((x) => x.trim()).filter(Boolean))];
+  if (out.length > 300 || out.some((x) => x.length > 60)) throw new Error("TOO_MANY");
+  return out;
+}
+
+export type WaView = { connected: boolean; enabled: boolean; phone: string | null; connectedAt: Date | null; state: WaState; qr: string | null; error: string | null; pauseOnOwnReply: boolean; ignore: string[]; keyReady: boolean };
 
 const LOGGED_OUT = 401, CONN_REPLACED = 440, RESTART_REQUIRED = 515;
 const PAUSE_MS = 12 * 60 * 60_000;
@@ -161,6 +184,8 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     const until = e.pauses.get(jid);
     if (until && until > Date.now()) return dbg(e, jid, "sahib yazdığı üçün susdurulub");
     if (until) e.pauses.delete(jid);
+    // Sahibin "cavab yazma" siyahısı: nömrə və ya WhatsApp adı uyğun gəlsə köməkçi bu söhbətə qarışmır
+    if (t.waIgnore?.length && isIgnored(t.waIgnore, await phoneOf(e, jid, m), m.pushName)) return dbg(e, jid, "cavab yazılmayanlar siyahısındadır");
     // Nömrənin qadağan olunmaması üçün sərt tavan: müştəri başına saatda 150 cavab
     if (!deps.limiter.hit(`wa:cap:${e.tenantId}`, 150, 60 * 60_000)) return dbg(e, jid, "saatlıq tavan");
     const sock = e.sock;
@@ -274,7 +299,7 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     const l = t.whatsapp;
     return {
       connected: Boolean(l), enabled: Boolean(l?.enabled), phone: l?.phone ?? null, connectedAt: l?.connectedAt ?? null,
-      state: e?.state ?? "off", qr: e?.state === "qr" ? e.qr : null, error: e?.error ?? null, pauseOnOwnReply: l?.pauseOnOwnReply ?? true, keyReady: Boolean(secretKey),
+      state: e?.state ?? "off", qr: e?.state === "qr" ? e.qr : null, error: e?.error ?? null, pauseOnOwnReply: l?.pauseOnOwnReply ?? true, ignore: t.waIgnore ?? [], keyReady: Boolean(secretKey),
     };
   };
 

@@ -1,7 +1,7 @@
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { useStoreAuthState } from "../src/whatsapp/auth.js";
-import { extractText } from "../src/whatsapp/manager.js";
+import { extractText, isIgnored } from "../src/whatsapp/manager.js";
 import { createMemoryStore } from "../src/store/memory.js";
 import { startPortal } from "./helpers.js";
 
@@ -203,4 +203,37 @@ test("server yenidən açılanda qoşulmuş nömrələr bərpa olunur; açar yox
     const r = await t.call("POST", "/tenant/channels/whatsapp/connect", { ack: true });
     assert.equal(r.status, 503); assert.equal(r.body.code, "NO_SECRET_KEY");
   } finally { await q.close(); }
+});
+
+test("cavab yazılmayanlar: nömrə (yerli və ya +994) və ya WhatsApp adı ilə; sətirlər təmizlənir", async () => {
+  assert.equal(isIgnored(["050 123 45 67"], "994501234567", ""), true);
+  assert.equal(isIgnored(["+994 (50) 123-45-67"], "994501234567", ""), true);
+  assert.equal(isIgnored(["0501234568"], "994501234567", ""), false);
+  assert.equal(isIgnored(["anam"], "", "Anam"), true);
+  assert.equal(isIgnored(["anam"], "994501234567", "Ali"), false);
+  assert.equal(isIgnored(["123"], "994501234567", "123"), true, "qısa rəqəm adı kimi müqayisə olunur");
+
+  // Nömrə qoşulmamış da siyahı yazılır; digər ayarlar isə qoşulma tələb edir
+  const c = await tenant();
+  assert.equal((await c.call("PATCH", "/tenant/channels/whatsapp", { enabled: true })).status, 404);
+  const pre = await c.call("PATCH", "/tenant/channels/whatsapp", { ignore: ["Ali"] });
+  assert.equal(pre.status, 200); assert.deepEqual(pre.body.ignore, ["Ali"]); assert.equal(pre.body.connected, false);
+  const s = await connect(c);
+  assert.deepEqual((await c.call("GET", "/tenant/channels/whatsapp")).body.ignore, ["Ali"], "qoşulandan sonra da qalır");
+  assert.equal((await c.call("PATCH", "/tenant/channels/whatsapp", { ignore: 5 })).status, 400);
+  assert.equal((await c.call("PATCH", "/tenant/channels/whatsapp", { ignore: Array.from({ length: 301 }, (_, i) => `x${i}`) })).status, 400);
+  const r = await c.call("PATCH", "/tenant/channels/whatsapp", { ignore: "055 999 88 77\n\n  Ali \n055 999 88 77" });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.ignore, ["055 999 88 77", "Ali"], "boş və təkrar sətirlər atılır");
+  const before = s.sent.length;
+  s.emit("messages.upsert", incoming(USER, "salam")); // 994559998877 → siyahıda
+  s.emit("messages.upsert", { ...incoming("994551110000@s.whatsapp.net", "salam"), messages: [{ ...incoming("994551110000@s.whatsapp.net", "salam").messages[0]!, pushName: "Vəli" }] });
+  assert.ok(await waitFor(() => s.sent.length === before + 1));
+  await waitFor(() => false, 100);
+  assert.equal(s.sent.length, before + 1);
+  assert.equal(s.sent.at(-1)!.jid, "994551110000@s.whatsapp.net", "yalnız siyahıda olmayana cavab gedir");
+  assert.deepEqual((await c.call("GET", "/tenant/channels/whatsapp")).body.ignore, ["055 999 88 77", "Ali"]);
+  // nömrə ayrılanda siyahı silinmir
+  assert.equal((await c.call("DELETE", "/tenant/channels/whatsapp")).status, 200);
+  assert.deepEqual((await c.call("GET", "/tenant/channels/whatsapp")).body.ignore, ["055 999 88 77", "Ali"]);
 });

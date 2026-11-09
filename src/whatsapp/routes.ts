@@ -3,6 +3,7 @@ import { Router } from "express";
 import type { Deps } from "../deps.js";
 import { HttpError } from "../http.js";
 import { currentUser, requireAuth } from "../middleware.js";
+import { parseIgnore } from "./manager.js";
 
 export function whatsappPanelRoutes(deps: Deps) {
   const { store, config, whatsapp, limiter } = deps;
@@ -31,13 +32,23 @@ export function whatsappPanelRoutes(deps: Deps) {
 
   r.patch("/whatsapp", async (req, res) => {
     const t = await tenantOf(res);
-    if (!t.whatsapp) throw new HttpError(404, "WhatsApp qoşulmayıb", "NOT_CONNECTED");
-    const b = (req.body ?? {}) as { enabled?: unknown; pauseOnOwnReply?: unknown };
+    const b = (req.body ?? {}) as { enabled?: unknown; pauseOnOwnReply?: unknown; ignore?: unknown };
+    // Cavab yazılmayanlar siyahısı nömrə qoşulmamış da saxlanır: qoşulan kimi tətbiq olunur
+    let waIgnore = t.waIgnore;
+    if (b.ignore !== undefined) {
+      try { waIgnore = parseIgnore(b.ignore); }
+      catch (e) { throw new HttpError(400, e instanceof Error && e.message === "TOO_MANY" ? "Siyahıda ən çox 300 sətir ola bilər, hər sətir ən çox 60 simvol" : "ignore sətirlər siyahısı olmalıdır"); }
+    }
+    if (!t.whatsapp) {
+      if (b.enabled !== undefined || b.pauseOnOwnReply !== undefined || b.ignore === undefined) throw new HttpError(404, "WhatsApp qoşulmayıb", "NOT_CONNECTED");
+      await store.updateTenant(t.tenantId, { waIgnore });
+      return void res.json(whatsapp.view({ ...t, waIgnore }, config.secretKey));
+    }
     const next = { ...t.whatsapp };
     if (b.enabled !== undefined) { if (typeof b.enabled !== "boolean") throw new HttpError(400, "enabled true və ya false olmalıdır"); next.enabled = b.enabled; }
     if (b.pauseOnOwnReply !== undefined) { if (typeof b.pauseOnOwnReply !== "boolean") throw new HttpError(400, "pauseOnOwnReply true və ya false olmalıdır"); next.pauseOnOwnReply = b.pauseOnOwnReply; }
-    await store.updateTenant(t.tenantId, { whatsapp: next });
-    res.json(whatsapp.view({ ...t, whatsapp: next }, config.secretKey));
+    await store.updateTenant(t.tenantId, { whatsapp: next, ...(b.ignore !== undefined && { waIgnore }) });
+    res.json(whatsapp.view({ ...t, whatsapp: next, waIgnore }, config.secretKey));
   });
 
   r.delete("/whatsapp", async (_req, res) => {
