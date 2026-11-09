@@ -79,7 +79,7 @@ test("loqo: SVG, səhv format və böyük fayl rədd olunur; söndürülmüş vi
   assert.equal((await fetch(`${p.base}/widget/${key}/logo`)).status, 404);
 });
 
-test("çat düyməsinin effektləri: standart narıncı rəng, effektlər defolt bağlı, ayrıca açılır və ictimai konfiqdə görünür", async () => {
+test("çat düyməsinin effektləri: standart qara rəng, effektlər defolt bağlı, ayrıca açılır və ictimai konfiqdə görünür", async () => {
   const { c, key } = await tenant();
   const cfg0 = await cfgOf(key);
   assert.equal(cfg0.color, "#18181b");
@@ -91,12 +91,12 @@ test("çat düyməsinin effektləri: standart narıncı rəng, effektlər defolt
   assert.deepEqual(r.body.widget.effects, { pulse: true, bounce: true }, "biri dəyişəndə digəri qalır");
 });
 
-test("köhnə qara standart rəng: sahib seçməyibsə narıncı göstərilir, özü seçəndə qara da saxlanır", async () => {
+test("standart rəng qaradır; köhnə narıncı standart sahib seçməyibsə qaraya keçir, özü seçəndə saxlanır", async () => {
   const { c, key } = await tenant();
   const cur = (await p.store.findTenantByWidgetKey(key))!;
-  await p.store.updateTenant(cur.tenantId, { widget: { ...cur.widget!, color: "#18181b", colorSet: undefined } });
+  await p.store.updateTenant(cur.tenantId, { widget: { ...cur.widget!, color: "#ea580c", colorSet: undefined } });
   assert.equal((await cfgOf(key)).color, "#18181b");
   assert.equal((await c.call("GET", "/tenant/widget")).body.widget.color, "#18181b");
-  assert.equal((await c.call("PUT", "/tenant/widget", { color: "#18181b" })).status, 200);
-  assert.equal((await cfgOf(key)).color, "#18181b", "sahibin öz seçimi qorunur");
+  assert.equal((await c.call("PUT", "/tenant/widget", { color: "#ea580c" })).status, 200);
+  assert.equal((await cfgOf(key)).color, "#ea580c", "sahibin öz seçimi qorunur");
 });

@@ -28,12 +28,11 @@ export const newWidgetKey = () => `wk_${randomBytes(16).toString("hex")}`;
 
 export const DEFAULT_GREETING = "Salam! Axtardığınız nəqliyyat vasitəsini və büdcənizi yazın, sizə uyğun elanları tapım.";
 export const DEFAULT_COLOR = "#18181b";
-/** Köhnə hesablarda standart rəng qara idi. Sahib rəngi özü seçməyibsə və rəng qaraya yaxın boz-qaradırsa, narıncı standart işləyir. */
+/** Bir müddət standart rəng narıncı (#ea580c) idi. Sahib rəngi özü seçməyibsə həmin hesablar da yeni standartı (qara) alır. */
+const OLD_DEFAULTS = new Set(["#ea580c"]);
 export function widgetColor(w: Pick<WidgetSettings, "color" | "colorSet">): string {
-  if (w.colorSet || !/^#[0-9a-fA-F]{6}$/.test(w.color)) return /^#[0-9a-fA-F]{6}$/.test(w.color) ? w.color : DEFAULT_COLOR;
-  const n = parseInt(w.color.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-  const darkNeutral = Math.max(r, g, b) < 60 && Math.max(r, g, b) - Math.min(r, g, b) < 30;
-  return darkNeutral ? DEFAULT_COLOR : w.color;
+  if (!/^#[0-9a-fA-F]{6}$/.test(w.color)) return DEFAULT_COLOR;
+  return !w.colorSet && OLD_DEFAULTS.has(w.color.toLowerCase()) ? DEFAULT_COLOR : w.color;
 }
 export const DEFAULT_GREETING_SUPPORT = "Salam! Sualınızı yazın, şirkətin məlumatlarına əsasən cavab verim.";
 export const DEFAULT_LABEL = "AI-dan soruş";

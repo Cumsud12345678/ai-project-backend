@@ -74,7 +74,7 @@ export type WidgetSettings = {
   /** Loqonun yanındakı qısa yazı (məs. "AI-dan soruş"). Boş sətir = yazı göstərilmir. Olmayanda defolt işləyir. */
   label?: string;
   color: string;
-  /** Sahib rəngi paneldən özü seçib. Olmayanda və rəng köhnə qara standartdırsa, narıncı standart göstərilir. */
+  /** Sahib rəngi paneldən özü seçib. Olmayanda və rəng köhnə standartdırsa, yeni standart (qara) göstərilir. */
   colorSet?: boolean;
   /** Çatın ilk açılış rejimi: light (defolt), dark və ya auto (cihaz ayarı). Ziyarətçi çatdakı düymə ilə özü dəyişir və seçimi yadda qalır. */
   theme?: "light" | "dark" | "auto";
