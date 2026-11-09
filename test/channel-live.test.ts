@@ -149,3 +149,23 @@ test("Telegram: 'insanla danışmaq istəyirəm' modelsiz (0 token) operatora ke
   assert.ok(await waitFor(() => chatCalls().length === n + 1));
   assert.equal((chatCalls().at(-1)!.args[3] as { live?: boolean }).live, undefined);
 });
+
+test("Kanal söhbətləri: botun cavab verdiyi Telegram yazışmaları panelə gəlir, operatora ötürülən canlı ID ilə işarələnir", async () => {
+  const { c, say } = await setup();
+  await say("Salam, qiymət neçədir?", 901);
+  assert.ok(await waitFor(() => chatCalls().some((x) => (x.args as unknown[])[1] === "Salam, qiymət neçədir?")));
+  let r = (await c.call("GET", "/tenant/channel-chats?channel=telegram")).body;
+  assert.ok(await waitFor(() => true));
+  r = (await c.call("GET", "/tenant/channel-chats?channel=telegram")).body;
+  const it = r.items.find((x: { chatId: string }) => x.chatId === "901");
+  assert.ok(it, JSON.stringify(r));
+  assert.equal(it.last, "Salam, qiymət neçədir?");
+  assert.equal(it.liveId, null);
+  assert.ok(it.sid && it.history.length >= 2);
+  assert.equal(r.counts.telegram >= 1, true);
+  assert.equal((await c.call("GET", "/tenant/channel-chats?channel=whatsapp")).body.items.length, 0);
+  await say("/operator", 901);
+  assert.ok(await waitFor(() => false, 150) || true);
+  const after = (await c.call("GET", "/tenant/channel-chats?channel=telegram")).body.items.find((x: { chatId: string }) => x.chatId === "901");
+  assert.ok(after.liveId, "operatora ötürülüb: canlı söhbət ID-si");
+});

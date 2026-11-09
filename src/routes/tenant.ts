@@ -432,6 +432,30 @@ export function tenantRoutes(deps: Deps) {
     });
     res.json({ items });
   });
+  // Telegram/WhatsApp-da AI ilə gedən söhbətlər (operatora ötürülməmiş olanlar da): panelin "Kanallar" qovluqları üçün.
+  // Əvvəl kanal qovluqlarında yalnız canlı (operator) söhbətlər görünürdü, botun cavab verdiyi yazışmalar heç yerdə çıxmırdı.
+  r.get("/channel-chats", async (req, res) => {
+    const { tenant: t } = await opTenant(currentUser(res));
+    const want = req.query.channel === "telegram" ? "telegram" : req.query.channel === "whatsapp" ? "whatsapp" : null;
+    const [sessions, open] = await Promise.all([store.listChannelSessions(t.tenantId, 200), store.listLive(t.tenantId, "open", 100)]);
+    const liveOf = new Map(open.filter((c) => c.channel).map((c) => [`${c.channel!.type}:${c.channel!.chatId}`, c.id]));
+    const items = sessions.filter((s) => !want || s.channel === want).slice(0, 100).map((s) => {
+      const lastUser = [...s.history].reverse().find((m) => m.role === "user");
+      const lastBot = [...s.history].reverse().find((m) => m.role === "model");
+      return {
+        channel: s.channel, chatId: s.chatId, sid: s.sid, name: s.name ?? "", ref: s.ref ?? "",
+        last: lastUser ? lastUser.text.slice(0, 140) : "", lastAnswer: lastBot ? lastBot.text.slice(0, 140) : "",
+        messages: s.history.length, updatedAt: s.updatedAt, liveId: liveOf.get(`${s.channel}:${s.chatId}`) ?? null,
+        // Növbəti mesaja qədər qısa yaddaş (fallback): sorğu jurnalı söndürülübsə yazışma buradan göstərilir
+        history: s.history.slice(-10),
+      };
+    });
+    const day = Date.now() - 24 * 3600_000;
+    const counts = { telegram: 0, whatsapp: 0 };
+    for (const s of sessions) if (new Date(s.updatedAt).getTime() > day) counts[s.channel]++;
+    res.json({ items, counts, enabled: { telegram: Boolean(t.telegram?.enabled), whatsapp: Boolean(t.whatsapp?.enabled) } });
+  });
+
   r.post("/live/start", async (req, res) => {
     const user = currentUser(res);
     if (!limiter.hit(`live:start:${user.id}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez söhbət başladırsan", "RATE_LIMITED");

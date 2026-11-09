@@ -261,6 +261,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     const history = [...session.history, { role: "user" as const, text: `${text}${image ? `${text ? " " : ""}[şəkil${typeof out.imageNote === "string" && out.imageNote ? `: ${out.imageNote}` : ""}]` : ""}`.slice(0, 600) }, { role: "model" as const, text: clip(out.answer, 600) }].slice(-HISTORY_KEEP);
     await store.saveChannelSession({ ...session, history, pending: unanswered ? { question: text.slice(0, 500) } : null, pendingAction: card ? { id: card.id } : null, ...(clip(io.senderName, 80) && { name: clip(io.senderName, 80) }), ...(io.ref && { ref: io.ref }), updatedAt: new Date() });
     // AI operatora ötürmə qərarı verdi: söhbət canlı operator qutusuna düşür, bot susur
+    hub.toOperators(tenant.tenantId, { t: "channels", channel }); // panelin kanal qovluqları dərhal yenilənsin
     if (handoff) await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), name: clip(io.senderName, 80), history, ...(text && { first: text }) });
     await io.send(unanswered ? `${answer}\n\n${M.askContact}${liveEnabled(tenant) ? `\n${M.live.hint}` : ""}` : answer);
     // Şəkilli elanlar ayrıca göndərilir; alınmayan olarsa mətn kimi
