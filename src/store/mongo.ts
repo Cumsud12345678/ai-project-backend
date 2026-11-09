@@ -160,6 +160,11 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async listLive(tenantId, status, limit) {
       return (await lives.find({ tenantId, status }).sort({ updatedAt: -1 }).limit(limit).toArray()).map((d) => strip(d) as LiveChat);
     },
+    async deleteLive(tenantId, id) {
+      const r = await lives.deleteOne({ tenantId, id });
+      await liveFiles.deleteMany({ tenantId, chatId: id });
+      return r.deletedCount > 0;
+    },
     async deleteLiveForTenant(tenantId) { await Promise.all([lives.deleteMany({ tenantId }), liveFiles.deleteMany({ tenantId })]); },
     async addLiveFile(f) { await liveFiles.insertOne({ ...f }); },
     async getLiveFile(tenantId, id) { return strip(await liveFiles.findOne({ tenantId, id })) as LiveFile | null; },

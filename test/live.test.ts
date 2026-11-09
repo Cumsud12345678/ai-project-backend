@@ -164,3 +164,32 @@ test("e-poçt yoxdur (yalnız telefon): bildiriş göndərilmir; ziyarətçi qay
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(mailsTo("ziyaretci3@example.com").length, 0);
 });
+
+test("vidjet: 'operatora qoş' AI-a getmir (handoff), mesajsız söhbət paneldə görünür, ziyarətçi çıxanda bağlanır, sahib silə bilir", async () => {
+  const { c, key } = await tenant();
+  assert.equal((await c.call("PUT", "/tenant/widget", { live: { enabled: true } })).status, 200);
+  const v = visitor();
+  const before = p.ai.calls.filter((x) => x.fn === "chat").length;
+  const h = await v("POST", `/widget/${key}/chat`, { message: "operatora qoşun zəhmət olmasa" });
+  assert.equal(h.status, 200);
+  assert.equal(h.body.handoff, "live");
+  assert.equal(p.ai.calls.filter((x) => x.fn === "chat").length, before, "AI çağırılmamalıdır");
+  // "Operatorla yaz" basılan kimi (mesajsız) söhbət açılır
+  const s = await v("POST", `/widget/${key}/live`, { chat: [{ role: "user", text: "salam" }] });
+  assert.equal(s.status, 201);
+  const open = (await c.call("GET", "/tenant/live?status=open")).body.items;
+  assert.ok(open.some((x: { id: string }) => x.id === s.body.id), "panel mesajsız söhbəti görür");
+  // ilk mesajla e-poçt da gəlir
+  await v("POST", `/widget/${key}/live/${s.body.id}/sync`, { token: s.body.token, text: "salam", contact: "ali@example.com" });
+  assert.equal((await c.call("GET", `/tenant/live/${s.body.id}`)).body.chat.contact, "ali@example.com");
+  // açıq söhbəti silmək olmaz
+  assert.equal((await c.call("DELETE", `/tenant/live/${s.body.id}`)).status, 409);
+  // ziyarətçi "Yeni söhbət" basdı
+  assert.equal((await v("POST", `/widget/${key}/live/${s.body.id}/leave`, { token: "yanlis" })).status, 404);
+  assert.equal((await v("POST", `/widget/${key}/live/${s.body.id}/leave`, { token: s.body.token })).status, 200);
+  const chat = (await c.call("GET", `/tenant/live/${s.body.id}`)).body.chat;
+  assert.equal(chat.status, "closed");
+  assert.equal(chat.messages.at(-1).text, "visitor_left");
+  assert.equal((await c.call("DELETE", `/tenant/live/${s.body.id}`)).status, 200);
+  assert.equal((await c.call("GET", `/tenant/live/${s.body.id}`)).status, 404);
+});

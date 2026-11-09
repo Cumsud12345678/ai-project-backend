@@ -513,7 +513,7 @@
     var pending = null; // { b64, url }
     function clearPending() { pending = null; pv.textContent = ""; pv.hidden = true; updateAct(); }
     // Şəkil: AI söhbətində sayt sahibi şəkillə axtarışı açıbsa; operatorla canlı söhbətdə həmişə (operator şəkli görür)
-    var canAttach = function () { return state.live ? !state.live.pending : cfg.imageSearch === true; };
+    var canAttach = function () { return state.live ? !!state.live.id && !state.live.creating : cfg.imageSearch === true; };
     var actMode = "";
     function updateAct() { // sancaq <-> göndər
       var has = !!input.value.trim() || !!pending;
@@ -762,7 +762,7 @@
       var kids = [el("span", { text: text })];
       if (withBack) {
         var back = el("button", { type: "button", text: L.liveBack });
-        back.addEventListener("click", function () { state.live = null; save(); updateLiveUi(); render(); input.focus(); });
+        back.addEventListener("click", function () { leaveLive(); state.live = null; save(); updateLiveUi(); render(); input.focus(); });
         kids.push(back);
       }
       log.appendChild(el("div", { class: withBack ? "note back" : "note" }, kids));
@@ -828,12 +828,40 @@
       inp.addEventListener("input", function () { if (state.live) state.live.email = inp.value; });
       log.appendChild(el("div", { class: "mailrow" }, [inp, el("div", { class: "hint2", text: L.liveMailHint })]));
     }
+    // "Operatorla yaz" basılan kimi söhbət serverdə açılır: panel operatora dərhal göstərir (əvvəl ilk mesaja qədər heç nə görünmürdü).
+    // pending = ziyarətçi hələ yazmayıb ("AI-a qayıt" mümkündür); creating = söhbət yaradılır.
     function startLive() {
       if (state.live) return;
-      state.live = { pending: true, after: 0 };
+      state.live = { pending: true, creating: true, after: 0 };
       Array.prototype.forEach.call(log.querySelectorAll(".livecbtn"), function (n) { n.remove(); });
       save(); updateLiveUi();
       note(L.liveStart, true); mailRow(); scroll(); input.focus();
+      var ai = state.messages.filter(function (m) { return !m.live; }).slice(-10).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; });
+      fetch(api + "/live", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat: ai, vid: visitorId(), page: { path: location.pathname, title: document.title }, tz: visTz(), first: visit.first, visits: visit.visits, lang: (navigator.language || "").slice(0, 12), mobile: mobile.matches }),
+      }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, d: d }; }); })
+        .then(function (r) {
+          var lv = state.live;
+          if (!lv || !lv.creating) { if (r.ok && r.d.id) leaveLive({ id: r.d.id, token: r.d.token }); return; } // arada "AI-a qayıt" basılıb
+          if (!r.ok) throw new Error(r.d.code || "start");
+          state.live = { id: r.d.id, token: r.d.token, after: 0, pending: true, t: Date.now(), seen: 0, email: lv.email };
+          track("ai_chat_live_start", { source: "visitor" }); presenceSoon();
+          save(); applyLive(r.d); wsOpen(); schedulePoll();
+        })
+        .catch(function (e) {
+          if (!state.live || !state.live.creating) return;
+          state.live = null; save(); updateLiveUi();
+          Array.prototype.forEach.call(log.querySelectorAll(".note.back, .mailrow"), function (n) { n.remove(); });
+          bubble("error", e && e.message === "OUTSIDE_HOURS" ? L.liveWait : L.liveFail); contactBox(""); scroll();
+        });
+    }
+    // Ziyarətçi canlı söhbətdən çıxdı ("Yeni söhbət", "AI-a qayıt"): serverdə bağlanır ki, operator boşuna gözləməsin
+    function leaveLive(lv) {
+      lv = lv || state.live;
+      if (!lv || !lv.id || !lv.token) return;
+      try { fetch(api + "/live/" + lv.id + "/leave", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ token: lv.token }) }).catch(function () { /* vacib deyil */ }); } catch (e) { /* köhnə brauzer */ }
+      try { localStorage.removeItem(LIVE_KEY); } catch (e) { /* məxfi rejim */ }
     }
     liveItem.b.addEventListener("click", function () { sheetShow(false); startLive(); });
     function render() {
@@ -859,7 +887,7 @@
     // Real vaxt: WebSocket yalnız "yeni mesaj var" siqnalı verir, mesajlar yenə HTTP ilə gəlir. Soket qoşuludursa polling yalnız ehtiyatdır (45 san).
     function schedulePoll() {
       clearTimeout(pollTimer);
-      if (!state.live || state.live.pending || !state.live.id) return;
+      if (!state.live || !state.live.id) return;
       var wait = wsOk ? (document.hidden ? 60000 : 45000) : document.hidden ? 30000 : state.open ? 3000 : 15000;
       pollTimer = setTimeout(function () { liveCall("").then(schedulePoll, schedulePoll); }, wait);
     }
@@ -879,7 +907,7 @@
       if (ws) { var w = ws; ws = null; w.onclose = null; try { w.close(); } catch (e) { /* artıq bağlıdır */ } }
     }
     function wsOpen() {
-      if (ws || !window.WebSocket || !state.live || !state.live.id || state.live.pending) return;
+      if (ws || !window.WebSocket || !state.live || !state.live.id) return;
       var sock;
       try { sock = new WebSocket(wsUrl); } catch (e) { return; }
       ws = sock;
@@ -937,6 +965,7 @@
         if (role === "operator") gotOperator = true;
       });
       if (gotOperator) chime();
+      if (gotOperator && state.live && state.live.pending) { state.live.pending = false; Array.prototype.forEach.call(log.querySelectorAll(".note.back, .mailrow"), function (n) { n.remove(); }); }
       if (gotOperator) {
         clearTimeout(noReplyTimer);
         if (!state.open && state.live && d.total > (state.live.seen || 0)) launcher.classList.add("dot"); // yalnız oxunmamış cavab
@@ -956,7 +985,7 @@
       if (!lv || !lv.id) return Promise.resolve(false);
       return fetch(api + "/live/" + lv.id + "/sync", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token: lv.token, after: lv.after || 0, text: text || undefined, image: img || undefined }),
+        body: JSON.stringify({ token: lv.token, after: lv.after || 0, text: text || undefined, image: img || undefined, contact: text && lv.pending && lv.email ? String(lv.email).trim() : undefined }),
       }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, d: d }; }); })
         .then(function (r) {
           if (!r.ok) {
@@ -973,10 +1002,11 @@
       if (liveBusy) return;
       var mail = state.live && state.live.pending ? String(state.live.email || "").trim() : "";
       if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) { bubble("error", L.bad); scroll(); return; }
+      if (state.live && state.live.creating) return; // söhbət hələ yaradılır (bir an)
       liveBusy = true; sendBtn.disabled = true;
       var lv = state.live, hadOperator = state.messages.some(function (m) { return m.live && m.role === "operator"; });
       var go;
-      if (lv.pending) {
+      if (lv.pending && !lv.id) { // köhnə yol (söhbət hələ yaradılmayıbsa): ilk mesajla birlikdə açılır
         var ai = state.messages.filter(function (m) { return !m.live; }).slice(-10).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; });
         go = fetch(api + "/live", {
           method: "POST", headers: { "content-type": "application/json" },
@@ -989,7 +1019,13 @@
             Array.prototype.forEach.call(log.querySelectorAll(".note.back, .mailrow"), function (n) { n.remove(); }); // "AI-a qayıt" artıq mümkün deyil
             applyLive(r.d); wsOpen(); return true;
           });
-      } else { if (shot) sentShot = shot.url; go = liveCall(text, shot ? shot.b64 : null); }
+      } else {
+        if (shot) sentShot = shot.url;
+        go = liveCall(text, shot ? shot.b64 : null).then(function (ok) {
+          if (ok && state.live && state.live.pending) { state.live.pending = false; save(); Array.prototype.forEach.call(log.querySelectorAll(".note.back, .mailrow"), function (n) { n.remove(); }); }
+          return ok;
+        });
+      }
       go.then(function (ok) {
         if (ok) { input.value = ""; clearPending(); grow(); schedulePoll(); if (!hadOperator) { clearTimeout(noReplyTimer); noReplyTimer = setTimeout(function () { note(L.liveWait, false); contactBox(text); scroll(); }, 90000); } }
       }).catch(function () { bubble("error", L.liveFail); scroll(); })
@@ -1052,6 +1088,7 @@
       gen++; if (curCtrl) { try { curCtrl.abort(); } catch (e) { /* artıq bitib */ } }
       busy = false; sendBtn.disabled = false;
       clearTimeout(pollTimer); clearTimeout(noReplyTimer); wsClose();
+      leaveLive(); // operatorla söhbət gedirdisə serverdə bağlanır (əvvəl panel söhbəti açıq göstərirdi, ziyarətçiyə isə AI cavab verirdi)
       state.messages = []; state.live = null; state.sid = ""; save();
       input.value = ""; grow();
       render(); input.focus();
@@ -1130,6 +1167,8 @@
         }
         if (r.data.identity === "invalid" && idToken) { idToken = null; try { window.dispatchEvent(new CustomEvent("caradvisor:identity-expired")); } catch (e) { /* köhnə brauzer */ } }
         if (typeof r.data.imageNote === "string" && r.data.imageNote) { userMsg.note = r.data.imageNote.slice(0, 200); }
+        // Ziyarətçi "operatora qoş" yazıb və operator işləyir: AI cavabı yox, canlı söhbət açılır
+        if (r.data.handoff === "live" && cfg.live) { save(); startLive(); return; }
         var answer = String(r.data.answer || "");
         var msg = { role: "model", text: answer, t: Date.now(), listings: r.data.listings || [], sources: r.data.sources || [], unanswered: r.data.unanswered === true };
         var cf = r.data.confirm;
@@ -1163,10 +1202,11 @@
       input.value = ""; grow(); render();
     }
     idHook = syncIdentity; syncIdentity();
+    if (state.live && state.live.creating) { state.live = null; save(); } // yaradılarkən səhifə yeniləndi
     render();
     document.body.appendChild(host);
     setOpen(state.open);
-    if (state.live && state.live.id && !state.live.pending) { liveCall("").then(schedulePoll, schedulePoll); wsOpen(); } // yenilənəndən sonra canlı söhbət davam edir
+    if (state.live && state.live.id) { liveCall("").then(schedulePoll, schedulePoll); wsOpen(); } // yenilənəndən sonra canlı söhbət davam edir
 
     // Səhifə şərti: data-show-on / data-hide-on. SPA keçidləri (pushState/replaceState/popstate) izlənir.
     var parseList = function (attr) {

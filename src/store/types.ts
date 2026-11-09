@@ -143,6 +143,10 @@ export type ChannelSession = {
   pendingAction?: { id: string } | null;
   /** Müştərinin adı və kanal ünvanı: operator ona özü yaza bilsin */
   name?: string; ref?: string;
+  /** Müştərinin real telefon nömrəsi (yalnız rəqəmlər). WhatsApp bəzən nömrə əvəzinə gizli LID ünvanı göndərir */
+  phone?: string;
+  /** Əvvəlki söhbətlərin sid-ləri (sakitlikdən sonra yeni söhbət başlayanda): paneldə bütün yazışma göstərilsin */
+  prevSids?: { sid: string; at: Date }[];
   updatedAt: Date;
 };
 
@@ -247,10 +251,12 @@ export interface Store {
   /** Mesaj əlavə edir (ən çox 300) və sahələri yeniləyir; söhbət tapılmasa null. */
   pushLive(tenantId: string, id: string, msg: LiveMessage | null, patch?: Partial<Pick<LiveChat, "status" | "operatorSeenAt" | "visitorSeenAt" | "name" | "contact" | "assignee">>): Promise<LiveChat | null>;
   /** updatedAt-a toxunmadan yalnız izləmə sahələrini yeniləyir */
-  patchLive(tenantId: string, id: string, patch: Partial<Pick<LiveChat, "visitorSeenAt" | "notifiedAt" | "notifyCount" | "notes" | "tags" | "csat">>): Promise<void>;
+  patchLive(tenantId: string, id: string, patch: Partial<Pick<LiveChat, "visitorSeenAt" | "notifiedAt" | "notifyCount" | "notes" | "tags" | "csat" | "contact">>): Promise<void>;
   findLiveByChannel(tenantId: string, type: "telegram" | "whatsapp", chatId: string): Promise<LiveChat | null>;
   listLive(tenantId: string, status: "open" | "closed", limit: number): Promise<LiveChat[]>;
   deleteLiveForTenant(tenantId: string): Promise<void>;
+  /** Bir söhbəti və onun fayllarını silir */
+  deleteLive(tenantId: string, id: string): Promise<boolean>;
   addLiveFile(f: LiveFile): Promise<void>;
   getLiveFile(tenantId: string, id: string): Promise<LiveFile | null>;
 

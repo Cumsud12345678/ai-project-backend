@@ -59,11 +59,19 @@ export async function deliverFileToChannel(deps: Deps, t: TenantRecord, chat: Li
   }
 }
 
-export async function startChannelLive(deps: Deps, t: TenantRecord, p: { channel: "telegram" | "whatsapp"; chatId: string; ref?: string; name: string; history: { role: "user" | "model"; text: string }[]; /** operatorun görəcəyi ilk mesaj (müştərinin sualı) */ first?: string; /** operator özü başladıb: bildiriş göndərilmir */ quiet?: boolean }): Promise<LiveChat> {
+/** WhatsApp müştərisinin nömrəsi: real nömrə bilinirsə o; ünvan gizli LID-dirsə (rəqəmlər nömrə deyil) boş */
+function waContact(p: { channel: string; chatId: string; ref?: string; phone?: string }): string {
+  if (p.channel !== "whatsapp") return "";
+  if (p.phone && /^\d{7,15}$/.test(p.phone)) return `+${p.phone}`;
+  if (p.ref?.endsWith("@lid")) return "";
+  return /^\d{7,15}$/.test(p.chatId) ? `+${p.chatId}` : "";
+}
+
+export async function startChannelLive(deps: Deps, t: TenantRecord, p: { channel: "telegram" | "whatsapp"; chatId: string; ref?: string; phone?: string; name: string; history: { role: "user" | "model"; text: string }[]; /** operatorun görəcəyi ilk mesaj (müştərinin sualı) */ first?: string; /** operator özü başladıb: bildiriş göndərilmir */ quiet?: boolean }): Promise<LiveChat> {
   const now = new Date();
   const chat: LiveChat = {
     id: randomUUID(), tenantId: t.tenantId, tokenHash: randomBytes(16).toString("hex"), // kanal söhbətinə token ilə giriş yoxdur
-    name: p.name.slice(0, 80), contact: p.channel === "whatsapp" && /^\d{7,15}$/.test(p.chatId) ? `+${p.chatId}` : "", status: "open",
+    name: p.name.slice(0, 80), contact: waContact(p), status: "open",
     context: p.history.slice(-10), messages: p.first ? [{ from: "visitor", text: p.first.slice(0, 1000), at: now }] : [], createdAt: now, updatedAt: now, visitorSeenAt: now,
     channel: { type: p.channel, chatId: p.chatId, ...(p.ref && { ref: p.ref }) },
   };

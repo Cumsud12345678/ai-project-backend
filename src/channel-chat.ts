@@ -85,6 +85,8 @@ export type ChatIO = {
   reset?: boolean;
   /** Kanalın daxili ünvanı (WhatsApp-da tam JID): operator cavabı bununla çatdırılır */
   ref?: string;
+  /** Müştərinin telefon nömrəsi (rəqəmlər), məlumdursa */
+  phone?: string;
 };
 
 /** Bir daxil olan mətn mesajını emal edir. Eyni söhbət üzrə ardıcıl işləyir. */
@@ -128,7 +130,8 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     const mode = modeOf(tenant.config);
     const greeting = tenant.widget?.greeting || (mode === "support" ? DEFAULT_GREETING_SUPPORT : DEFAULT_GREETING);
     let session: ChannelSession = (await store.getChannelSession(tenant.tenantId, channel, chatId)) ?? { tenantId: tenant.tenantId, channel, chatId, sid: randomBytes(12).toString("hex"), history: [], updatedAt: new Date() };
-    if (Date.now() - new Date(session.updatedAt).getTime() > SESSION_IDLE_MS) session = { ...session, sid: randomBytes(12).toString("hex"), history: [], pending: null };
+    // Uzun sakitlikdən sonra yeni söhbət: köhnə sid saxlanır ki, panel əvvəlki yazışmanı da göstərsin
+    if (Date.now() - new Date(session.updatedAt).getTime() > SESSION_IDLE_MS) session = { ...session, prevSids: [...(session.prevSids ?? []), { sid: session.sid, at: session.updatedAt }].slice(-5), sid: randomBytes(12).toString("hex"), history: [], pending: null };
 
     // Operatorla canlı yazışma: açıq canlı söhbət varsa bot susur, mesaj operatora gedir
     const liveNow = await store.findLiveByChannel(tenant.tenantId, channel, chatId);
@@ -164,7 +167,9 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       return;
     } else if ((isOperatorCmd(text) || (liveEnabled(tenant) && wantsHuman(text))) && !io.reset) {
       if (!liveEnabled(tenant)) { await io.send(tenant.widget?.live?.enabled ? M.live.offHours : M.live.off); return; }
-      await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), name: clip(io.senderName, 80), history: session.history, ...(!isOperatorCmd(text) && { first: text }) });
+      await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), ...(io.phone && { phone: io.phone }), name: clip(io.senderName, 80), history: session.history, ...(!isOperatorCmd(text) && { first: text }) });
+      // Operatora keçid də söhbətdir: panelin kanal siyahısında görünsün
+      await store.saveChannelSession({ ...session, ...(clip(io.senderName, 80) && { name: clip(io.senderName, 80) }), ...(io.ref && { ref: io.ref }), ...(io.phone && { phone: io.phone }), updatedAt: new Date() });
       await io.send(M.live.on);
       return;
     }
@@ -259,10 +264,10 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     const handoff = out.handoff === true && liveEnabled(tenant);
     const unanswered = out.unanswered === true && !handoff;
     const history = [...session.history, { role: "user" as const, text: `${text}${image ? `${text ? " " : ""}[şəkil${typeof out.imageNote === "string" && out.imageNote ? `: ${out.imageNote}` : ""}]` : ""}`.slice(0, 600) }, { role: "model" as const, text: clip(out.answer, 600) }].slice(-HISTORY_KEEP);
-    await store.saveChannelSession({ ...session, history, pending: unanswered ? { question: text.slice(0, 500) } : null, pendingAction: card ? { id: card.id } : null, ...(clip(io.senderName, 80) && { name: clip(io.senderName, 80) }), ...(io.ref && { ref: io.ref }), updatedAt: new Date() });
+    await store.saveChannelSession({ ...session, history, pending: unanswered ? { question: text.slice(0, 500) } : null, pendingAction: card ? { id: card.id } : null, ...(clip(io.senderName, 80) && { name: clip(io.senderName, 80) }), ...(io.ref && { ref: io.ref }), ...(io.phone && { phone: io.phone }), updatedAt: new Date() });
     // AI operatora ötürmə qərarı verdi: söhbət canlı operator qutusuna düşür, bot susur
     hub.toOperators(tenant.tenantId, { t: "channels", channel }); // panelin kanal qovluqları dərhal yenilənsin
-    if (handoff) await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), name: clip(io.senderName, 80), history, ...(text && { first: text }) });
+    if (handoff) await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), ...(io.phone && { phone: io.phone }), name: clip(io.senderName, 80), history, ...(text && { first: text }) });
     await io.send(unanswered ? `${answer}\n\n${M.askContact}${liveEnabled(tenant) ? `\n${M.live.hint}` : ""}` : answer);
     // Şəkilli elanlar ayrıca göndərilir; alınmayan olarsa mətn kimi
     for (const { l, img } of withPhoto) {

@@ -196,12 +196,27 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     batches.set(key, entry);
   }
 
+  async function phoneOf(e: Entry, jid: string, m: Record<string, any>): Promise<string> {
+    const pn = (j: unknown) => (typeof j === "string" && /@s\.whatsapp\.net$/.test(j) ? userPart(j) : "");
+    if (pn(jid)) return pn(jid);
+    const alt = pn(m?.key?.remoteJidAlt) || pn(m?.key?.senderPn);
+    if (alt) return alt;
+    try {
+      const mapped = await (e.sock as any)?.signalRepository?.lidMapping?.getPNForLID?.(jid);
+      if (pn(mapped)) return pn(mapped);
+    } catch { /* xəritə yoxdur */ }
+    return "";
+  }
+
   async function runChat(e: Entry, sock: WaSocket, jid: string, m: Record<string, any>, text: string, withImage = false, audio?: { seconds?: number }) {
     const { deps } = e;
     const t = await deps.store.findTenantById(e.tenantId);
     if (!t?.whatsapp?.enabled) return;
+    // WhatsApp bəzən nömrə əvəzinə gizli "LID" ünvanı göndərir (…@lid): rəqəmləri telefon deyil.
+    // Real nömrəni tapırıq ki, eyni adam həm nömrə, həm LID ilə iki ayrı müştəri kimi görünməsin və panelə səhv nömrə düşməsin.
+    const phone = await phoneOf(e, jid, m);
     await handleChat(deps, t, {
-      channel: "whatsapp", label: "WhatsApp", chatId: userPart(jid), ref: jid, text, senderName: clip(m.pushName, 60),
+      channel: "whatsapp", label: "WhatsApp", chatId: phone || userPart(jid), ref: jid, text, ...(phone && { phone }), senderName: clip(m.pushName, 60),
       typing: () => sock.sendPresenceUpdate("composing", jid),
       ...(audio && { audio: { ...(audio.seconds && { seconds: audio.seconds }), load: async () => (sock.downloadMedia ? sock.downloadMedia(m) : null) } }),
       ...(withImage && { image: { load: async () => (sock.downloadMedia ? sock.downloadMedia(m) : null) } }),

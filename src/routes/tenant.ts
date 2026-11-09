@@ -57,7 +57,7 @@ import { liveOpenNow, parseCanned, parseTags } from "../helpdesk.js";
 import { addBlock, blockKeyOfChat, isBlocked } from "../visitors.js";
 import { chatClosedEvent, runAutomations } from "../automations.js";
 import { buildReport } from "../reports.js";
-import { buildCustomers, type LeadLite } from "../customers.js";
+import { buildCustomers, sessionPhone, type LeadLite } from "../customers.js";
 const liveItem = (c: LiveChat) => {
   const last = c.messages[c.messages.length - 1];
   return { id: c.id, channel: c.channel?.type ?? null, assignee: c.assignee ? { id: c.assignee.userId, name: c.assignee.name } : null, name: c.name, contact: c.contact, status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt, count: c.messages.length, waiting: isWaiting(c), tags: c.tags ?? [], csat: c.csat?.rating ?? null, notes: c.notes?.length ?? 0, last: last ? { from: last.from, text: last.text.slice(0, 160), at: last.at } : null };
@@ -443,7 +443,9 @@ export function tenantRoutes(deps: Deps) {
       const lastUser = [...s.history].reverse().find((m) => m.role === "user");
       const lastBot = [...s.history].reverse().find((m) => m.role === "model");
       return {
-        channel: s.channel, chatId: s.chatId, sid: s.sid, name: s.name ?? "", ref: s.ref ?? "",
+        channel: s.channel, chatId: s.chatId, sid: s.sid, name: s.name ?? "", ref: s.ref ?? "", phone: sessionPhone(s),
+        // Bu müştəri ilə bütün söhbətlər (köhnədən yeniyə): panel hamısını ardıcıl göstərir
+        sids: [...(s.prevSids ?? []).map((x) => x.sid), s.sid],
         last: lastUser ? lastUser.text.slice(0, 140) : "", lastAnswer: lastBot ? lastBot.text.slice(0, 140) : "",
         messages: s.history.length, updatedAt: s.updatedAt, liveId: liveOf.get(`${s.channel}:${s.chatId}`) ?? null,
         // Növbəti mesaja qədər qısa yaddaş (fallback): sorğu jurnalı söndürülübsə yazışma buradan göstərilir
@@ -469,7 +471,7 @@ export function tenantRoutes(deps: Deps) {
     const sess = await store.getChannelSession(t.tenantId, channel, chatId);
     if (!sess) throw new HttpError(404, "Bu müştəri botla yazışmayıb: ona yalnız o yazandan sonra cavab vermək olar", "CONTACT_NOT_FOUND");
     const who = nameOf(user);
-    const chat = await startChannelLive(deps, t, { channel, chatId, ...(sess.ref && { ref: sess.ref }), name: sess.name ?? "", history: sess.history, quiet: true });
+    const chat = await startChannelLive(deps, t, { channel, chatId, ...(sess.ref && { ref: sess.ref }), ...(sess.phone && { phone: sess.phone }), name: sess.name ?? "", history: sess.history, quiet: true });
     try { await deliverToChannel(deps, t, chat, text); }
     catch {
       await store.pushLive(t.tenantId, chat.id, { from: "system", text: "closed", at: new Date() }, { status: "closed" });
@@ -655,6 +657,17 @@ export function tenantRoutes(deps: Deps) {
     hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "message" });
     res.status(201).json({ total });
   });
+  // Bağlanmış söhbəti silmək (yalnız hesab sahibi; açıq söhbət əvvəl bağlanmalıdır)
+  r.delete("/live/:id", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const chat = await store.getLive(t.tenantId, String(req.params.id));
+    if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
+    if (chat.status === "open") throw new HttpError(409, "Açıq söhbəti silmək olmaz, əvvəl bağla", "LIVE_OPEN");
+    await store.deleteLive(t.tenantId, chat.id);
+    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "close" });
+    res.json({ ok: true });
+  });
+
   r.post("/live/:id/close", async (req, res) => {
     const { tenant: t } = await opTenant(currentUser(res));
     const chat = await store.getLive(t.tenantId, String(req.params.id));
@@ -936,10 +949,11 @@ export function tenantRoutes(deps: Deps) {
   // ---- Müştərilər: canlı söhbətlər, kanal yazışmaları və müraciətlər bir kartda (telefon/e-poçt/kanal ID-si ilə birləşir) ----
   r.get("/customers", async (req, res) => {
     const t = await mine(currentUser(res).id);
-    const [open, closed, leadsRes] = await Promise.all([
+    const [open, closed, leadsRes, sessions] = await Promise.all([
       store.listLive(t.tenantId, "open", 300).catch(() => []), store.listLive(t.tenantId, "closed", 700).catch(() => []), ai.kbLeads(t.tenantId).catch(() => ({ items: [] })),
+      store.listChannelSessions(t.tenantId, 500).catch(() => []),
     ]);
-    res.json({ items: buildCustomers(t, [...open, ...closed], (leadsRes.items ?? []) as LeadLite[], typeof req.query.q === "string" ? req.query.q : "") });
+    res.json({ items: buildCustomers(t, [...open, ...closed], (leadsRes.items ?? []) as LeadLite[], typeof req.query.q === "string" ? req.query.q : "", sessions) });
   });
   r.delete("/kb/leads/:id", async (req, res) => { res.json(await ai.kbDeleteLead((await mine(currentUser(res).id)).tenantId, sid(req.params.id))); });
 

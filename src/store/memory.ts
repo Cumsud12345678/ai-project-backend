@@ -125,6 +125,13 @@ export function createMemoryStore(): Store {
     async listLive(tenantId, status, limit) {
       return [...live.values()].filter((c) => c.tenantId === tenantId && c.status === status).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, limit);
     },
+    async deleteLive(tenantId, id) {
+      const c = live.get(id);
+      if (!c || c.tenantId !== tenantId) return false;
+      live.delete(id);
+      for (const [fid, f] of liveFiles) if (f.tenantId === tenantId && f.chatId === id) liveFiles.delete(fid);
+      return true;
+    },
     async deleteLiveForTenant(tenantId) { for (const [id, c] of live) if (c.tenantId === tenantId) live.delete(id); for (const [id, f] of liveFiles) if (f.tenantId === tenantId) liveFiles.delete(id); },
     async addLiveFile(f) { liveFiles.set(f.id, { ...f }); },
     async getLiveFile(tenantId, id) { const f = liveFiles.get(id); return f && f.tenantId === tenantId ? { ...f } : null; },

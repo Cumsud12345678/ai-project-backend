@@ -6,7 +6,8 @@ import { notifyOperators } from "./operator-notify.js";
 import { forwardLead } from "./lead-forward.js";
 import { publicConfirm } from "./action-card.js";
 import { campaignRunning, liveOpenNow, parseHours, parseProactive } from "./helpdesk.js";
-import { liveEventBase, runAutomations } from "./automations.js";
+import { chatClosedEvent, liveEventBase, runAutomations } from "./automations.js";
+import { isOperatorCmd, wantsHuman } from "./channel-live.js";
 import { checkBase64Image, imageEnabled } from "./image-input.js";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -316,6 +317,10 @@ export function widgetRoutes(deps: Deps) {
     const clean = (Array.isArray(history) ? history : []).slice(-10)
       .filter((h: any) => h && (h.role === "user" || h.role === "model") && typeof h.text === "string")
       .map((h: any) => ({ role: h.role, text: h.text.slice(0, 2000) }));
+    // Ziyarətçi açıq şəkildə operator istəyir ("operatora qoş", "insanla danışım") və canlı söhbət işləyir:
+    // AI-a getmirik (o "birbaşa qoşa bilmirəm" deyirdi), vidjet özü canlı söhbəti açır. Xərc də tutulmur.
+    if (!image && t.widget?.live?.enabled && liveOpenNow(t) && (wantsHuman(message) || isOperatorCmd(message)))
+      return void res.json({ answer: "", listings: [], handoff: "live" });
     try {
       const out = await ai.chat(t.tenantId, message.trim(), clean, { sid, identity, channel: "widget", ...(image && { image }) });
       // Balans azalıb/bitibsə sayt sahibinə email (AI servisi eyni vəziyyət üçün yalnız bir dəfə xəbər verir)
@@ -430,6 +435,21 @@ export function widgetRoutes(deps: Deps) {
     res.status(201).json({ id: chat.id, token, ...liveView(chat, 0) });
   });
 
+  // Ziyarətçi canlı söhbətdən çıxdı ("Yeni söhbət", "AI-a qayıt"): söhbət bağlanır ki, panel operatorla yazışma davam edir kimi göstərməsin
+  r.post("/widget/:key/live/:id/leave", access, async (req, res) => {
+    const t = res.locals.widgetTenant as TenantRecord;
+    const id = String(req.params.id ?? "");
+    const chat = id.length <= 60 ? await store.getLive(t.tenantId, id) : null;
+    if (!chat || !sameToken((req.body ?? {}).token, chat.tokenHash)) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
+    if (chat.status === "open") {
+      await store.pushLive(t.tenantId, id, { from: "system", text: "visitor_left", at: new Date() }, { status: "closed" });
+      hub.toOperators(t.tenantId, { t: "live", id, kind: "close" });
+      hub.toChat(id, { t: "new", total: chat.messages.length + 1 });
+      void runAutomations(deps, t, chatClosedEvent(chat));
+    }
+    res.json({ ok: true });
+  });
+
   // Bir sorğuda: (varsa) mesajı göndər + `after`-dan sonrakı yeni mesajları qaytar.
   r.post("/widget/:key/live/:id/sync", access, async (req, res) => {
     const t = res.locals.widgetTenant as TenantRecord;
@@ -445,6 +465,11 @@ export function widgetRoutes(deps: Deps) {
     const img = b.image === undefined || b.image === null ? null : checkBase64Image(b.image);
     if (b.image !== undefined && b.image !== null && !img) throw new HttpError(400, "Şəkil PNG, JPG və ya WebP olmalıdır (ən çox 2 MB)", "BAD_IMAGE");
     if (img && !text) text = "📷";
+    // Söhbət mesajsız açılıbsa (ziyarətçi "operatorla yaz" basıb), e-poçtunu ilk mesajla göndərir
+    if (!chat.contact && typeof b.contact === "string" && b.contact.trim()) {
+      const c = cleanContact(b.contact.trim());
+      if (c) await store.patchLive(t.tenantId, id, { contact: c });
+    }
     // Ziyarətçi çatdadır: 30 saniyədən tez yazmırıq (operator cavab verəndə e-poçt göndərilib-göndərilməməsini bu müəyyən edir)
     if (!chat.visitorSeenAt || Date.now() - chat.visitorSeenAt.getTime() > 30_000) await store.patchLive(t.tenantId, id, { visitorSeenAt: new Date() });
     if (text) {
