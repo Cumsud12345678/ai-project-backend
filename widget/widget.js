@@ -343,7 +343,14 @@
     ".typing i{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:b 1s infinite ease-in-out}",
     ".typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}",
     "@keyframes b{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}",
-    "@media (prefers-reduced-motion:reduce){.typing i{animation:none;opacity:.7}.launcher{transition:none}.hint{animation:none}.sheet,.sheet-bg{transition:none}}",
+    // Çat düyməsinin effektləri (paneldən seçilir, yalnız çat bağlı olanda): yumşaq rəngli dalğa və yüngül atılma
+    "@keyframes ca-pulse{0%{box-shadow:0 6px 20px rgba(0,0,0,.25),0 0 0 0 color-mix(in srgb,var(--accent) 55%,transparent)}70%{box-shadow:0 6px 20px rgba(0,0,0,.25),0 0 0 11px color-mix(in srgb,var(--accent) 0%,transparent)}100%{box-shadow:0 6px 20px rgba(0,0,0,.25),0 0 0 0 color-mix(in srgb,var(--accent) 0%,transparent)}}",
+    "@keyframes ca-bounce{0%,24%,100%{transform:translateY(0)}8%{transform:translateY(-7px)}16%{transform:translateY(0)}20%{transform:translateY(-3px)}}",
+    ".launcher.fx-pulse[aria-expanded=false]{animation:ca-pulse 2.2s ease-out infinite}",
+    ".launcher.fx-bounce[aria-expanded=false]{animation:ca-bounce 3.2s ease-in-out infinite}",
+    ".launcher.fx-pulse.fx-bounce[aria-expanded=false]{animation:ca-pulse 2.2s ease-out infinite,ca-bounce 3.2s ease-in-out infinite}",
+    ".launcher.fx-pulse:hover,.launcher.fx-bounce:hover{animation-play-state:paused}",
+    "@media (prefers-reduced-motion:reduce){.typing i{animation:none;opacity:.7}.launcher{transition:none;animation:none!important}.hint{animation:none}.sheet,.sheet-bg{transition:none}}",
     // Yazı sahəsi: kənarda heç nə yoxdur; emoji və sancaq/göndər düymələri sahənin içində, sağda
     // Yazı sahəsinin üstündə boşluq və xətt yoxdur; fon söhbətin fonu ilə eynidir, yalnız altda boşluq var
     "form{position:relative;padding:0 12px 12px;background:var(--bg2)}",
@@ -578,6 +585,9 @@
     ].concat(brandEl ? [brandEl] : [], [sheetBg, sheet]));
     var launcher = el("button", { class: "launcher", type: "button", "aria-label": "Çatı aç", "aria-expanded": "false" });
     launcher.innerHTML = ICON_CHAT;
+    var fx = cfg.effects || {};
+    if (fx.pulse) launcher.classList.add("fx-pulse");
+    if (fx.bounce) launcher.classList.add("fx-bounce");
     if (logoUrl) {
       var lImg = el("img", { src: logoUrl, alt: "", referrerpolicy: "no-referrer" });
       lImg.addEventListener("load", function () { launcher.textContent = ""; launcher.classList.add("logo"); launcher.appendChild(lImg); });

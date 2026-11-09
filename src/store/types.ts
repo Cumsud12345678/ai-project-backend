@@ -76,6 +76,8 @@ export type WidgetSettings = {
   color: string;
   /** Çatın ilk açılış rejimi: light (defolt), dark və ya auto (cihaz ayarı). Ziyarətçi çatdakı düymə ilə özü dəyişir və seçimi yadda qalır. */
   theme?: "light" | "dark" | "auto";
+  /** Çat düyməsinin diqqət çəkən effektləri (yalnız çat bağlı olanda işləyir): pulse = rəngli dalğa, bounce = yüngül atılma. */
+  effects?: { pulse: boolean; bounce: boolean };
   /** Çat düyməsinin loqosu. Olmayanda düymədə standart çat ikonu göstərilir. */
   logo?: WidgetImage;
   /** Çatın içindəki profil şəkli (başlıq və bot mesajlarının yanındakı dairə). Olmayanda vidjet standart bot ikonunu göstərir. */

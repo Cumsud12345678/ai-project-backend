@@ -107,6 +107,11 @@ export function parseWidgetPatch(body: unknown, current: WidgetSettings): Widget
     if (b.theme !== "light" && b.theme !== "dark" && b.theme !== "auto") throw new HttpError(400, "Mövzu light, dark və ya auto olmalıdır");
     next.theme = b.theme;
   }
+  if (b.effects !== undefined) {
+    const e = (b.effects && typeof b.effects === "object" ? b.effects : null) as Record<string, unknown> | null;
+    if (!e || (e.pulse !== undefined && typeof e.pulse !== "boolean") || (e.bounce !== undefined && typeof e.bounce !== "boolean")) throw new HttpError(400, "effects.pulse və effects.bounce true/false olmalıdır");
+    next.effects = { pulse: e.pulse !== undefined ? e.pulse : Boolean(current.effects?.pulse), bounce: e.bounce !== undefined ? e.bounce : Boolean(current.effects?.bounce) };
+  }
   if (b.origins !== undefined) {
     if (!Array.isArray(b.origins) || b.origins.length > 10) throw new HttpError(400, "Ən çox 10 əlavə ünvan əlavə edə bilərsən");
     const out = new Set<string>();
@@ -244,7 +249,7 @@ export function widgetRoutes(deps: Deps) {
     const mode = modeOf(wt.config);
     // Quraşdırmanın işlədiyini göstərmək üçün: ən çox 10 dəqiqədən bir yazılır
     if (!w.lastSeenAt || Date.now() - new Date(w.lastSeenAt).getTime() > 10 * 60_000) void store.touchWidget(wt.tenantId, new Date()).catch(() => {});
-    res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, mode, contact: true, live: liveOpenNow(wt), csat: w.live?.csat !== false, proactive: w.proactive?.enabled ? w.proactive.rules.filter((r) => campaignRunning(r, liveOpenNow(wt))).map((r) => ({ id: r.id, text: r.text, delaySec: r.delaySec, match: r.match, ...(r.title && { title: r.title }), ...(r.buttons?.length && { buttons: r.buttons }), ...(r.audience && r.audience !== "all" && { audience: r.audience }), ...(r.device && r.device !== "all" && { device: r.device }), ...(r.freq === "once" && { freq: "once" }) })) : [], // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
+    res.json({ title: w.title, greeting: w.greeting, color: w.color, label: w.label ?? DEFAULT_LABEL, effects: { pulse: Boolean(w.effects?.pulse), bounce: Boolean(w.effects?.bounce) }, mode, contact: true, live: liveOpenNow(wt), csat: w.live?.csat !== false, proactive: w.proactive?.enabled ? w.proactive.rules.filter((r) => campaignRunning(r, liveOpenNow(wt))).map((r) => ({ id: r.id, text: r.text, delaySec: r.delaySec, match: r.match, ...(r.title && { title: r.title }), ...(r.buttons?.length && { buttons: r.buttons }), ...(r.audience && r.audience !== "all" && { audience: r.audience }), ...(r.device && r.device !== "all" && { device: r.device }), ...(r.freq === "once" && { freq: "once" }) })) : [], // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
       theme: w.theme ?? "light", brand: wt.brandRemoved ? null : { name: deps.config.brandName, url: deps.config.brandUrl }, imageSearch: imageEnabled(wt), presence: Boolean(w.live?.enabled), ...(w.logo && { logo: imageUrl(deps.config.publicPortalUrl, w, "logo") }), ...(w.avatar && { avatar: imageUrl(deps.config.publicPortalUrl, w, "avatar") }) });
   });
 
