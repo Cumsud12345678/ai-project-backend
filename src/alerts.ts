@@ -4,19 +4,20 @@
 //  - topup:   müştəri yeni yükləmə sorğusu göndərəndə
 //  - channel: müştərinin WhatsApp bağlantısı qırılanda (müştəri üzrə 6 saatda bir)
 //  - limit:   müştəri gündəlik xərc limitinə çatanda (müştəri üzrə gündə bir)
+//  - provider: Claude və ya Gemini hesabında balans/limit bitəndə, açar səhv olanda; bərpa olanda da xəbər gedir
 // Vəziyyət (son göndərmə, servis vəziyyəti) yaddaşdadır: tək server prosesi üçündür.
 import type { Deps } from "./deps.js";
 import { notifyAvailable, sendNotify } from "./operator-notify.js";
 import type { User } from "./store/types.js";
 
-export const ALERT_KINDS = ["errors", "health", "topup", "channel", "limit", "domain"] as const;
+export const ALERT_KINDS = ["errors", "health", "topup", "channel", "limit", "domain", "provider"] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 export type AlertSettings = { email: boolean; telegram: boolean; kinds: Record<AlertKind, boolean>; /** 15 dəqiqədə neçə xətadan sonra */ errorThreshold: number };
 export type AlertLogItem = { at: Date; kind: AlertKind | "test" | "ai"; title: string; telegram: number; email: number };
 
-export const DEFAULT_ALERTS: AlertSettings = { email: true, telegram: true, kinds: { errors: true, health: true, topup: true, channel: true, limit: true, domain: true }, errorThreshold: 20 };
+export const DEFAULT_ALERTS: AlertSettings = { email: true, telegram: true, kinds: { errors: true, health: true, topup: true, channel: true, limit: true, domain: true, provider: true }, errorThreshold: 20 };
 const KEY = "admin_alerts";
-const COOLDOWN_MS: Record<AlertKind, number> = { errors: 60 * 60_000, health: 0, topup: 0, channel: 6 * 60 * 60_000, limit: 24 * 60 * 60_000, domain: 0 };
+const COOLDOWN_MS: Record<AlertKind, number> = { errors: 60 * 60_000, health: 0, topup: 0, channel: 6 * 60 * 60_000, limit: 24 * 60 * 60_000, domain: 0, provider: 0 };
 const ERROR_WINDOW_MS = 15 * 60_000;
 const HOURLY_CAP = 40; // səhv konfiqurasiyada adminin telefonu/poçtu dolmasın
 
@@ -30,7 +31,7 @@ let ctxCache = new WeakMap<object, Ctx>();
 const health = { ai: { down: false, fails: 0, since: 0 }, db: { down: false, fails: 0, since: 0 } };
 
 /** Testlər üçün */
-export function resetAlerts() { last.clear(); sentTimes.length = 0; log.length = 0; ctxCache = new WeakMap(); health.ai = { down: false, fails: 0, since: 0 }; health.db = { down: false, fails: 0, since: 0 }; }
+export function resetAlerts() { last.clear(); sentTimes.length = 0; log.length = 0; providerSeen.clear(); ctxCache = new WeakMap(); health.ai = { down: false, fails: 0, since: 0 }; health.db = { down: false, fails: 0, since: 0 }; }
 export const alertLog = () => [...log].reverse();
 export const healthState = () => ({ ai: { down: health.ai.down, since: health.ai.since ? new Date(health.ai.since) : null }, db: { down: health.db.down, since: health.db.since ? new Date(health.db.since) : null } });
 
@@ -149,10 +150,51 @@ async function checkErrors(deps: Deps) {
   await sendAlert(deps, "errors", "spike", `Son 15 dəqiqədə ${rows.length} xəta`, `Hədd: ${settings.errorThreshold}. Ən çox təkrarlananlar:\n${top}`);
 }
 
+// ---- Claude/Gemini hesab problemləri ----
+// Hər problem bir dəfə xəbər verilir (provayder + növ + başlama vaxtı); hər 3 saatda bir xatırladılır, düzələndə "bərpa olundu" gedir.
+type ProviderIssue = { kind: string; message?: string; since: string; count?: number };
+const providerSeen = new Map<string, { key: string; at: number }>();
+const PROVIDER_NAME: Record<string, string> = { claude: "Claude (Anthropic)", gemini: "Gemini (Google)" };
+const PROVIDER_FIX: Record<string, string> = {
+  claude: "console.anthropic.com → Billing: balansı artır və ya avtomatik yükləməni (auto-reload) aç; limit üçün Limits bölməsinə bax.",
+  gemini: "aistudio.google.com → Billing: balansı artır (Prepay) və ya xərc limitini yoxla.",
+};
+const KIND_TEXT: Record<string, string> = {
+  balance: "hesabda balans bitib", limit: "xərc limitinə çatılıb", auth: "API açarı qəbul olunmur (səhvdir, silinib və ya hesab bloklanıb)", quota: "sorğu kvotası dolub (çoxlu 429 xətası)",
+};
+const REMIND_MS = 3 * 60 * 60_000;
+
+export async function checkProviders(deps: Deps) {
+  const r = await deps.ai.providers();
+  const issues = ((r as { providers?: Record<string, ProviderIssue> }).providers ?? {});
+  for (const p of ["claude", "gemini"]) {
+    const i = issues[p];
+    const seen = providerSeen.get(p);
+    if (!i) {
+      if (seen) {
+        providerSeen.delete(p);
+        await sendAlert(deps, "provider", `${p}:ok:${seen.key}`, `${PROVIDER_NAME[p]} yenidən işləyir`, `${PROVIDER_NAME[p]} sorğuları yenidən uğurla cavablanır.`);
+      }
+      continue;
+    }
+    const key = `${i.kind}:${i.since}`;
+    if (seen?.key === key && Date.now() - seen.at < REMIND_MS) continue;
+    providerSeen.set(p, { key, at: Date.now() });
+    const other = p === "claude" ? "gemini" : "claude";
+    const fallback = issues[other]
+      ? `Diqqət: ${PROVIDER_NAME[other]} də işləmir (${KIND_TEXT[issues[other]!.kind] ?? issues[other]!.kind}). Müştərilərin köməkçiləri cavab verə bilməyəcək.`
+      : `Sorğular hələlik ehtiyat model (${PROVIDER_NAME[other]}) ilə cavablanır, amma keyfiyyət və xərc fərqli ola bilər.`;
+    await sendAlert(deps, "provider", `${p}:${key}:${seen?.key === key ? "remind" : "new"}:${Math.floor(Date.now() / REMIND_MS)}`,
+      `${PROVIDER_NAME[p]}: ${KIND_TEXT[i.kind] ?? i.kind}`,
+      `${fallback}\n\nNə etməli: ${PROVIDER_FIX[p]}\n\nXəta: ${(i.message ?? "").slice(0, 240)}\nBaşlayıb: ${new Date(i.since).toLocaleString("az-AZ", { timeZone: "Asia/Baku" })}`);
+  }
+}
+
 /** Bir yoxlama dövrü (testlərdə birbaşa çağırılır). */
 export async function alertTick(deps: Deps) {
   await checkService(deps, "db", () => deps.store.countUsers({ ids: [] }));
   await checkService(deps, "ai", () => deps.ai.ping());
+  if (!health.ai.down) await checkProviders(deps).catch(() => {});
   if (!health.db.down) await checkErrors(deps).catch(() => {});
 }
 

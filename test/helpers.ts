@@ -16,7 +16,7 @@ export const config: Config = {
   resendApiKey: undefined, mailFrom: "x", mailReplyTo: undefined, trustProxy: 1, secretKey: "test-secret-key-test-secret-key-0000", isProd: false,
 };
 
-export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown>; nextDraft?: Record<string, unknown>; heard?: string; aiState: Record<string, unknown>; pingFail: boolean; payments: Record<string, { id: string; at: string; amountAzn: number }[]> | null };
+export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown>; nextDraft?: Record<string, unknown>; heard?: string; aiState: Record<string, unknown>; pingFail: boolean; providerState: Record<string, unknown>; payments: Record<string, { id: string; at: string; amountAzn: number }[]> | null };
 
 /** Saxta AI servisi: çağırışları qeyd edir, istənilsə xəta qaytarır. */
 export function fakeAi(): FakeAi {
@@ -101,6 +101,8 @@ export function fakeAi(): FakeAi {
     aiState: { paused: false } as Record<string, unknown>,
     async aiControl() { return rec("aiControl", [], ai.aiState); },
     async setAiControl(b) { ai.aiState = b.paused ? { ...b, at: new Date().toISOString() } : { paused: false }; return rec("setAiControl", [b], ai.aiState); },
+    providerState: {} as Record<string, unknown>,
+    async providers() { return rec("providers", [], { providers: ai.providerState }); },
     pingFail: false,
     async ping() { rec("ping", [], null); if (ai.pingFail) throw new Error("AI servisinə qoşulmaq olmur"); },
   };

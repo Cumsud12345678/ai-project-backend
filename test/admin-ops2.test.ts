@@ -199,3 +199,39 @@ test("ümumi AI açarı: səbəb məcburidir, AI-yə ötürülür, adminlərə x
   const user = await p.signedIn("aictl-plain@example.com");
   assert.equal((await user.call("PUT", "/admin/ai-control", { paused: false })).status, 403);
 });
+
+test("xəbərdarlıq: Claude/Gemini balansı bitəndə bir dəfə xəbər (e-poçt + Telegram), təkrar yoxlamada susur, düzələndə bərpa", async () => {
+  await admin();
+  const bossId = (await p.store.findUserByEmail("boss@example.com"))!.id;
+  await p.store.updateUser(bossId, { tgNotify: { chatId: "777", name: "Boss", at: new Date() } });
+  const before = mailsTo("boss@example.com").length;
+  const tgBefore = p.telegram.sent.length;
+  p.ai.providerState = { claude: { kind: "balance", message: "Claude 400: Your credit balance is too low", since: "2026-11-10T08:00:00.000Z", count: 3 } };
+  await alertTick(p.deps);
+  await alertTick(p.deps);
+  // digər testlərdən qalan xəta artımı xəbərdarlığı da gələ bilər: yalnız provayder məktublarını sayırıq
+  const prov = () => mailsTo("boss@example.com").filter((m) => /Claude|Gemini/.test(m.subject));
+  const got = mailsTo("boss@example.com").slice(before).filter((m) => /Claude|Gemini/.test(m.subject));
+  assert.equal(got.length, 1, "eyni problem bir dəfə");
+  assert.match(got[0]!.subject, /Claude \(Anthropic\): hesabda balans bitib/);
+  assert.match(got[0]!.text, /ehtiyat model \(Gemini/);
+  assert.match(got[0]!.text, /console\.anthropic\.com/);
+  assert.ok(p.telegram.sent.slice(tgBefore).some((m) => m.chatId === "777" && /balans bitib/.test(m.text)));
+  // ikisi də işləmir: xüsusi xəbərdarlıq
+  p.ai.providerState = { ...p.ai.providerState, gemini: { kind: "auth", message: "API key not valid", since: "2026-11-10T08:05:00.000Z" } };
+  await alertTick(p.deps);
+  assert.match(prov().at(-1)!.text, /cavab verə bilməyəcək/);
+  p.ai.providerState = {};
+  await alertTick(p.deps);
+  const tail = prov().slice(-2).map((m) => m.subject).join(" | ");
+  assert.match(tail, /yenidən işləyir/);
+  // söndürülübsə göndərilmir
+  const a = await admin();
+  await a.call("PUT", "/admin/alerts", { kinds: { provider: false } });
+  const b3 = prov().length;
+  p.ai.providerState = { gemini: { kind: "balance", message: "prepay", since: "2026-11-10T09:00:00.000Z" } };
+  await alertTick(p.deps);
+  assert.equal(prov().length, b3);
+  await a.call("PUT", "/admin/alerts", { kinds: { provider: true } });
+  p.ai.providerState = {};
+});

@@ -85,6 +85,8 @@ export type AiClient = {
   setAiControl(body: { paused: boolean; reason?: string; by?: string }): Promise<AiResult>;
   /** AI servisinin sadə sağlamlıq yoxlaması (/health). Xəta atırsa servis əlçatmazdır. */
   ping(): Promise<void>;
+  /** Claude/Gemini hesab problemləri (balans bitib, limit, açar səhvi) */
+  providers(): Promise<AiResult>;
 };
 
 export function createAiClient(baseUrl: string, token: string): AiClient {
@@ -174,6 +176,7 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     billingLedger: (q) => request("GET", `/billing/ledger?${new URLSearchParams(q)}`),
     aiControl: () => request("GET", "/ai-control"),
     setAiControl: (body) => request("PUT", "/ai-control", body),
+    providers: () => request("GET", "/providers", undefined, 8000),
     async ping() {
       const res = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(8000) });
       if (!res.ok) throw new Error(`AI servisi ${res.status} qaytardı`);
