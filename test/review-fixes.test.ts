@@ -88,3 +88,13 @@ test("admin sağlamlıq: backend-in gördüyü IP və TRUST_PROXY göstərilir",
   assert.equal(h.body.network.trustProxy, 1);
   assert.equal(h.body.network.privateIp, true, "testdə X-Forwarded-For 10.0.x.x-dir: daxili IP kimi işarələnir");
 });
+
+test("girişsiz sifariş statusunun sınağı: sahib nömrə + telefonla yoxlayır, giriş yoxlanır", async () => {
+  const c = await p.signedIn("lookup@example.com");
+  assert.equal((await c.call("POST", "/tenant", { config: { businessName: "Mağaza", domain: "lookup.az", source: { type: "rest" } } })).status, 201);
+  assert.equal((await c.call("POST", "/tenant/private-data/lookup-test", { orderId: "10452" })).status, 400);
+  const r = await c.call("POST", "/tenant/private-data/lookup-test", { orderId: "10452", phone: "0501234567" });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.record.Status, "Yoldadır");
+  assert.deepEqual(p.ai.calls.filter((x) => x.fn === "testOrderLookup").at(-1)!.args[1], { orderId: "10452", phone: "0501234567" });
+});

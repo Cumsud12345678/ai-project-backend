@@ -26,6 +26,7 @@ export type AiClient = {
   deletePrivateData(tenantId: string): Promise<AiResult>;
   newIdentitySecret(tenantId: string): Promise<AiResult>;
   testPrivateData(tenantId: string, body: { kind: string; userId: string }): Promise<AiResult>;
+  testOrderLookup(tenantId: string, body: { orderId: string; phone: string }): Promise<AiResult>;
   summarize(tenantId: string, messages: { from: string; text: string }[]): Promise<AiResult>;
   draft(tenantId: string, body: { messages: { from: string; text: string }[]; context: { role: string; text: string }[] }): Promise<AiResult>;
   actions(tenantId: string): Promise<AiResult>;
@@ -157,6 +158,7 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     actionStats: (id, days) => request("GET", `${t(id)}/actions/stats${days ? `?days=${Math.round(days)}` : ""}`),
     clearActionLog: (id) => request("DELETE", `${t(id)}/actions/log`),
     testPrivateData: (id, body) => request("POST", `${t(id)}/private-data/test`, body, 15_000),
+    testOrderLookup: (id, body) => request("POST", `${t(id)}/private-data/lookup-test`, body, 15_000),
     conversations: (id, query) => request("GET", `${t(id)}/conversations${query ? `?${query}` : ""}`),
     conversation: (id, sid) => request("GET", `${t(id)}/conversations/${encodeURIComponent(sid)}`),
     recordClick: (id, sid, c) => request("POST", `${t(id)}/conversations/${encodeURIComponent(sid)}/clicks`, c),

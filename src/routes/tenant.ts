@@ -803,6 +803,14 @@ export function tenantRoutes(deps: Deps) {
     res.set("cache-control", "no-store").json(await ai.testPrivateData((await mine(user.id)).tenantId, { kind: b.kind, userId: b.userId }));
   });
 
+  // Girişsiz sifariş statusunun sınağı: sahib real sifariş nömrəsi və telefonla yoxlayır (nəticə maskalanmış)
+  r.post("/private-data/lookup-test", async (req, res) => {
+    const user = currentUser(res); pdWrite(user.id);
+    const b = (req.body ?? {}) as { orderId?: unknown; phone?: unknown };
+    if (typeof b.orderId !== "string" || typeof b.phone !== "string" || b.orderId.length > 60 || b.phone.length > 40) throw new HttpError(400, "Sifariş nömrəsi və telefon tələb olunur");
+    res.set("cache-control", "no-store").json(await ai.testOrderLookup((await mine(user.id)).tenantId, { orderId: b.orderId, phone: b.phone }));
+  });
+
   // ---- Əməliyyatlar (yazma): sahibin konfiqurasiyası, sınaq və jurnal ----
   const actWrite = (userId: string) => { if (!limiter.hit(`act:${userId}`, 30, 10 * 60_000)) throw new HttpError(429, "Çox əməliyyat oldu, bir az gözləyin", "RATE_LIMITED"); };
   r.get("/actions", async (_req, res) => { res.set("cache-control", "no-store").json(await ai.actions((await mine(currentUser(res).id)).tenantId)); });

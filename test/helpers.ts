@@ -61,6 +61,7 @@ export function fakeAi(): FakeAi {
     async actionLog(...a) { return rec("actionLog", a, { entries: [] }); },
     async actionStats(...a: unknown[]) { return rec("actionStats", a, { items: [], done30: 0 }); },
     async clearActionLog(...a) { return rec("clearActionLog", a, { ok: true }); },
+    async testOrderLookup(...a) { return rec("testOrderLookup", a, { found: true, title: "Sifariş", orderId: "10452", record: { Status: "Yoldadır" } }); },
     async testPrivateData(...a) { return rec("testPrivateData", a, { ok: true, records: [] }); },
     async clearQueries(...a) { return rec("clearQueries", a, { ok: true }); },
     async kbInfo(...a) { return rec("kbInfo", a, { mode: "support", sources: [], limits: { sources: 30, chunks: 2500, fileBytes: 6291456 }, totals: { sources: 0, chunks: 0 } }); },
