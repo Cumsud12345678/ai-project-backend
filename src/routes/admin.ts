@@ -3,6 +3,7 @@ import { Router } from "express";
 import { deleteAccount } from "../account.js";
 import type { Deps } from "../deps.js";
 import { isAdmin, isOwner } from "../deps.js";
+import { adminView, buildFromRequest, SETUP_STATUSES } from "../setup-request.js";
 import { HttpError } from "../http.js";
 import { currentUser, requireAdmin, requireAuth } from "../middleware.js";
 import { normalizeEmail } from "../security.js";
@@ -12,7 +13,7 @@ import { publicPlans } from "../public-plans.js";
 import { ALERT_KINDS, alertLog, getAlertSettings, healthState, saveAlertSettings, sendAlert } from "../alerts.js";
 import { getPartnerSettings, normalizeCode, partnerCustomers, savePartnerSettings, syncThrottled, validCode, validRate } from "../partners.js";
 import { notifyAvailable, notifyBotName, sendNotify, userLinkUrl } from "../operator-notify.js";
-import type { TenantRecord, User } from "../store/types.js";
+import type { SetupRequestStatus, TenantRecord, User } from "../store/types.js";
 import { blockDomain, domainGroups, domainRoot, markDomainOk, unblockDomain } from "../domains.js";
 import type { ErrorSource } from "../store/types.js";
 
@@ -23,6 +24,12 @@ const csvCell = (v: unknown) => {
   let s = String(v ?? "");
   if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // Excel formulu kimi açılmasın
   return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/** Daxili şəbəkə / loopback ünvanı (proksinin öz IP-si kimi görünən hal) */
+const isPrivateAddr = (raw: string) => {
+  const ip = raw.replace(/^::ffff:/, "");
+  return !ip || ip === "::1" || /^(127\.|10\.|192\.168\.|169\.254\.)/.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip) || /^f[cd][0-9a-f]{2}:/i.test(ip);
 };
 
 export function adminRoutes(deps: Deps) {
@@ -397,6 +404,7 @@ export function adminRoutes(deps: Deps) {
       aiControl: control,
       usage: summary ? { today: summary.today, thisMonth: summary.thisMonth, lastMonth: summary.lastMonth } : null,
       pendingTopups: ((pending?.requests ?? []) as unknown[]).length,
+      setupNew: (await store.listSetupRequests({ status: "new", limit: 500 }).catch(() => [])).length,
       // Əvvəllər burada qalan ödənişli balansların cəmi göstərilirdi (müştəri xərclədikcə azalırdı). İndi: balansa daxil olan real pul.
       revenueAzn: fin?.totals ? Math.round(Number(fin.totals.cashInAzn) * 100) / 100 : null,
       revenueMonthAzn: fin?.totals ? Math.round(Number(fin.totals.cashInMonthAzn) * 100) / 100 : null,
@@ -408,7 +416,7 @@ export function adminRoutes(deps: Deps) {
     });
   });
 
-  r.get("/health", async (_req, res) => {
+  r.get("/health", async (req, res) => {
     const time = async (fn: () => Promise<unknown>) => { const t0 = Date.now(); try { await fn(); return { ok: true, ms: Date.now() - t0 }; } catch (e) { return { ok: false, ms: Date.now() - t0, error: e instanceof Error ? e.message.slice(0, 120) : "xəta" }; } };
     const [db, aiSvc] = await Promise.all([time(() => store.countUsers({ ids: [] })), time(() => ai.ping())]);
     const mem = process.memoryUsage();
@@ -416,6 +424,9 @@ export function adminRoutes(deps: Deps) {
       database: db, ai: aiSvc,
       mail: { configured: Boolean(config.resendApiKey), from: config.mailFrom },
       server: { uptimeSec: Math.round(process.uptime()), node: process.version, memoryMb: Math.round(mem.rss / 1048576), production: config.isProd },
+      // TRUST_PROXY yoxlaması: backend admini hansı IP ilə görür. Daxili/proksi IP-dirsə, bütün istifadəçilər eyni IP-də
+      // görünür və IP üzrə limitlər (qeydiyyat, giriş) hamı üçün birdən dolur. Bu halda TRUST_PROXY-ni bir vahid artır.
+      network: { ip: req.ip ?? "", privateIp: isPrivateAddr(req.ip ?? ""), trustProxy: config.trustProxy, hops: String(req.get("x-forwarded-for") ?? "").split(",").filter((x) => x.trim()).length },
     });
   });
 
@@ -715,6 +726,30 @@ export function adminRoutes(deps: Deps) {
   });
 
   // ---- Ümumi AI açarı: bütün müştərilər üçün AI sorğularını dayandırır (məs. provayder problemi, xərc partlayışı) ----
+  // ---- Qurulum sorğuları ("biz quraq") ----
+  r.get("/setup-requests", async (req, res) => {
+    const status = SETUP_STATUSES.includes(req.query.status as SetupRequestStatus) ? (req.query.status as SetupRequestStatus) : undefined;
+    const items = await store.listSetupRequests({ status, limit: 300 });
+    const all = status ? await store.listSetupRequests({ limit: 1000 }) : items;
+    res.json({ items: items.map(adminView), counts: Object.fromEntries(SETUP_STATUSES.map((s) => [s, all.filter((x) => x.status === s).length])) });
+  });
+  r.patch("/setup-requests/:userId", async (req, res) => {
+    const cur = await store.getSetupRequest(String(req.params.userId));
+    if (!cur) throw new HttpError(404, "Sorğu tapılmadı");
+    const b = (req.body ?? {}) as { status?: unknown; adminNote?: unknown };
+    if (b.status !== undefined && !SETUP_STATUSES.includes(b.status as SetupRequestStatus)) throw new HttpError(400, "status new, in_progress və ya done olmalıdır");
+    if (b.adminNote !== undefined && (typeof b.adminNote !== "string" || b.adminNote.length > 1000)) throw new HttpError(400, "Qeyd ən çox 1000 simvol ola bilər");
+    const next = { ...cur, ...(b.status !== undefined && { status: b.status as SetupRequestStatus }), ...(typeof b.adminNote === "string" && { adminNote: b.adminNote.trim() }), updatedAt: new Date() };
+    await store.saveSetupRequest(next);
+    void audit(res, "setup.update", cur.email, String(b.status ?? "qeyd"));
+    res.json({ request: adminView(next) });
+  });
+  r.post("/setup-requests/:userId/build", async (req, res) => {
+    const out = await buildFromRequest(deps, String(req.params.userId), currentUser(res).email);
+    void audit(res, "setup.build", out.request.email, out.created ? "yeni bot yaradıldı" : "bilik bazasına əlavə olundu");
+    res.json({ request: adminView(out.request), created: out.created, kb: out.kb, warnings: out.warnings });
+  });
+
   r.get("/ai-control", async (_req, res) => { res.json(await ai.aiControl()); });
   r.put("/ai-control", async (req, res) => {
     const b = (req.body ?? {}) as { paused?: unknown; reason?: unknown };

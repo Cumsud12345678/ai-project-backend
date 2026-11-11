@@ -116,7 +116,8 @@ export function notifyWebhook(deps: Deps) {
   r.post("/telegram-notify/:hook", async (req, res) => {
     const token = deps.config.notifyBotToken;
     const got = String(req.get("x-telegram-bot-api-secret-token") ?? ""), want = token ? secretOf(deps) : "";
-    if (!token || String(req.params.hook ?? "") !== hookOf(deps) || got.length !== want.length || !timingSafeEqual(Buffer.from(got), Buffer.from(want))) throw new HttpError(404, "Tapılmadı");
+    const a = Buffer.from(got), b = Buffer.from(want); // bayt uzunluğu: unicode başlıq timingSafeEqual-u xətaya salmasın
+    if (!token || String(req.params.hook ?? "") !== hookOf(deps) || a.length !== b.length || !timingSafeEqual(a, b)) throw new HttpError(404, "Tapılmadı");
     res.json({ ok: true });
     const msg = ((req.body ?? {}) as Update).message;
     // Qrup: yalnız "/start@bot <kod>" (bot qrupa müraciət qrupu kimi əlavə olunanda). Qrupdakı digər yazışmalara bot qarışmır.

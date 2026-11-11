@@ -60,6 +60,9 @@ export type AiClient = {
   kbUnanswered(tenantId: string): Promise<AiResult>;
   kbDeleteUnanswered(tenantId: string, id: string): Promise<AiResult>;
   kbLeads(tenantId: string): Promise<AiResult>;
+  orderForm(tenantId: string): Promise<AiResult>;
+  setOrderForm(tenantId: string, form: object): Promise<AiResult>;
+  deleteOrderForm(tenantId: string): Promise<AiResult>;
   kbAddLead(tenantId: string, lead: { name: string; contact: string; question: string; conversation?: { role: string; text: string }[] }): Promise<AiResult>;
   kbHandleLead(tenantId: string, id: string, handled: boolean): Promise<AiResult>;
   kbUpdateLead(tenantId: string, id: string, patch: Record<string, unknown>): Promise<AiResult>;
@@ -175,6 +178,9 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     kbDeleteUnanswered: (id, x) => request("DELETE", `${t(id)}/kb/unanswered/${encodeURIComponent(x)}`),
     kbLeads: (id) => request("GET", `${t(id)}/kb/leads`),
     kbAddLead: (id, lead) => request("POST", `${t(id)}/kb/leads`, lead),
+    orderForm: (id) => request("GET", `${t(id)}/order-form`),
+    setOrderForm: (id, form) => request("PUT", `${t(id)}/order-form`, form),
+    deleteOrderForm: (id) => request("DELETE", `${t(id)}/order-form`),
     kbHandleLead: (id, x, handled) => request("PATCH", `${t(id)}/kb/leads/${encodeURIComponent(x)}`, { handled }),
     kbUpdateLead: (id, x, patch) => request("PATCH", `${t(id)}/kb/leads/${encodeURIComponent(x)}`, patch),
     kbDeleteLead: (id, x) => request("DELETE", `${t(id)}/kb/leads/${encodeURIComponent(x)}`),

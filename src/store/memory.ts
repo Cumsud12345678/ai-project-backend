@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery, type PartnerEntry } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery, type PartnerEntry, type SetupRequest } from "./types.js";
 
 /** Test və DB-siz sınaq üçün. Proses bitəndə məlumat itir. */
 export function createMemoryStore(): Store {
@@ -17,6 +17,7 @@ export function createMemoryStore(): Store {
   const audit: AuditRecord[] = [];
   let announcement: Announcement | null = null;
   const settings = new Map<string, unknown>();
+  const setupRequests = new Map<string, SetupRequest>();
   const partnerEntries: PartnerEntry[] = [];
   const round2 = (n: number) => Math.round(n * 100) / 100;
   const userMatch = (u: User, q: UserQuery) =>
@@ -72,6 +73,13 @@ export function createMemoryStore(): Store {
     async createTenant(t) {
       if ([...tenants.values()].some((x) => x.userId === t.userId)) throw new DuplicateError("tenant");
       tenants.set(t.tenantId, t);
+    },
+    async patchWidget(tenantId, fields) {
+      const t = tenants.get(tenantId);
+      if (!t?.widget) return;
+      const w = { ...t.widget } as Record<string, unknown>;
+      for (const [k, v] of Object.entries(fields)) { if (k === "logo" || k === "avatar") continue; if (v === undefined) delete w[k]; else w[k] = structuredClone(v); }
+      tenants.set(tenantId, { ...t, widget: w as unknown as TenantRecord["widget"], updatedAt: new Date() });
     },
     async updateTenant(tenantId, patch) {
       const t = tenants.get(tenantId);
@@ -147,6 +155,14 @@ export function createMemoryStore(): Store {
     async addClick(tenantId, at) { clicks.push({ tenantId, at }); if (clicks.length > 20000) clicks.shift(); },
     async countClicks(tenantId, since) { return clicks.filter((c) => c.tenantId === tenantId && c.at >= since).length; },
     async getChannelSession(tenantId, channel, chatId) { return sessionsCh.get(`${tenantId}|${channel}|${chatId}`) ?? null; },
+    async getSetupRequest(userId) { const r = setupRequests.get(userId); return r ? structuredClone(r) : null; },
+    async saveSetupRequest(r) { setupRequests.set(r.userId, structuredClone(r)); },
+    async deleteSetupRequest(userId) { setupRequests.delete(userId); },
+    async listSetupRequests({ status, limit }) { return [...setupRequests.values()].filter((r) => !status || r.status === status).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, limit).map((r) => structuredClone(r)); },
+    async listIdleChannelSessions(from, to, limit) {
+      return [...sessionsCh.values()].filter((s) => { const at = new Date(s.updatedAt).getTime(); return at >= from.getTime() && at <= to.getTime(); })
+        .sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()).slice(0, limit);
+    },
     async saveChannelSession(s) { sessionsCh.set(`${s.tenantId}|${s.channel}|${s.chatId}`, s); },
     async deleteChannelSessions(tenantId, channel) { for (const k of [...sessionsCh.keys()]) if (k.startsWith(channel ? `${tenantId}|${channel}|` : `${tenantId}|`)) sessionsCh.delete(k); },
     async getWaAuth(tenantId, names) { const out: Record<string, string> = {}; for (const n of names) { const v = waAuth.get(`${tenantId}|${n}`); if (v !== undefined) out[n] = v; } return out; },

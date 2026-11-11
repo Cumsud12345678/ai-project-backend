@@ -15,7 +15,7 @@ export function chatLang(t: Pick<TenantRecord, "config">, text = ""): ChatLang {
 
 type Texts = {
   textOnly: string; tooLong: string; slowDown: string; dayLimit: string; busy: string; offline: string; askContact: string;
-  imageOff: string; imageFail: string; voiceLong: string; voiceFail: string; actionBusy: string; actionUnknown: string; thanks: string;
+  imageOff: string; imageFail: string; voiceLong: string; voiceFail: string; actionBusy: string; actionUnknown: string; thanks: string; followup: string;
   live: { off: string; offHours: string; on: string; back: string; hint: string; failed: string };
 };
 
@@ -36,6 +36,7 @@ export function channelTexts(lang: ChatLang, maxText: number, maxAudioSec: numbe
       actionBusy: "Əməliyyat təsdiqi üçün çox cəhd etdiniz, bir az gözləyin.",
       actionUnknown: "Əməliyyatın icra olunub-olunmadığı bəlli deyil. Təkrar etməyin, operatorla yoxlayın.",
       thanks: "Təşəkkürlər, müraciətiniz qəbul edildi. Operator tezliklə sizinlə əlaqə saxlayacaq.",
+      followup: "Sualınız qaldımı? Kömək lazım olsa yazın, məmnuniyyətlə cavab verərəm 🙂",
       live: {
         off: "Operatorla canlı yazışma hazırda aktiv deyil. Sualınızı yazın, mən cavab verim.",
         offHours: "Operatorlar hazırda işləmir. Sualınızı yazın, mən cavab verim; və ya telefon nömrənizi/e-poçtunuzu yazın, operator iş vaxtı sizinlə əlaqə saxlayacaq.",
@@ -60,6 +61,7 @@ export function channelTexts(lang: ChatLang, maxText: number, maxAudioSec: numbe
       actionBusy: "Too many confirmation attempts, please wait a moment.",
       actionUnknown: "It's not known whether the action was carried out. Don't repeat it; check with an operator.",
       thanks: "Thank you, your request was received. An operator will contact you soon.",
+      followup: "Do you have any other questions? Just write if you need help, I am happy to answer 🙂",
       live: {
         off: "Live chat with an operator isn't available right now. Type your question and I'll answer.",
         offHours: "Operators aren't working right now. Type your question and I'll answer, or send your phone number/email and an operator will contact you during working hours.",
@@ -84,6 +86,7 @@ export function channelTexts(lang: ChatLang, maxText: number, maxAudioSec: numbe
       actionBusy: "Слишком много попыток подтверждения, подождите немного.",
       actionUnknown: "Неизвестно, было ли выполнено действие. Не повторяйте его, уточните у оператора.",
       thanks: "Спасибо, ваша заявка принята. Оператор скоро свяжется с вами.",
+      followup: "Остались вопросы? Напишите, если нужна помощь, я с радостью отвечу 🙂",
       live: {
         off: "Чат с оператором сейчас недоступен. Напишите вопрос, и я отвечу.",
         offHours: "Операторы сейчас не работают. Напишите вопрос, и я отвечу, или оставьте телефон/e-mail, и оператор свяжется с вами в рабочее время.",
@@ -108,6 +111,7 @@ export function channelTexts(lang: ChatLang, maxText: number, maxAudioSec: numbe
       actionBusy: "Çok fazla onay denemesi yaptınız, biraz bekleyin.",
       actionUnknown: "İşlemin yapılıp yapılmadığı belli değil. Tekrarlamayın, bir operatörle kontrol edin.",
       thanks: "Teşekkürler, talebiniz alındı. Bir operatör yakında sizinle iletişime geçecek.",
+      followup: "Başka sorunuz var mı? Yardım gerekirse yazın, memnuniyetle yanıtlarım 🙂",
       live: {
         off: "Operatörle canlı sohbet şu anda aktif değil. Sorunuzu yazın, ben cevaplayayım.",
         offHours: "Operatörler şu anda çalışmıyor. Sorunuzu yazın, ben cevaplayayım; ya da telefon/e-posta bırakın, operatör mesai saatinde size ulaşsın.",

@@ -85,7 +85,9 @@ export function telegramWebhook(deps: Deps) {
     const tenant = HOOK_RE.test(hook) ? await deps.store.findTenantByTelegramHook(hook) : null;
     const got = String(req.get("x-telegram-bot-api-secret-token") ?? "");
     const want = tenant?.telegram?.secret ?? "";
-    if (!tenant || got.length !== want.length || !timingSafeEqual(Buffer.from(got), Buffer.from(want))) throw new HttpError(404, "Tapılmadı");
+    // Bayt uzunluğu müqayisə olunur: unicode başlıqda simvol sayı eyni, bayt sayı fərqli olanda timingSafeEqual xəta atırdı (500)
+    const a = Buffer.from(got), b = Buffer.from(want);
+    if (!tenant || !want || a.length !== b.length || !timingSafeEqual(a, b)) throw new HttpError(404, "Tapılmadı");
     res.json({ ok: true });
     processUpdate(deps, tenant, (req.body ?? {}) as Update).catch((e) => {
       console.warn(`[telegram] ${tenant.tenantId}: ${e instanceof Error ? e.message : e}`);

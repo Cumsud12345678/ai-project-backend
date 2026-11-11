@@ -110,6 +110,7 @@ export function eventText(t: TenantRecord, ev: AutoEvent, test = false): { subje
   const pre = test ? "🧪 Sınaq · " : "";
   if (ev.trigger === "lead") {
     const l = ev.lead, c = convo(l.conversation);
+    if (l.order) return { subject: `${pre}🛒 Yeni sifariş: ${t.businessName}`, text: [`${pre}🛒 Yeni sifariş: ${l.order.title} (${l.source}) · ${t.businessName}`, "", ...l.order.fields.map((f) => `${f.label}: ${f.value}`), ...(c ? ["", "Söhbətin son hissəsi:", c] : [])].join("\n") };
     return { subject: `${pre}Yeni müraciət: ${t.businessName}`, text: [`${pre}📩 Yeni müraciət (${l.source}) · ${t.businessName}`, "", `Ad: ${l.name || "-"}`, `Əlaqə: ${l.contact}`, `Sual: ${l.question || "-"}`, ...(l.page ? [`Səhifə: ${l.page}`] : []), ...(c ? ["", "Söhbətin son hissəsi:", c] : [])].join("\n") };
   }
   if (ev.trigger === "bad_rating") {
@@ -133,7 +134,7 @@ export function eventText(t: TenantRecord, ev: AutoEvent, test = false): { subje
 
 function webhookPayload(t: TenantRecord, ev: AutoEvent, test: boolean) {
   const base = { event: test ? "test" : ev.trigger, at: new Date().toISOString(), site: t.domain, business: t.businessName };
-  if (ev.trigger === "lead") { const l = ev.lead; return { ...base, source: l.source, name: l.name, contact: l.contact, question: l.question, page: l.page ?? "", conversation: l.conversation ?? [] }; }
+  if (ev.trigger === "lead") { const l = ev.lead; return { ...base, source: l.source, name: l.name, contact: l.contact, question: l.question, page: l.page ?? "", conversation: l.conversation ?? [], ...(l.order && { order: l.order }) }; }
   if (ev.trigger === "daily") return { ...base, summary: ev.summary };
   const { trigger: _t, ...rest } = ev;
   return { ...base, ...rest };

@@ -1,3 +1,4 @@
+import { setupRequestRoutes } from "./setup-request.js";
 import { getPublicPlans } from "./public-plans.js";
 import express from "express";
 import type { Deps } from "./deps.js";
@@ -61,6 +62,7 @@ export function createApp(deps: Deps) {
   app.use("/tenant/channels", telegramPanelRoutes(deps), whatsappPanelRoutes(deps));
   app.use("/tenant", notifyPanelRoutes(deps), leadForwardRoutes(deps), automationRoutes(deps));
   app.use("/tenant", tenantRoutes(deps));
+  app.use("/setup-request", setupRequestRoutes(deps)); // "Qurulumu bizə həvalə et" (pulsuz qurulum)
   app.use("/admin", adminRoutes(deps));
   app.use("/partner", partnerRoutes(deps));
 

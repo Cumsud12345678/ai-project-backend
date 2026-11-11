@@ -306,6 +306,8 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
   return {
     view,
     isActive: (tenantId: string) => entries.has(tenantId),
+    /** Sahib telefondan özü yazdığı üçün bot bu söhbətdə susdurulubmu (xatırlatma da göndərilmir) */
+    isPaused: (tenantId: string, jid: string) => { const until = entries.get(tenantId)?.pauses.get(jid); return Boolean(until && until > Date.now()); },
     size: () => entries.size,
     /** Yeni QR sessiyası: köhnə açarlar silinir. Artıq açıq sessiya varsa toxunulmur. */
     async connect(deps: Deps, tenantId: string, ackAt: Date) {

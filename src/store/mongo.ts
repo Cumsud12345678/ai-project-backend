@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { MongoClient, MongoServerError, ObjectId, type AnyBulkWriteOperation, type Db } from "mongodb";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery, type PartnerEntry } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery, type PartnerEntry, type SetupRequest } from "./types.js";
 
 type UserDoc = Omit<User, "id"> & { _id: ObjectId };
 
@@ -32,6 +32,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
   const waAuth = db.collection<{ tenantId: string; name: string; value: string }>("wa_auth");
   const audits = db.collection<AuditRecord>("admin_audit");
   const settings = db.collection<{ _id: string; value: unknown }>("settings");
+  const setupRequests = db.collection<SetupRequest>("setup_requests");
   const partnerEntries = db.collection<Omit<PartnerEntry, "id"> & { _id: ObjectId }>("partner_entries");
   const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -56,6 +57,8 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     clicksCol.createIndex({ tenantId: 1, at: -1 }),
     clicksCol.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 3600 }),
     channelSessions.createIndex({ tenantId: 1, channel: 1, chatId: 1 }, { unique: true }),
+    setupRequests.createIndex({ userId: 1 }, { unique: true }),
+    setupRequests.createIndex({ status: 1, createdAt: -1 }),
     channelSessions.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 14 * 24 * 3600 }), // 14 gün hərəkətsiz qalan söhbət silinir
     tenants.createIndex({ "telegram.hook": 1 }, { unique: true, partialFilterExpression: { "telegram.hook": { $type: "string" } } }),
     waAuth.createIndex({ tenantId: 1, name: 1 }, { unique: true }),
@@ -123,6 +126,12 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async createTenant(t) {
       try { await tenants.insertOne({ ...t }); } catch (e) { throw isDup(e) ? new DuplicateError("tenant") : e; }
     },
+    async patchWidget(tenantId, fields) {
+      const set: Record<string, unknown> = { updatedAt: new Date() };
+      const unset: Record<string, ""> = {};
+      for (const [k, v] of Object.entries(fields)) { if (k === "logo" || k === "avatar") continue; if (v === undefined) unset[`widget.${k}`] = ""; else set[`widget.${k}`] = v; }
+      await tenants.updateOne({ tenantId, widget: { $type: "object" } }, { $set: set, ...(Object.keys(unset).length && { $unset: unset }) });
+    },
     async updateTenant(tenantId, patch) { await tenants.updateOne({ tenantId }, { $set: { ...patch, updatedAt: new Date() } }); },
     async setWidgetLogo(tenantId, logo, kind = "logo") {
       const f = `widget.${kind}`;
@@ -180,6 +189,13 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async addClick(tenantId, at) { await clicksCol.insertOne({ tenantId, at }); },
     async countClicks(tenantId, since) { return clicksCol.countDocuments({ tenantId, at: { $gte: since } }); },
     async getChannelSession(tenantId, channel, chatId) { return strip(await channelSessions.findOne({ tenantId, channel, chatId })) as ChannelSession | null; },
+    async getSetupRequest(userId) { return strip(await setupRequests.findOne({ userId })) as SetupRequest | null; },
+    async saveSetupRequest(r) { await setupRequests.replaceOne({ userId: r.userId }, { ...r }, { upsert: true }); },
+    async deleteSetupRequest(userId) { await setupRequests.deleteOne({ userId }); },
+    async listSetupRequests({ status, limit }) { return (await setupRequests.find(status ? { status } : {}).sort({ createdAt: -1 }).limit(limit).toArray()).map((d) => strip(d) as SetupRequest); },
+    async listIdleChannelSessions(from, to, limit) {
+      return (await channelSessions.find({ updatedAt: { $gte: from, $lte: to } }).sort({ updatedAt: 1 }).limit(limit).toArray()).map((d) => strip(d) as ChannelSession);
+    },
     async saveChannelSession(s) { await channelSessions.replaceOne({ tenantId: s.tenantId, channel: s.channel, chatId: s.chatId }, { ...s }, { upsert: true }); },
     async deleteChannelSessions(tenantId, channel) { await channelSessions.deleteMany(channel ? { tenantId, channel } : { tenantId }); },
     async getWaAuth(tenantId, names) {

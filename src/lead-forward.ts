@@ -14,7 +14,7 @@ import { decryptSecret, encryptSecret } from "./secrets.js";
 import type { LeadForward, TenantRecord } from "./store/types.js";
 import { runAutomations } from "./automations.js";
 
-export type Lead = { source: string; name: string; contact: string; question: string; conversation?: { role: string; text: string }[]; page?: string };
+export type Lead = { source: string; name: string; contact: string; question: string; conversation?: { role: string; text: string }[]; page?: string; /** API-siz sifariş: forma sahələri */ order?: { title: string; fields: { label: string; value: string }[] } };
 export type PostResult = { ok: boolean; status: number; json: unknown };
 export type HttpPost = (url: string, body: unknown) => Promise<PostResult>;
 
@@ -36,22 +36,23 @@ const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
 export function leadText(t: TenantRecord, l: Lead): string {
   const conv = (l.conversation ?? []).slice(-6).map((m) => `${m.role === "user" ? "Ziyarətçi" : "Çat"}: ${m.text.slice(0, 200)}`).join("\n");
+  if (l.order) return [`🛒 Yeni sifariş: ${l.order.title} (${l.source}) · ${t.businessName}`, "", ...l.order.fields.map((f) => `${f.label}: ${f.value}`), ...(conv ? ["", "Söhbətin son hissəsi:", conv] : [])].join("\n");
   return [`📩 Yeni müraciət (${l.source}) · ${t.businessName}`, "", `Ad: ${l.name || "-"}`, `Əlaqə: ${l.contact}`, `Sual: ${l.question || "-"}`, ...(l.page ? [`Səhifə: ${l.page}`] : []), ...(conv ? ["", "Söhbətin son hissəsi:", conv] : [])].join("\n");
 }
 export function bitrixFields(t: TenantRecord, l: Lead) {
   const conv = (l.conversation ?? []).slice(-10).map((m) => `${m.role === "user" ? "Ziyarətçi" : "Çat"}: ${m.text.slice(0, 300)}`).join("\n");
   return {
-    TITLE: `Çat müraciəti: ${(l.question || l.name || l.contact).slice(0, 80)}`,
+    TITLE: l.order ? `Çat sifarişi: ${l.order.title}${l.name ? ` · ${l.name}` : ""}`.slice(0, 120) : `Çat müraciəti: ${(l.question || l.name || l.contact).slice(0, 80)}`,
     NAME: l.name || "",
     ...(isEmail(l.contact) ? { EMAIL: [{ VALUE: l.contact, VALUE_TYPE: "WORK" }] } : { PHONE: [{ VALUE: l.contact, VALUE_TYPE: "WORK" }] }),
-    COMMENTS: [`Mənbə: ${t.businessName} saytının AI çatı (${l.source})`, l.question ? `Sual: ${l.question}` : "", l.page ? `Səhifə: ${l.page}` : "", conv ? `\nSöhbət:\n${conv}` : ""].filter(Boolean).join("\n"),
+    COMMENTS: [`Mənbə: ${t.businessName} saytının AI çatı (${l.source})`, l.order ? `Sifariş: ${l.order.title}\n${l.order.fields.map((f) => `${f.label}: ${f.value}`).join("\n")}` : l.question ? `Sual: ${l.question}` : "", l.page ? `Səhifə: ${l.page}` : "", conv ? `\nSöhbət:\n${conv}` : ""].filter(Boolean).join("\n"),
     SOURCE_ID: "WEB",
     SOURCE_DESCRIPTION: `AI çat (${l.source})`,
   };
 }
 const webhookBody = (t: TenantRecord, l: Lead, test = false) => ({
   event: test ? "test" : "lead", at: new Date().toISOString(), site: t.domain, business: t.businessName,
-  source: l.source, name: l.name, contact: l.contact, question: l.question, page: l.page ?? "", conversation: l.conversation ?? [],
+  source: l.source, name: l.name, contact: l.contact, question: l.question, page: l.page ?? "", conversation: l.conversation ?? [], ...(l.order && { order: l.order }),
 });
 
 type Target = "telegram" | "bitrix" | "webhook";

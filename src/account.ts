@@ -3,6 +3,7 @@ import { AiError } from "./ai.js";
 import type { Deps } from "./deps.js";
 import { decryptSecret } from "./secrets.js";
 import type { User } from "./store/types.js";
+import { markTrialUsed } from "./trial.js";
 
 export async function deleteAccount(deps: Deps, user: User): Promise<{ hadTenant: boolean }> {
   const { store, ai } = deps;
@@ -12,6 +13,8 @@ export async function deleteAccount(deps: Deps, user: User): Promise<{ hadTenant
   }
   if (tenant?.whatsapp || tenant && deps.whatsapp.isActive(tenant.tenantId)) await deps.whatsapp.disconnect(deps, tenant.tenantId).catch(() => {}); // nömrə telefondan da ayrılır
   if (tenant) {
+    // Sınaq bu e-poçta bir dəfə verilir: eyni e-poçtla yenidən açılan hesab pulsuz sınaq almır (köhnə hesablar üçün də)
+    await markTrialUsed(store, user.email).catch(() => {});
     // Əvvəlcə AI servisində: orada silinməsə, burada silsək müştəri "yetim" qalar və açarı işləməyə davam edər.
     try { await ai.deleteTenant(tenant.tenantId); }
     catch (e) { if (!(e instanceof AiError && e.status === 404)) throw e; } // artıq silinibsə problem deyil

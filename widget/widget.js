@@ -1140,7 +1140,8 @@
       var shot = state.live && !canAttach() ? null : pending;
       if ((!text && !shot) || busy) return;
       if (state.live) return liveSubmit(text, shot);
-      var history = state.messages.filter(function (m) { return !m.live; }).slice(-10).map(function (m) { return { role: m.role, text: m.text + (m.note ? " [şəkil: " + m.note + "]" : (m.img && !m.text ? " [şəkil]" : "")) }; });
+      // Köməkçinin cavabları serverin imzası (sig) ilə qayıdır: imzasız/dəyişdirilmiş cavab server tərəfindən atılır
+      var history = state.messages.filter(function (m) { return !m.live; }).slice(-10).map(function (m) { return m.role === "model" ? { role: "model", text: m.text, sig: m.sig } : { role: m.role, text: m.text + (m.note ? " [şəkil: " + m.note + "]" : (m.img && !m.text ? " [şəkil]" : "")) }; });
       if (!state.sid) state.sid = newId(); // bir söhbət = bir identifikator (sayt sahibi tarixçədə qruplaşdırılmış görür)
       var userMsg = { role: "user", text: text, t: Date.now() };
       unlockAudio(); emoShow(false);
@@ -1181,6 +1182,7 @@
         if (r.data.handoff === "live" && cfg.live) { save(); startLive(); return; }
         var answer = String(r.data.answer || "");
         var msg = { role: "model", text: answer, t: Date.now(), listings: r.data.listings || [], sources: r.data.sources || [], unanswered: r.data.unanswered === true };
+        if (typeof r.data.sig === "string") msg.sig = r.data.sig.slice(0, 64);
         var cf = r.data.confirm;
         if (cf && typeof cf.id === "string" && /^[0-9a-f]{32}$/.test(cf.id) && typeof cf.title === "string") {
           msg.confirm = { id: cf.id, title: String(cf.title).slice(0, 60), summary: String(cf.summary || "").slice(0, 300),

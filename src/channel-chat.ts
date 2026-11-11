@@ -16,6 +16,7 @@ import { cardText, parseDecision, publicConfirm } from "./action-card.js";
 import { hub } from "./hub.js";
 import { notifyOperators } from "./operator-notify.js";
 import { forwardLead } from "./lead-forward.js";
+import { onOrder } from "./orders.js";
 import { LIVE_STALE_MS, isBotCmd, isOperatorCmd, liveEnabled, startChannelLive, wantsHuman } from "./channel-live.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, limitsOf, modeOf } from "./widget.js";
 
@@ -258,6 +259,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       throw e;
     }
     const notify = out.billing?.notify;
+    if (out.order) void onOrder(deps, tenant, out.order, label, [...session.history.slice(-9), { role: "user", text }]);
     if (notify === "low" || notify === "empty") void notifyBalance(deps, tenant, notify, out.billing?.balanceAzn);
     if (notify === "usage80" || notify === "usage100") void notifyUsage(deps, tenant, notify, out.billing?.plan);
     if (notify === "trialEnd") void notifyTrialEnd(deps, tenant);

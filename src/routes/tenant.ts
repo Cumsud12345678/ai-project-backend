@@ -16,9 +16,11 @@ import { getVisitor, hasInvite, listVisitors, setInvite } from "../presence.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { makeTicket, wsUrlOf } from "../realtime.js";
 import { currentUser, requireAuth } from "../middleware.js";
-import { DuplicateError, type LiveChat, type TenantRecord, type User } from "../store/types.js";
+import { type LiveChat, type TenantRecord, type User } from "../store/types.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, imageUrl, widgetColor, WIDGET_IMAGE_KINDS, sha } from "../widget.js";
 import { blockOf, domainRoot, recordDomain } from "../domains.js";
+import { createTenantFor, withoutSecrets } from "../tenant-create.js";
+import { FOLLOWUP_DELAYS, followupOf, parseFollowup } from "../followup.js";
 
 const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret", "feedText"];
 const PROFILE_KEYS = ["language", "tone", "maxResults", "extraInstructions", "logQueries", "mode", "fallbackMessage", "generalKnowledge", "kbAutoRefresh", "imageSearch", "answerLength", "agentName", "company"];
@@ -28,17 +30,6 @@ function extractConfig(body: unknown): Record<string, unknown> {
   const cfg = (body as { config?: unknown } | undefined)?.config;
   if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) throw new HttpError(400, "Konfiqurasiya JSON obyekt olmalıdır");
   return Object.fromEntries(Object.entries(cfg).filter(([k]) => CONFIG_KEYS.includes(k)));
-}
-
-/** Bazada saxlanan nüsxədə sirr olmur. */
-function withoutSecrets(cfg: Record<string, unknown>): Record<string, unknown> {
-  const { apiSecret: _drop, feedText: _feed, ...rest } = cfg; // yüklənmiş fayl portalda saxlanmır (AI servisindədir)
-  const source = rest.source as { auth?: Record<string, unknown> } | undefined;
-  if (source?.auth) {
-    const { value: _v, secret: _s, valueEnv: _e, encryptedValue: _x, ...auth } = source.auth;
-    rest.source = { ...source, auth };
-  }
-  return rest;
 }
 
 const publicTenant = (t: TenantRecord) => ({
@@ -182,22 +173,7 @@ export function tenantRoutes(deps: Deps) {
     if (await blockOf(store, String(cfg.domain ?? ""))) throw new HttpError(403, "Bu domen üçün qeydiyyat bağlanıb. Səhv olduğunu düşünürsənsə, dəstəyə yaz.", "DOMAIN_BLOCKED");
     if (await store.findTenantByUser(user.id)) throw new HttpError(409, "Artıq aktiv mənbən var. Konfiqurasiyanı yeniləyə bilərsən.", "TENANT_EXISTS");
     if (await memberTenant(store, user)) throw new HttpError(409, "Sən başqa hesabın operatorusan, öz hesabını yaratmaq olmur", "IS_OPERATOR");
-    const result = await exclusive(user.id, async () => {
-      const created = await ai.createTenant(cfg);
-      const now = new Date();
-      try {
-        await store.createTenant({
-          userId: user.id, tenantId: String(created.tenantId), businessName: String(cfg.businessName).trim(), domain: String(cfg.domain).trim(),
-          config: withoutSecrets(cfg), createdAt: now, updatedAt: now,
-          widget: defaultWidget({ businessName: String(cfg.businessName).trim(), config: cfg }),
-        });
-      } catch (e) {
-        if (e instanceof DuplicateError) throw new HttpError(409, "Artıq aktiv mənbən var", "TENANT_EXISTS");
-        console.error(`[tenant] AI servisində ${created.tenantId} yaradıldı, amma bazaya yazıla bilmədi`, e);
-        throw e;
-      }
-      return created;
-    });
+    const result = await exclusive(user.id, () => createTenantFor(deps, user, cfg));
     const t = await mine(user.id);
     void recordDomain(deps, t, user.email);
     res.status(201).json({ apiKey: result.apiKey, tenant: publicTenant(t), sampleListings: result.sampleListings ?? [] });
@@ -238,7 +214,7 @@ export function tenantRoutes(deps: Deps) {
     const before = modeOf(t.config), after = modeOf({ profile: result.profile });
     if (t.widget && before !== after && (before === "support") !== (after === "support")) {
       const oldDefault = before === "support" ? DEFAULT_GREETING_SUPPORT : DEFAULT_GREETING;
-      if (t.widget.greeting === oldDefault) await store.updateTenant(t.tenantId, { widget: { ...t.widget, greeting: after === "support" ? DEFAULT_GREETING_SUPPORT : DEFAULT_GREETING } });
+      if (t.widget.greeting === oldDefault) await store.patchWidget(t.tenantId, { greeting: after === "support" ? DEFAULT_GREETING_SUPPORT : DEFAULT_GREETING });
     }
     res.json({ profile: result.profile });
   });
@@ -273,7 +249,9 @@ export function tenantRoutes(deps: Deps) {
     const t = await mine(user.id);
     const next = await exclusive(user.id, async () => {
       const w = parseWidgetPatch(req.body, await widgetOf(t));
-      await store.updateTenant(t.tenantId, { widget: w });
+      // Yalnız ayar sahələri yazılır: eyni anda yüklənən loqo/profil şəkli köhnə nüsxə ilə üstünə yazılıb silinməsin
+      const { logo: _l, avatar: _a, ...fields } = w;
+      await store.patchWidget(t.tenantId, fields);
       return w;
     });
     res.json(widgetView(t, next));
@@ -315,7 +293,7 @@ export function tenantRoutes(deps: Deps) {
     const t = await mine(user.id);
     const next = await exclusive(user.id, async () => {
       const w = { ...(await widgetOf(t)), key: newWidgetKey() };
-      await store.updateTenant(t.tenantId, { widget: w });
+      await store.patchWidget(t.tenantId, { key: w.key });
       return w;
     });
     res.json(widgetView(t, next));
@@ -770,6 +748,24 @@ export function tenantRoutes(deps: Deps) {
   });
   // ---- Müştəriyə məxsus məlumat (sifariş / ödəniş): sayt istifadəçisinə öz məlumatını göstərmək ----
   const pdWrite = (userId: string) => { if (!limiter.hit(`pd:${userId}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox əməliyyat oldu, bir az gözləyin", "RATE_LIMITED"); };
+  // ---- Susan müştəriyə xatırlatma (Telegram/WhatsApp) ----
+  r.get("/followup", async (_req, res) => { const t = await mine(currentUser(res).id); res.json({ followup: followupOf(t), delays: FOLLOWUP_DELAYS }); });
+  r.put("/followup", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const followup = parseFollowup(req.body);
+    await store.updateTenant(t.tenantId, { followup });
+    res.json({ followup, delays: FOLLOWUP_DELAYS });
+  });
+
+  // ---- API-siz sifariş forması: AI söhbətdə sahələri soruşur, təsdiqdən sonra sifariş müraciətlər qutusuna düşür ----
+  r.get("/order-form", async (_req, res) => { res.json(await ai.orderForm((await mine(currentUser(res).id)).tenantId)); });
+  r.put("/order-form", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`orderform:${user.id}`, 30, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez yadda saxlayırsan, bir az gözlə", "RATE_LIMITED");
+    res.json(await ai.setOrderForm((await mine(user.id)).tenantId, req.body ?? {}));
+  });
+  r.delete("/order-form", async (_req, res) => { res.json(await ai.deleteOrderForm((await mine(currentUser(res).id)).tenantId)); });
+
   r.get("/private-data", async (_req, res) => { res.json(await ai.privateData((await mine(currentUser(res).id)).tenantId)); });
   r.put("/private-data", async (req, res) => {
     const user = currentUser(res); pdWrite(user.id);

@@ -11,14 +11,14 @@ import type { Deps } from "./deps.js";
 import { notifyAvailable, sendNotify } from "./operator-notify.js";
 import type { User } from "./store/types.js";
 
-export const ALERT_KINDS = ["errors", "health", "topup", "channel", "limit", "domain", "provider"] as const;
+export const ALERT_KINDS = ["errors", "health", "topup", "channel", "limit", "domain", "provider", "setup"] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 export type AlertSettings = { email: boolean; telegram: boolean; kinds: Record<AlertKind, boolean>; /** 15 dəqiqədə neçə xətadan sonra */ errorThreshold: number };
 export type AlertLogItem = { at: Date; kind: AlertKind | "test" | "ai"; title: string; telegram: number; email: number };
 
-export const DEFAULT_ALERTS: AlertSettings = { email: true, telegram: true, kinds: { errors: true, health: true, topup: true, channel: true, limit: true, domain: true, provider: true }, errorThreshold: 20 };
+export const DEFAULT_ALERTS: AlertSettings = { email: true, telegram: true, kinds: { errors: true, health: true, topup: true, channel: true, limit: true, domain: true, provider: true, setup: true }, errorThreshold: 20 };
 const KEY = "admin_alerts";
-const COOLDOWN_MS: Record<AlertKind, number> = { errors: 60 * 60_000, health: 0, topup: 0, channel: 6 * 60 * 60_000, limit: 24 * 60 * 60_000, domain: 0, provider: 0 };
+const COOLDOWN_MS: Record<AlertKind, number> = { errors: 60 * 60_000, health: 0, topup: 0, channel: 6 * 60 * 60_000, limit: 24 * 60 * 60_000, domain: 0, provider: 0, setup: 0 };
 const ERROR_WINDOW_MS = 15 * 60_000;
 const HOURLY_CAP = 40; // səhv konfiqurasiyada adminin telefonu/poçtu dolmasın
 

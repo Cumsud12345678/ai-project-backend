@@ -123,6 +123,8 @@ export type TenantRecord = {
   whatsapp?: WhatsAppLink | null;
   /** WhatsApp-da köməkçinin cavab yazmadığı nömrələr və ya adlar. Nömrə qoşulmazdan əvvəl də yazılır, ayıranda silinmir. */
   waIgnore?: string[];
+  /** Susan müştəriyə xatırlatma ayarı (Telegram/WhatsApp) */
+  followup?: FollowupSettings;
   /** Hazır cavablar: operatorlar söhbətdə bir kliklə mesaja əlavə edir */
   canned?: CannedReply[];
   /** Yeni müraciətin ötürüldüyü yerlər. Bitrix24 və webhook linkləri sirr daşıyır: şifrəli saxlanır (CHANNEL_SECRET_KEY). */
@@ -153,8 +155,23 @@ export type ChannelSession = {
   phone?: string;
   /** Əvvəlki söhbətlərin sid-ləri (sakitlikdən sonra yeni söhbət başlayanda): paneldə bütün yazışma göstərilsin */
   prevSids?: { sid: string; at: Date }[];
+  /** Susan müştəriyə xatırlatma göndərilib (updatedAt-dan sonradırsa bu sakitlik üçün artıq göndərilib) */
+  followedUpAt?: Date | null;
   updatedAt: Date;
 };
+
+/** "Qurulumu bizə həvalə et": müştəri biznes məlumatını göndərir, komanda botu qurur (hər istifadəçinin bir sorğusu) */
+export type SetupRequestStatus = "new" | "in_progress" | "done";
+export type SetupRequest = {
+  userId: string; email: string; businessName: string; website: string; phone: string;
+  /** Məhsullar/xidmətlər, qiymətlər, çatdırılma, iş saatları: AI-ın bilik bazasına düşür */
+  description: string; salesScript: string; faq: string; channels: string[];
+  status: SetupRequestStatus; adminNote?: string; tenantId?: string; doneBy?: string;
+  createdAt: Date; updatedAt: Date; doneAt?: Date;
+};
+
+/** Susan müştəriyə xatırlatma (Telegram/WhatsApp): AI cavabından sonra müştəri delayMin dəqiqə yazmasa bir dəfə */
+export type FollowupSettings = { enabled: boolean; delayMin: number; text?: string };
 
 export type LiveMessage = { from: "visitor" | "operator" | "system"; text: string; at: Date; /** operator mesajını yazan komanda üzvü */ by?: string; /** göndərilən fayl: ziyarətçinin şəkli və ya operatorun şəkli/PDF-i (baytlar ayrıca, live_files-da) */ file?: { id: string; mime: string; name?: string } };
 /** Canlı söhbətdə göndərilən şəkil. Söhbət sənədini böyütməmək üçün ayrıca saxlanır, söhbətlə eyni müddətdə silinir. */
@@ -241,7 +258,9 @@ export interface Store {
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
   /** Yalnız vidjet loqosunu dəyişir (bütün vidjet sənədini yenidən yazmır). null = sil. */
   setWidgetLogo(tenantId: string, logo: WidgetImage | null, kind?: WidgetImageKind): Promise<void>;
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "testedAt" | "setup" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats" | "automations" | "waIgnore">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
+  /** Vidjetin ayrı sahələrini yazır (widget.<sahə>), qalanına (loqo, profil şəkli) toxunmur. Vidjet yoxdursa heç nə etmir. */
+  patchWidget(tenantId: string, fields: Partial<Omit<WidgetSettings, "logo" | "avatar">>): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "testedAt" | "setup" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats" | "automations" | "waIgnore" | "followup">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;
@@ -276,6 +295,15 @@ export interface Store {
   getChannelSession(tenantId: string, channel: ChannelSession["channel"], chatId: string): Promise<ChannelSession | null>;
   saveChannelSession(s: ChannelSession): Promise<void>;
   listChannelSessions(tenantId: string, limit: number): Promise<ChannelSession[]>;
+  /** Bütün müştərilər üzrə son hərəkəti [from, to] aralığında olan kanal söhbətləri (xatırlatma üçün), köhnədən yeniyə */
+  listIdleChannelSessions(from: Date, to: Date, limit: number): Promise<ChannelSession[]>;
+
+  // ---- Qurulum sorğuları ("biz quraq") ----
+  getSetupRequest(userId: string): Promise<SetupRequest | null>;
+  saveSetupRequest(r: SetupRequest): Promise<void>;
+  deleteSetupRequest(userId: string): Promise<void>;
+  /** Ən yenidən köhnəyə; status verilibsə yalnız o */
+  listSetupRequests(q: { status?: SetupRequestStatus; limit: number }): Promise<SetupRequest[]>;
   deleteChannelSessions(tenantId: string, channel?: ChannelSession["channel"]): Promise<void>;
 
   /** WhatsApp sessiya açarları (hər biri şifrəli sətir). value=null olan açar silinir. */

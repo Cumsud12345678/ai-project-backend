@@ -4,12 +4,13 @@
 import { notifyTeam } from "./team.js";
 import { notifyOperators } from "./operator-notify.js";
 import { forwardLead } from "./lead-forward.js";
+import { onOrder } from "./orders.js";
 import { publicConfirm } from "./action-card.js";
 import { campaignRunning, liveOpenNow, parseHours, parseProactive } from "./helpdesk.js";
 import { chatClosedEvent, liveEventBase, runAutomations } from "./automations.js";
 import { isOperatorCmd, wantsHuman } from "./channel-live.js";
 import { checkBase64Image, imageEnabled } from "./image-input.js";
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Router, type RequestHandler } from "express";
 import { AiError } from "./ai.js";
@@ -205,6 +206,16 @@ export const logoUrl = (portalUrl: string, w: Pick<WidgetSettings, "key" | "logo
 export function widgetRoutes(deps: Deps) {
   const { store, ai, limiter, mailer } = deps;
   const r = Router();
+  // Söhbət tarixçəsi brauzerdən gəlir: ziyarətçi "köməkçi belə demişdi" deyə saxta model mesajı yaza bilərdi (prompt injection).
+  // Hər AI cavabı imzalanır; tarixçədə yalnız imzası düzgün olan model mesajları qəbul olunur, imzasızlar atılır.
+  // CHANNEL_SECRET_KEY yoxdursa (lokal) proses üçün təsadüfi açar: restartdan sonra köhnə imzalar sadəcə qəbul olunmur.
+  const turnKey = deps.config.secretKey || randomBytes(32).toString("hex");
+  const signTurn = (tenantId: string, sid: string, text: string) => createHmac("sha256", turnKey).update(`turn|${tenantId}|${sid}|${text}`).digest("base64url").slice(0, 32);
+  const turnOk = (tenantId: string, sid: string | undefined, text: string, sig: unknown) => {
+    if (!sid || typeof sig !== "string" || sig.length !== 32) return false;
+    const a = Buffer.from(sig), b = Buffer.from(signTurn(tenantId, sid, text));
+    return a.length === b.length && timingSafeEqual(a, b);
+  };
 
   r.get("/widget.js", async (_req, res, next) => {
     try {
@@ -330,7 +341,7 @@ export function widgetRoutes(deps: Deps) {
     const sid = typeof sidRaw === "string" && /^[a-f0-9]{16,32}$/.test(sidRaw) ? sidRaw : undefined;
     if (typeof message !== "string" || (!message.trim() && !image) || message.length > 500) throw new HttpError(400, "Mesaj 1-500 simvol olmalıdır");
     const clean = (Array.isArray(history) ? history : []).slice(-10)
-      .filter((h: any) => h && (h.role === "user" || h.role === "model") && typeof h.text === "string")
+      .filter((h: any) => h && typeof h.text === "string" && (h.role === "user" || (h.role === "model" && turnOk(t.tenantId, sid, h.text, h.sig))))
       .map((h: any) => ({ role: h.role, text: h.text.slice(0, 2000) }));
     // Ziyarətçi açıq şəkildə operator istəyir ("operatora qoş", "insanla danışım") və canlı söhbət işləyir:
     // AI-a getmirik (o "birbaşa qoşa bilmirəm" deyirdi), vidjet özü canlı söhbəti açır. Xərc də tutulmur.
@@ -340,13 +351,15 @@ export function widgetRoutes(deps: Deps) {
       const out = await ai.chat(t.tenantId, message.trim(), clean, { sid, identity, channel: "widget", ...(image && { image }) });
       // Balans azalıb/bitibsə sayt sahibinə email (AI servisi eyni vəziyyət üçün yalnız bir dəfə xəbər verir)
       const notify = out.billing?.notify;
+      if (out.order) void onOrder(deps, t, out.order, "sayt", [...clean, { role: "user", text: message.trim() }]);
       if (notify === "low" || notify === "empty") void notifyBalance(deps, t, notify, out.billing?.balanceAzn);
       if (notify === "usage80" || notify === "usage100") void notifyUsage(deps, t, notify, out.billing?.plan);
       if (notify === "trialEnd") void notifyTrialEnd(deps, t);
       const listings = (Array.isArray(out.listings) ? out.listings : []).slice(0, 10).map(publicListing);
       const sources = (Array.isArray(out.sources) ? out.sources : []).slice(0, 3).map((s: Record<string, unknown>) => ({ title: str(s.title, 120) ?? "", url: httpUrl(s.url) }));
       const confirm = publicConfirm(out.confirm);
-      res.json({ answer: String(out.answer ?? "").slice(0, 8000), listings, ...(confirm && { confirm }), ...(sources.length && { sources }), ...(typeof out.imageNote === "string" && out.imageNote && { imageNote: out.imageNote.slice(0, 200) }), ...(out.unanswered === true && { unanswered: true }), ...(out.identity === "invalid" && { identity: "invalid" }) });
+      const answer = String(out.answer ?? "").slice(0, 8000);
+      res.json({ answer, ...(sid && answer && { sig: signTurn(t.tenantId, sid, answer) }), listings, ...(confirm && { confirm }), ...(sources.length && { sources }), ...(typeof out.imageNote === "string" && out.imageNote && { imageNote: out.imageNote.slice(0, 200) }), ...(out.unanswered === true && { unanswered: true }), ...(out.identity === "invalid" && { identity: "invalid" }) });
     } catch (e) {
       // Ziyarətçi müştərinin limit və ya konfiqurasiya məlumatını görməməlidir.
       if (e instanceof AiError) {

@@ -105,8 +105,12 @@ export function authRoutes(deps: Deps) {
       if (!p?.partner?.active || p.email === email) throw new HttpError(400, "Promo kod tapılmadı", "BAD_REF_CODE");
     }
     const passwordHash = await hashPassword(req.body.password);
-    if (existing) await store.updateUser(existing.id, { passwordHash }); // təsdiqlənməmiş hesab: yeni parolla davam
-    else {
+    if (existing) {
+      // Təsdiqlənməmiş hesab: yeni parolla davam. Köhnə kod MÜTLƏQ ləğv olunur: əks halda başqası eyni e-poçtla
+      // təkrar qeydiyyatla parolu öz parolu ilə əvəz edir, əsl sahib köhnə kodla təsdiqləyir və hesab ona keçir.
+      await store.updateUser(existing.id, { passwordHash });
+      await store.deleteCode(email, "verify");
+    } else {
       try { await store.createUser({ email, passwordHash }); }
       catch (e) { if (!(e instanceof DuplicateError)) throw e; }
     }
