@@ -20,6 +20,7 @@ import { type LiveChat, type TenantRecord, type User } from "../store/types.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, imageUrl, widgetColor, WIDGET_IMAGE_KINDS, sha } from "../widget.js";
 import { blockOf, domainRoot, recordDomain } from "../domains.js";
 import { createTenantFor, withoutSecrets } from "../tenant-create.js";
+import { conversationSummary, liveSummary } from "../chat-summary.js";
 import { FOLLOWUP_DELAYS, followupOf, parseFollowup } from "../followup.js";
 
 const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret", "feedText"];
@@ -522,6 +523,17 @@ export function tenantRoutes(deps: Deps) {
     }
   });
 
+  // AI xülasəsi: niyyət, əhval, etirazlar, növbəti addım (operator və sahib). Yeni mesaj yoxdursa saxlanmış nəticə, pulsuz.
+  r.post("/live/:id/summary", async (req, res) => {
+    const user = currentUser(res);
+    const force = req.body?.force === true;
+    const { t, chat } = await hdChat(user, String(req.params.id));
+    // Limit yalnız AI çağırılanda: saxlanmış təzə xülasəni açmaq pulsuz və limitsizdir
+    const fresh = chat.summary && chat.summary.count === chat.context.length + chat.messages.length;
+    if ((force || !fresh) && !limiter.hit(`live:sum:${user.id}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez xülasə istəyirsən", "RATE_LIMITED");
+    res.json(await liveSummary(deps, t.tenantId, chat, force));
+  });
+
   r.get("/live/:id", async (req, res) => {
     const { tenant: t } = await opTenant(currentUser(res));
     const chat = await store.getLive(t.tenantId, String(req.params.id));
@@ -536,7 +548,8 @@ export function tenantRoutes(deps: Deps) {
         .filter(same).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 5)
         .map((o) => ({ id: o.id, createdAt: o.createdAt, status: o.status, count: o.messages.length, tags: o.tags ?? [], csat: o.csat?.rating ?? null, first: o.messages[0]?.text.slice(0, 120) ?? "" }))
       : [];
-    res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt, channel: c.channel?.type ?? null, assignee: c.assignee ?? null, notes: c.notes ?? [], tags: c.tags ?? [], csat: c.csat ?? null, page: c.page ?? null, previous, visitor: c.visitor ? { ...c.visitor, pid: undefined } : null, blocked: isBlocked(t, blockKeyOfChat(c)) } });
+    res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt, channel: c.channel?.type ?? null, assignee: c.assignee ?? null, notes: c.notes ?? [], tags: c.tags ?? [], csat: c.csat ?? null, page: c.page ?? null, previous, visitor: c.visitor ? { ...c.visitor, pid: undefined } : null, blocked: isBlocked(t, blockKeyOfChat(c)),
+      ...(c.summary && { summary: { ...c.summary, stale: c.summary.count !== c.context.length + c.messages.length } }) } });
   });
   // Canlı söhbətdə ziyarətçinin göndərdiyi şəkil: yalnız bu hesabın operatorları, yalnız həmin söhbətin faylı
   r.get("/live/:id/files/:fid", async (req, res) => {
@@ -704,6 +717,12 @@ export function tenantRoutes(deps: Deps) {
   r.get("/conversations/:sid", async (req, res) => {
     const t = await mine(currentUser(res).id);
     res.json(await ai.conversation(t.tenantId, sid(req.params.sid)));
+  });
+  r.post("/conversations/:sid/summary", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`conv:sum:${user.id}`, 30, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez xülasə istəyirsən", "RATE_LIMITED");
+    const t = await mine(user.id);
+    res.json(await conversationSummary(deps, t.tenantId, sid(req.params.sid), req.body?.force === true));
   });
   // Konversiya: söhbətlərin neçəsi operatora/müraciətə çevrildi
   r.get("/funnel", async (req, res) => {

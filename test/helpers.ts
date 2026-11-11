@@ -50,6 +50,7 @@ export function fakeAi(): FakeAi {
     async setPrivateData(...a) { return rec("setPrivateData", a, { configured: true, ready: false, identity: { configured: false } }); },
     async deletePrivateData(...a) { return rec("deletePrivateData", a, { ok: true }); },
     async newIdentitySecret(...a) { return rec("newIdentitySecret", a, { identitySecret: "cais_test" }); },
+    async summarize(...a) { return rec("summarize", a, { summary: { summary: "Müştəri qiymət soruşur.", intent: "Qiymət öyrənmək", mood: "neutral", objections: ["Bahadır"], nextStep: "Endirim təklif et", temperature: "warm" } }); },
     async draft(...a) { const o = ai.nextDraft; ai.nextDraft = undefined; return rec("draft", a, o ?? { draft: "Salam, sizə necə kömək edə bilərəm?", usage: { tokens: 20 } }); },
     async actions(...a) { return rec("actions", a, { configured: false, items: [], signing: { configured: false } }); },
     async setActions(...a) { return rec("setActions", a, { configured: true, items: [], signing: { configured: true }, signingSecret: "casig_test" }); },

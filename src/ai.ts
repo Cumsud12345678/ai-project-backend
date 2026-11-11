@@ -26,6 +26,7 @@ export type AiClient = {
   deletePrivateData(tenantId: string): Promise<AiResult>;
   newIdentitySecret(tenantId: string): Promise<AiResult>;
   testPrivateData(tenantId: string, body: { kind: string; userId: string }): Promise<AiResult>;
+  summarize(tenantId: string, messages: { from: string; text: string }[]): Promise<AiResult>;
   draft(tenantId: string, body: { messages: { from: string; text: string }[]; context: { role: string; text: string }[] }): Promise<AiResult>;
   actions(tenantId: string): Promise<AiResult>;
   setActions(tenantId: string, body: object): Promise<AiResult>;
@@ -145,6 +146,7 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     deletePrivateData: (id) => request("DELETE", `${t(id)}/private-data`),
     newIdentitySecret: (id) => request("POST", `${t(id)}/private-data/identity-secret`),
     draft: (id, body) => request("POST", `${t(id)}/draft`, body, 60_000),
+    summarize: (id, messages) => request("POST", `${t(id)}/summary`, { messages }, 60_000),
     actions: (id) => request("GET", `${t(id)}/actions`),
     setActions: (id, body) => request("PUT", `${t(id)}/actions`, body),
     deleteActions: (id) => request("DELETE", `${t(id)}/actions`),

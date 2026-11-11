@@ -177,6 +177,9 @@ export type LiveMessage = { from: "visitor" | "operator" | "system"; text: strin
 /** Canlı söhbətdə göndərilən şəkil. Söhbət sənədini böyütməmək üçün ayrıca saxlanır, söhbətlə eyni müddətdə silinir. */
 export type LiveFile = { id: string; tenantId: string; chatId: string; mime: "image/png" | "image/jpeg" | "image/webp" | "application/pdf"; name?: string; data: string; at: Date };
 /** Ziyarətçi ilə operator arasında canlı söhbət. Ziyarətçi yalnız `tokenHash`-ın sahibi olan token ilə oxuya/yaza bilər. */
+/** Söhbətin AI xülasəsi (AI servisi hazırlayır, panel kart kimi göstərir) */
+export type ChatSummary = { summary: string; intent: string; mood: "positive" | "neutral" | "negative"; objections: string[]; nextStep: string; temperature: "hot" | "warm" | "cold" };
+
 export type LiveChat = {
   id: string; tenantId: string; tokenHash: string;
   name: string; contact: string; status: "open" | "closed";
@@ -200,6 +203,8 @@ export type LiveChat = {
   tags?: string[];
   /** Ziyarətçinin söhbət bağlananda verdiyi qiymət (1-5) */
   csat?: { rating: number; comment?: string; at: Date };
+  /** AI xülasəsi (niyyət, əhval, etirazlar, növbəti addım). count: hansı mesaj sayında hazırlanıb (yeni mesaj gəlsə köhnəlir) */
+  summary?: ChatSummary & { at: Date; count: number };
   /** Ziyarətçinin söhbəti başladığı səhifə (yalnız yol və başlıq, sorğu parametrləri saxlanmır) */
   page?: { path: string; title?: string };
   /** Sayt ziyarətçisi: pid (brauzer ID-sindən törəmə, bloklamaq üçün) və brauzerin özü bildirdiyi məlumat */
@@ -276,7 +281,7 @@ export interface Store {
   /** Mesaj əlavə edir (ən çox 300) və sahələri yeniləyir; söhbət tapılmasa null. */
   pushLive(tenantId: string, id: string, msg: LiveMessage | null, patch?: Partial<Pick<LiveChat, "status" | "operatorSeenAt" | "visitorSeenAt" | "name" | "contact" | "assignee">>): Promise<LiveChat | null>;
   /** updatedAt-a toxunmadan yalnız izləmə sahələrini yeniləyir */
-  patchLive(tenantId: string, id: string, patch: Partial<Pick<LiveChat, "visitorSeenAt" | "notifiedAt" | "notifyCount" | "notes" | "tags" | "csat" | "contact">>): Promise<void>;
+  patchLive(tenantId: string, id: string, patch: Partial<Pick<LiveChat, "visitorSeenAt" | "notifiedAt" | "notifyCount" | "notes" | "tags" | "csat" | "contact" | "summary">>): Promise<void>;
   findLiveByChannel(tenantId: string, type: "telegram" | "whatsapp", chatId: string): Promise<LiveChat | null>;
   listLive(tenantId: string, status: "open" | "closed", limit: number): Promise<LiveChat[]>;
   deleteLiveForTenant(tenantId: string): Promise<void>;
