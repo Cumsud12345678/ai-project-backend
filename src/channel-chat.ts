@@ -17,6 +17,8 @@ import { hub } from "./hub.js";
 import { notifyOperators } from "./operator-notify.js";
 import { forwardLead } from "./lead-forward.js";
 import { onOrder } from "./orders.js";
+import { aiRules, cleanReason, handoffOf, offlineLead, REASON_LABEL, type HandoffReason } from "./handoff.js";
+import { notifyTeam } from "./team.js";
 import { LIVE_STALE_MS, isBotCmd, isOperatorCmd, liveEnabled, startChannelLive, wantsHuman } from "./channel-live.js";
 import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, limitsOf, modeOf } from "./widget.js";
 
@@ -214,7 +216,11 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       if (contact) {
         const name = clip(io.senderName, 80);
         const question = session.pending.question;
-        try { await ai.kbAddLead(tenant.tenantId, { name, contact, question, conversation: session.history.slice(-10) }); }
+        const pr = session.pending.reason ? cleanReason(session.pending.reason) : null;
+        try {
+          if (pr) await offlineLead(deps, tenant, { reason: pr, note: session.pending.note, name, contact, question, conversation: session.history.slice(-10) });
+          else await ai.kbAddLead(tenant.tenantId, { name, contact, question, conversation: session.history.slice(-10) });
+        }
         catch (e) {
           if (e instanceof AiError) { await recordError(store, { source: "channel", message: `${label} müraciəti yazıla bilmədi: ${e.message}`, tenantId: tenant.tenantId, code: e.code }); await io.send(M.offline); return; }
           throw e;
@@ -248,7 +254,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     }
     try { void Promise.resolve(io.typing()).catch(() => {}); } catch { /* göstərici vacib deyil */ }
     let out: Record<string, any>;
-    try { out = await ai.chat(tenant.tenantId, text, session.history.slice(-HISTORY_KEEP), { sid: session.sid, channel, ...(liveEnabled(tenant) && { live: true }), ...(image && { image }) }); }
+    try { out = await ai.chat(tenant.tenantId, text, session.history.slice(-HISTORY_KEEP), { sid: session.sid, channel, ...(liveEnabled(tenant) && { live: true }), ...(image && { image }), handoff: aiRules(tenant) }); }
     catch (e) {
       if (e instanceof AiError) {
         if (e.status !== 402) await recordError(store, { source: "channel", message: `${label}: AI cavab vermədi (${e.status}) ${e.message}`, tenantId: tenant.tenantId, code: e.code, status: e.status });
@@ -268,14 +274,33 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       : [];
     const card = publicConfirm(out.confirm);
     const answer = formatReply(out, new Set(withPhoto.map((x: { i: number }) => x.i))) + (card ? `\n\n${cardText(card)}` : "");
-    const handoff = out.handoff === true && liveEnabled(tenant);
-    const unanswered = out.unanswered === true && !handoff;
     const history = [...session.history, { role: "user" as const, text: `${text}${image ? `${text ? " " : ""}[şəkil${typeof out.imageNote === "string" && out.imageNote ? `: ${out.imageNote}` : ""}]` : ""}`.slice(0, 600) }, { role: "model" as const, text: clip(out.answer, 600) }].slice(-HISTORY_KEEP);
-    await store.saveChannelSession({ ...session, history, pending: unanswered ? { question: text.slice(0, 500) } : null, pendingAction: card ? { id: card.id } : null, ...(clip(io.senderName, 80) && { name: clip(io.senderName, 80) }), ...(io.ref && { ref: io.ref }), ...(io.phone && { phone: io.phone }), updatedAt: new Date() });
-    // AI operatora ötürmə qərarı verdi: söhbət canlı operator qutusuna düşür, bot susur
+    // Ağıllı operator çağırışı: AI səbəblə ötürür (istədi / kömək edə bilmədi / narazı / almağa hazır) və ya ardıcıl 2 sual cavabsız qalır
+    const rules = handoffOf(tenant), live = liveEnabled(tenant);
+    const aiWants = out.handoff === true;
+    const misses = out.unanswered === true && !aiWants ? (session.misses ?? 0) + 1 : 0;
+    const missWants = !aiWants && rules.misses && misses >= 2;
+    const wants = aiWants || missWants;
+    const reason: HandoffReason = aiWants ? cleanReason(out.handoffReason) : "misses";
+    const note = aiWants ? clip(out.handoffNote, 200) : "";
+    const handoff = wants && live;
+    // Operator işləmir: əlaqə məlumatı varsa (WhatsApp nömrəsi) müraciət dərhal yaranır, yoxdursa müştəridən istənir
+    const phone = channel === "whatsapp" && /^\d{7,15}$/.test(io.phone ?? session.phone ?? "") ? `+${io.phone ?? session.phone}` : "";
+    let offlineDone = false;
+    if (wants && !live) {
+      try { offlineDone = await offlineLead(deps, tenant, { reason, note, name: clip(io.senderName, 80), contact: phone, question: text.slice(0, 300), conversation: history }); }
+      catch (e) { if (!(e instanceof AiError)) throw e; await recordError(store, { source: "channel", message: `${label}: operator müraciəti yazıla bilmədi: ${e.message}`, tenantId: tenant.tenantId, code: e.code }); }
+      if (offlineDone) void notifyTeam(deps, tenant, `${REASON_LABEL[reason]}: ${tenant.businessName}`, `${label} kanalında müştəri operator gözləyir (iş saatından kənar).\n\nƏlaqə: ${phone}\nMesaj: ${text.slice(0, 300)}${note ? `\nAI qeydi: ${note}` : ""}\n\nMüraciət panelin "Müraciətlər" bölməsindədir.`);
+    }
+    const unanswered = (out.unanswered === true || wants) && !handoff && !offlineDone;
+    await store.saveChannelSession({ ...session, history, misses: handoff || offlineDone ? 0 : misses,
+      pending: unanswered ? { question: text.slice(0, 500), ...(wants && { reason, ...(note && { note }) }) } : null, pendingAction: card ? { id: card.id } : null, ...(clip(io.senderName, 80) && { name: clip(io.senderName, 80) }), ...(io.ref && { ref: io.ref }), ...(io.phone && { phone: io.phone }), updatedAt: new Date() });
     hub.toOperators(tenant.tenantId, { t: "channels", channel }); // panelin kanal qovluqları dərhal yenilənsin
-    if (handoff) await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), ...(io.phone && { phone: io.phone }), name: clip(io.senderName, 80), history, ...(text && { first: text }) });
-    await io.send(unanswered ? `${answer}\n\n${M.askContact}${liveEnabled(tenant) ? `\n${M.live.hint}` : ""}` : answer);
+    // Söhbət canlı operator qutusuna düşür (etiket + AI qeydi + səbəbli bildiriş), bot susur
+    if (handoff) await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), ...(io.phone && { phone: io.phone }), name: clip(io.senderName, 80), history, ...(text && { first: text }), reason, ...(note && { note }) });
+    await io.send(handoff && missWants ? `${answer}\n\n${M.live.on}`
+      : offlineDone ? `${answer}\n\n${M.handoffLater}`
+      : unanswered ? `${answer}\n\n${wants ? M.askContactHandoff : M.askContact}${live ? `\n${M.live.hint}` : ""}` : answer);
     // Şəkilli elanlar ayrıca göndərilir; alınmayan olarsa mətn kimi
     for (const { l, img } of withPhoto) {
       const caption = listingText(l);

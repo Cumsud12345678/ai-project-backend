@@ -125,6 +125,8 @@ export type TenantRecord = {
   waIgnore?: string[];
   /** Susan müştəriyə xatırlatma ayarı (Telegram/WhatsApp) */
   followup?: FollowupSettings;
+  /** Ağıllı operator çağırışı qaydaları */
+  handoff?: HandoffSettings;
   /** Hazır cavablar: operatorlar söhbətdə bir kliklə mesaja əlavə edir */
   canned?: CannedReply[];
   /** Yeni müraciətin ötürüldüyü yerlər. Bitrix24 və webhook linkləri sirr daşıyır: şifrəli saxlanır (CHANNEL_SECRET_KEY). */
@@ -146,7 +148,9 @@ export type ChannelSession = {
   tenantId: string; channel: "telegram" | "whatsapp"; chatId: string; sid: string;
   history: { role: "user" | "model"; text: string }[];
   /** Cavab tapılmayıb: növbəti mesaj telefon/e-poçt kimi qəbul edilir və müraciətə çevrilir. */
-  pending?: { question: string } | null;
+  pending?: { question: string; /** AI operatora ötürmək istədi, amma operator yoxdur: müraciət bu səbəb və prioritetlə yaranır */ reason?: string; note?: string } | null;
+  /** Ardıcıl cavabsız sualların sayı ("2 cavabsız → operator" qaydası) */
+  misses?: number;
   /** AI-nin təklif etdiyi, istifadəçinin BƏLİ/XEYR cavabını gözləyən əməliyyat (yalnız id; məzmun AI serverindədir) */
   pendingAction?: { id: string } | null;
   /** Müştərinin adı və kanal ünvanı: operator ona özü yaza bilsin */
@@ -169,6 +173,9 @@ export type SetupRequest = {
   status: SetupRequestStatus; adminNote?: string; tenantId?: string; doneBy?: string;
   createdAt: Date; updatedAt: Date; doneAt?: Date;
 };
+
+/** Ağıllı operator çağırışı: hansı hallarda AI söhbəti operatora ötürsün (müştəri özü istəyəndə həmişə) */
+export type HandoffSettings = { cantHelp: boolean; upset: boolean; ready: boolean; /** ardıcıl 2 cavabsız sual */ misses: boolean };
 
 /** Susan müştəriyə xatırlatma (Telegram/WhatsApp): AI cavabından sonra müştəri delayMin dəqiqə yazmasa bir dəfə */
 export type FollowupSettings = { enabled: boolean; delayMin: number; text?: string };
@@ -265,7 +272,7 @@ export interface Store {
   setWidgetLogo(tenantId: string, logo: WidgetImage | null, kind?: WidgetImageKind): Promise<void>;
   /** Vidjetin ayrı sahələrini yazır (widget.<sahə>), qalanına (loqo, profil şəkli) toxunmur. Vidjet yoxdursa heç nə etmir. */
   patchWidget(tenantId: string, fields: Partial<Omit<WidgetSettings, "logo" | "avatar">>): Promise<void>;
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "testedAt" | "setup" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats" | "automations" | "waIgnore" | "followup">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "testedAt" | "setup" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats" | "automations" | "waIgnore" | "followup" | "handoff">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;

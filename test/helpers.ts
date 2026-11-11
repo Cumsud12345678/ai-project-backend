@@ -78,7 +78,7 @@ export function fakeAi(): FakeAi {
     async kbUnanswered(...a) { return rec("kbUnanswered", a, { total: 0, items: [] }); },
     async kbDeleteUnanswered(...a) { return rec("kbDeleteUnanswered", a, { ok: true }); },
     async kbLeads(...a) { return rec("kbLeads", a, { total: 0, open: 0, items: [] }); },
-    async kbAddLead(...a) { return rec("kbAddLead", a, { ok: true }); },
+    async kbAddLead(...a) { return rec("kbAddLead", a, { ok: true, lead: { id: "lead-1" } }); },
     async orderForm(...a) { return rec("orderForm", a, { form: null }); },
     async setOrderForm(...a) { return rec("setOrderForm", a, { form: a[1] }); },
     async deleteOrderForm(...a) { return rec("deleteOrderForm", a, { ok: true }); },

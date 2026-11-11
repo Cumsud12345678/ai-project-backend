@@ -10,6 +10,7 @@ import { campaignRunning, liveOpenNow, parseHours, parseProactive } from "./help
 import { chatClosedEvent, liveEventBase, runAutomations } from "./automations.js";
 import { isOperatorCmd, wantsHuman } from "./channel-live.js";
 import { checkBase64Image, imageEnabled } from "./image-input.js";
+import { aiRules, cleanReason, liveExtras, REASON_LABEL, urgent, type HandoffReason } from "./handoff.js";
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Router, type RequestHandler } from "express";
@@ -289,17 +290,24 @@ export function widgetRoutes(deps: Deps) {
     const conversation = (Array.isArray(b.chat) ? b.chat : []).slice(-10)
       .filter((m: unknown): m is { role: "user" | "model"; text: string } => !!m && typeof m === "object" && ((m as { role?: unknown }).role === "user" || (m as { role?: unknown }).role === "model") && typeof (m as { text?: unknown }).text === "string")
       .map((m: { role: "user" | "model"; text: string }) => ({ role: m.role, text: m.text.trim().slice(0, 600) })).filter((m: { text: string }) => m.text);
-    try { await ai.kbAddLead(t.tenantId, { name, contact, question, conversation }); }
+    // AI operatora ötürmək istəyib, amma canlı operator işləmir: səbəb müraciətə yazılır, narazı/almağa hazır = yüksək prioritet
+    const reason: HandoffReason | null = typeof b.reason === "string" && b.reason ? cleanReason(b.reason) : null;
+    const leadQuestion = reason ? `${REASON_LABEL[reason]}${question ? ` — ${question}` : ""}`.slice(0, 500) : question;
+    try {
+      const lr = await ai.kbAddLead(t.tenantId, { name, contact, question: leadQuestion, conversation });
+      const id = (lr as { lead?: { id?: string } } | undefined)?.lead?.id;
+      if (reason && id && urgent(reason)) await ai.kbUpdateLead(t.tenantId, id, { priority: "high", by: "AI" }).catch(() => {});
+    }
     catch (e) {
       if (e instanceof AiError) { console.warn(`[widget] lead ${t.tenantId}: ${e.status} ${e.message}`); throw new HttpError(502, "Müraciət göndərilə bilmədi, bir azdan yenidən cəhd et", "UNAVAILABLE"); }
       throw e;
     }
     // Telegram qrupu / Bitrix24 / webhook (qoşulubsa): ziyarətçini gözlətmir
-    void forwardLead(deps, t, { source: "sayt", name, contact, question, conversation, ...(cleanPage(b.page)?.path && { page: cleanPage(b.page)!.path }) });
+    void forwardLead(deps, t, { source: "sayt", name, contact, question: leadQuestion, conversation, ...(cleanPage(b.page)?.path && { page: cleanPage(b.page)!.path }) });
     // Sayt sahibinə bildiriş (alınmasa da müraciət panelda qalır)
     try {
       const owner = await store.findUserById(t.userId);
-      if (owner) await mailer.send(owner.email, `Yeni müraciət: ${t.businessName}`, `Saytınızın çatından yeni müraciət var.\n\nAd: ${name || "-"}\nƏlaqə: ${contact}\nSual: ${question || "-"}${conversation.length ? `\n\nSöhbətin son hissəsi:\n${conversation.slice(-6).map((m: { role: string; text: string }) => `${m.role === "user" ? "Ziyarətçi" : "Çat"}: ${m.text.slice(0, 300)}`).join("\n")}` : ""}\n\nCavab vermək üçün paneldə aç:\n${deps.config.allowedOrigins[0] ?? ""}/inbox`, { action: "Müraciətə bax", preheader: `${name || contact}: ${(question || "").slice(0, 80)}` });
+      if (owner) await mailer.send(owner.email, `${reason ? `${REASON_LABEL[reason]} · ` : ""}Yeni müraciət: ${t.businessName}`, `Saytınızın çatından yeni müraciət var.\n\nAd: ${name || "-"}\nƏlaqə: ${contact}\nSual: ${leadQuestion || "-"}${conversation.length ? `\n\nSöhbətin son hissəsi:\n${conversation.slice(-6).map((m: { role: string; text: string }) => `${m.role === "user" ? "Ziyarətçi" : "Çat"}: ${m.text.slice(0, 300)}`).join("\n")}` : ""}\n\nCavab vermək üçün paneldə aç:\n${deps.config.allowedOrigins[0] ?? ""}/inbox`, { action: "Müraciətə bax", preheader: `${name || contact}: ${(question || "").slice(0, 80)}` });
     } catch (e) { console.warn("[widget] müraciət bildirişi göndərilmədi:", e instanceof Error ? e.message : e); }
     res.status(201).json({ ok: true });
   });
@@ -348,7 +356,8 @@ export function widgetRoutes(deps: Deps) {
     if (!image && t.widget?.live?.enabled && liveOpenNow(t) && (wantsHuman(message) || isOperatorCmd(message)))
       return void res.json({ answer: "", listings: [], handoff: "live" });
     try {
-      const out = await ai.chat(t.tenantId, message.trim(), clean, { sid, identity, channel: "widget", ...(image && { image }) });
+      const liveOn = Boolean(t.widget?.live?.enabled && liveOpenNow(t));
+      const out = await ai.chat(t.tenantId, message.trim(), clean, { sid, identity, channel: "widget", live: liveOn, handoff: aiRules(t), ...(image && { image }) });
       // Balans azalıb/bitibsə sayt sahibinə email (AI servisi eyni vəziyyət üçün yalnız bir dəfə xəbər verir)
       const notify = out.billing?.notify;
       if (out.order) void onOrder(deps, t, out.order, "sayt", [...clean, { role: "user", text: message.trim() }]);
@@ -359,7 +368,10 @@ export function widgetRoutes(deps: Deps) {
       const sources = (Array.isArray(out.sources) ? out.sources : []).slice(0, 3).map((s: Record<string, unknown>) => ({ title: str(s.title, 120) ?? "", url: httpUrl(s.url) }));
       const confirm = publicConfirm(out.confirm);
       const answer = String(out.answer ?? "").slice(0, 8000);
-      res.json({ answer, ...(sid && answer && { sig: signTurn(t.tenantId, sid, answer) }), listings, ...(confirm && { confirm }), ...(sources.length && { sources }), ...(typeof out.imageNote === "string" && out.imageNote && { imageNote: out.imageNote.slice(0, 200) }), ...(out.unanswered === true && { unanswered: true }), ...(out.identity === "invalid" && { identity: "invalid" }) });
+      // AI operatora ötürmə qərarı verib (səbəbi ilə): canlı operator işləyirsə vidjet canlı söhbəti açır, işləmirsə əlaqə forması (səbəb ilə)
+      const ho = out.handoff === true ? { reason: cleanReason(out.handoffReason), ...(typeof out.handoffNote === "string" && out.handoffNote && { note: out.handoffNote.slice(0, 200) }) } : null;
+      if (ho && liveOn) return void res.json({ answer, ...(sid && answer && { sig: signTurn(t.tenantId, sid, answer) }), listings: [], handoff: "live", handoffReason: ho.reason, ...(ho.note && { handoffNote: ho.note }) });
+      res.json({ ...(ho && { handoffReason: ho.reason }), answer, ...(sid && answer && { sig: signTurn(t.tenantId, sid, answer) }), listings, ...(confirm && { confirm }), ...(sources.length && { sources }), ...(typeof out.imageNote === "string" && out.imageNote && { imageNote: out.imageNote.slice(0, 200) }), ...((out.unanswered === true || ho) && { unanswered: true }), ...(out.identity === "invalid" && { identity: "invalid" }) });
     } catch (e) {
       // Ziyarətçi müştərinin limit və ya konfiqurasiya məlumatını görməməlidir.
       if (e instanceof AiError) {
@@ -451,18 +463,23 @@ export function widgetRoutes(deps: Deps) {
     const vid = typeof b.vid === "string" && /^[a-f0-9]{16,32}$/.test(b.vid) ? b.vid : "";
     const pid = vid ? pidOf(t.tenantId, vid) : "";
     if (pid && isBlocked(t, `v:${pid}`)) throw new HttpError(403, "Çat hazırda əlçatan deyil", "BLOCKED");
+    // AI-ın ötürmə səbəbi (vidjet göndərir): etiket + AI qeydi + səbəbli bildiriş
+    const hb = b.handoff && typeof b.handoff === "object" ? b.handoff as { reason?: unknown; note?: unknown } : null;
+    const hReason: HandoffReason | null = hb ? cleanReason(hb.reason) : null;
+    const extra = hReason ? liveExtras(hReason, typeof hb!.note === "string" ? hb!.note : "") : { tags: [], notes: [] };
     const token = randomBytes(24).toString("hex");
     const now = new Date();
     const chat: LiveChat = {
+      ...(extra.tags.length && { tags: extra.tags }), ...(extra.notes.length && { notes: extra.notes }),
       id: randomUUID(), tenantId: t.tenantId, tokenHash: sha(token).toString("hex"), name, contact: contact || "", status: "open",
       context: cleanChat(b.chat), ...(cleanPage(b.page) && { page: cleanPage(b.page) }), messages: text ? [{ from: "visitor", text, at: now }] : [], createdAt: now, updatedAt: now, visitorSeenAt: now,
       ...(pid && { visitor: { pid, ...parseVisitorInfo(b), ...(typeof b.lang === "string" && { lang: b.lang.slice(0, 12) }), ...(typeof b.mobile === "boolean" && { mobile: b.mobile }) } }),
     };
     await store.createLive(chat);
     // Sayt sahibinə və komandaya bildiriş (10 dəqiqədə bir, spam olmasın)
-    void notifyTeam(deps, t, `Canlı söhbət: ${t.businessName}`, `Saytınızın çatında ziyarətçi operatorla yazışmaq istəyir.${text ? `\n\nİlk mesaj: ${text.slice(0, 300)}` : ""}\n\nPanelin "Müraciətlər" bölməsində "Canlı söhbət" tabını açın.`);
+    void notifyTeam(deps, t, `${hReason && hReason !== "asked" ? `${REASON_LABEL[hReason]} · ` : ""}Canlı söhbət: ${t.businessName}`, `Saytınızın çatında ziyarətçi operatorla yazışmaq istəyir.${text ? `\n\nİlk mesaj: ${text.slice(0, 300)}` : ""}\n\nPanelin "Müraciətlər" bölməsində "Canlı söhbət" tabını açın.`);
     hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "start", by: "visitor" });
-    void notifyOperators(deps, t, { kind: "start", chatId: chat.id, channel: "sayt", name, text });
+    void notifyOperators(deps, t, { kind: "start", chatId: chat.id, channel: "sayt", name, text, ...(hReason && hReason !== "asked" && { reason: REASON_LABEL[hReason] }) });
     res.status(201).json({ id: chat.id, token, ...liveView(chat, 0) });
   });
 

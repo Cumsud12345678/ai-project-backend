@@ -22,6 +22,7 @@ import { blockOf, domainRoot, recordDomain } from "../domains.js";
 import { createTenantFor, withoutSecrets } from "../tenant-create.js";
 import { conversationSummary, liveSummary } from "../chat-summary.js";
 import { FOLLOWUP_DELAYS, followupOf, parseFollowup } from "../followup.js";
+import { handoffOf, parseHandoff } from "../handoff.js";
 
 const CONFIG_KEYS = ["businessName", "domain", "profile", "source", "apiSecret", "feedText"];
 const PROFILE_KEYS = ["language", "tone", "maxResults", "extraInstructions", "logQueries", "mode", "fallbackMessage", "generalKnowledge", "kbAutoRefresh", "imageSearch", "answerLength", "agentName", "company"];
@@ -774,6 +775,15 @@ export function tenantRoutes(deps: Deps) {
     const followup = parseFollowup(req.body);
     await store.updateTenant(t.tenantId, { followup });
     res.json({ followup, delays: FOLLOWUP_DELAYS });
+  });
+
+  // ---- Ağıllı operator çağırışı: AI hansı hallarda söhbəti operatora ötürsün ----
+  r.get("/handoff", async (_req, res) => { res.json({ handoff: handoffOf(await mine(currentUser(res).id)) }); });
+  r.put("/handoff", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const handoff = parseHandoff(req.body);
+    await store.updateTenant(t.tenantId, { handoff });
+    res.json({ handoff });
   });
 
   // ---- API-siz sifariş forması: AI söhbətdə sahələri soruşur, təsdiqdən sonra sifariş müraciətlər qutusuna düşür ----

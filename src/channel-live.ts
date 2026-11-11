@@ -9,6 +9,7 @@ import type { LiveChat, TenantRecord } from "./store/types.js";
 import { hub } from "./hub.js";
 import { notifyTeam } from "./team.js";
 import { notifyOperators } from "./operator-notify.js";
+import { liveExtras, REASON_LABEL, type HandoffReason } from "./handoff.js";
 
 /** Operator cavab verməyibsə bot bu müddətdən sonra özü qayıdır (söhbət sonsuza qədər susmasın). */
 export const LIVE_STALE_MS = Number(process.env.CHANNEL_LIVE_STALE_MS) || 12 * 60 * 60_000;
@@ -67,17 +68,19 @@ function waContact(p: { channel: string; chatId: string; ref?: string; phone?: s
   return /^\d{7,15}$/.test(p.chatId) ? `+${p.chatId}` : "";
 }
 
-export async function startChannelLive(deps: Deps, t: TenantRecord, p: { channel: "telegram" | "whatsapp"; chatId: string; ref?: string; phone?: string; name: string; history: { role: "user" | "model"; text: string }[]; /** operatorun görəcəyi ilk mesaj (müştərinin sualı) */ first?: string; /** operator özü başladıb: bildiriş göndərilmir */ quiet?: boolean }): Promise<LiveChat> {
+export async function startChannelLive(deps: Deps, t: TenantRecord, p: { channel: "telegram" | "whatsapp"; chatId: string; ref?: string; phone?: string; name: string; history: { role: "user" | "model"; text: string }[]; /** operatorun görəcəyi ilk mesaj (müştərinin sualı) */ first?: string; /** operator özü başladıb: bildiriş göndərilmir */ quiet?: boolean; /** AI-ın ötürmə səbəbi (etiket, qeyd, bildiriş başlığı) */ reason?: HandoffReason; note?: string }): Promise<LiveChat> {
   const now = new Date();
+  const extra = p.reason ? liveExtras(p.reason, p.note) : { tags: [], notes: [] };
   const chat: LiveChat = {
     id: randomUUID(), tenantId: t.tenantId, tokenHash: randomBytes(16).toString("hex"), // kanal söhbətinə token ilə giriş yoxdur
     name: p.name.slice(0, 80), contact: waContact(p), status: "open",
     context: p.history.slice(-10), messages: p.first ? [{ from: "visitor", text: p.first.slice(0, 1000), at: now }] : [], createdAt: now, updatedAt: now, visitorSeenAt: now,
     channel: { type: p.channel, chatId: p.chatId, ...(p.ref && { ref: p.ref }) },
+    ...(extra.tags.length && { tags: extra.tags }), ...(extra.notes.length && { notes: extra.notes }),
   };
   await deps.store.createLive(chat);
-  if (!p.quiet) void notifyTeam(deps, t, `Canlı söhbət (${p.channel === "telegram" ? "Telegram" : "WhatsApp"}): ${t.businessName}`, `${p.channel === "telegram" ? "Telegram" : "WhatsApp"} kanalında müştəri operatorla yazışmaq istəyir.${p.first ? `\n\nMüştəri: ${p.first.slice(0, 300)}` : ""}\n\nPanelin "Müraciətlər" bölməsində "Canlı söhbət" tabını açın.`);
+  if (!p.quiet) void notifyTeam(deps, t, `${p.reason && p.reason !== "asked" ? `${REASON_LABEL[p.reason]} · ` : ""}Canlı söhbət (${p.channel === "telegram" ? "Telegram" : "WhatsApp"}): ${t.businessName}`, `${p.channel === "telegram" ? "Telegram" : "WhatsApp"} kanalında müştəri operatorla yazışmaq istəyir.${p.first ? `\n\nMüştəri: ${p.first.slice(0, 300)}` : ""}\n\nPanelin "Müraciətlər" bölməsində "Canlı söhbət" tabını açın.`);
   hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "start", ...(!p.quiet && { by: "visitor" }) });
-  if (!p.quiet) void notifyOperators(deps, t, { kind: "start", chatId: chat.id, channel: p.channel === "telegram" ? "Telegram" : "WhatsApp", name: chat.name, ...(p.first && { text: p.first }) });
+  if (!p.quiet) void notifyOperators(deps, t, { kind: "start", chatId: chat.id, channel: p.channel === "telegram" ? "Telegram" : "WhatsApp", name: chat.name, ...(p.first && { text: p.first }), ...(p.reason && p.reason !== "asked" && { reason: REASON_LABEL[p.reason] }) });
   return chat;
 }

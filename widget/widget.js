@@ -674,7 +674,7 @@
       log.appendChild(wrap);
     }
     // Cavab tapılmayanda: "Operatorla əlaqə" düyməsi -> kiçik forma (gizli bal tələsi sahəsi ilə)
-    function contactBox(question) {
+    function contactBox(question, reason) {
       if (!cfg.contact) return;
       var btn = el("button", { class: "cbtn", type: "button", text: L.contact });
       log.appendChild(btn);
@@ -694,7 +694,7 @@
           err.textContent = ""; go.disabled = true;
           fetch(api + "/contact", {
             method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ name: nameI.value, contact: contI.value, question: question, chat: state.messages.filter(function (m) { return !m.live; }).slice(-8).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; }), website: hp.value, page: { path: location.pathname, title: document.title } }),
+            body: JSON.stringify({ name: nameI.value, contact: contI.value, question: question, reason: reason || undefined, chat: state.messages.filter(function (m) { return !m.live; }).slice(-8).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; }), website: hp.value, page: { path: location.pathname, title: document.title } }),
           }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, status: res.status, data: d }; }); })
             .then(function (r) {
               if (r.ok) { f.remove(); bubble("model", L.ok, null, null, Date.now()); scroll(); track("ai_chat_lead", { source: "contact_form" }); return; }
@@ -764,7 +764,7 @@
     }
     function extras(m, question) {
       cards(m.listings); sources(m.sources); actionCard(m); feedbackRow(m, question);
-      if (m.unanswered) { contactBox(question); liveBox(); }
+      if (m.unanswered) { contactBox(question, m.handoffReason); liveBox(); }
     }
 
     // ---------- canlı operator söhbəti ----------
@@ -840,7 +840,7 @@
     }
     // "Operatorla yaz" basılan kimi söhbət serverdə açılır: panel operatora dərhal göstərir (əvvəl ilk mesaja qədər heç nə görünmürdü).
     // pending = ziyarətçi hələ yazmayıb ("AI-a qayıt" mümkündür); creating = söhbət yaradılır.
-    function startLive() {
+    function startLive(handoff) {
       if (state.live) return;
       state.live = { pending: true, creating: true, after: 0 };
       Array.prototype.forEach.call(log.querySelectorAll(".livecbtn"), function (n) { n.remove(); });
@@ -849,7 +849,7 @@
       var ai = state.messages.filter(function (m) { return !m.live; }).slice(-10).map(function (m) { return { role: m.role, text: String(m.text || "").slice(0, 600) }; });
       fetch(api + "/live", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat: ai, vid: visitorId(), page: { path: location.pathname, title: document.title }, tz: visTz(), first: visit.first, visits: visit.visits, lang: (navigator.language || "").slice(0, 12), mobile: mobile.matches }),
+        body: JSON.stringify({ chat: ai, handoff: handoff || undefined, vid: visitorId(), page: { path: location.pathname, title: document.title }, tz: visTz(), first: visit.first, visits: visit.visits, lang: (navigator.language || "").slice(0, 12), mobile: mobile.matches }),
       }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok, d: d }; }); })
         .then(function (r) {
           var lv = state.live;
@@ -1179,9 +1179,10 @@
         if (r.data.identity === "invalid" && idToken) { idToken = null; try { window.dispatchEvent(new CustomEvent("caradvisor:identity-expired")); } catch (e) { /* köhnə brauzer */ } }
         if (typeof r.data.imageNote === "string" && r.data.imageNote) { userMsg.note = r.data.imageNote.slice(0, 200); }
         // Ziyarətçi "operatora qoş" yazıb və operator işləyir: AI cavabı yox, canlı söhbət açılır
-        if (r.data.handoff === "live" && cfg.live) { save(); startLive(); return; }
+        if (r.data.handoff === "live" && cfg.live) { save(); startLive(typeof r.data.handoffReason === "string" ? { reason: r.data.handoffReason, note: typeof r.data.handoffNote === "string" ? r.data.handoffNote : "" } : null); return; }
         var answer = String(r.data.answer || "");
         var msg = { role: "model", text: answer, t: Date.now(), listings: r.data.listings || [], sources: r.data.sources || [], unanswered: r.data.unanswered === true };
+        if (typeof r.data.handoffReason === "string") msg.handoffReason = r.data.handoffReason.slice(0, 20);
         if (typeof r.data.sig === "string") msg.sig = r.data.sig.slice(0, 64);
         var cf = r.data.confirm;
         if (cf && typeof cf.id === "string" && /^[0-9a-f]{32}$/.test(cf.id) && typeof cf.title === "string") {

@@ -122,7 +122,7 @@ test("chat: mesaj AI servisinə həmin müştərinin tenantId-si ilə gedir; usa
     assert.ok(!("secret" in r.body.listings[0]));
     const call = p.ai.calls.filter((x) => x.fn === "chat").at(-1)!;
     // İmzasız model mesajı (saxta tarixçə) atılır, system rolu da
-    assert.deepEqual(call.args, [tenantId, "Salam", [{ role: "user", text: "a" }], { sid: undefined, identity: undefined, channel: "widget" }]);
+    assert.deepEqual(call.args, [tenantId, "Salam", [{ role: "user", text: "a" }], { sid: undefined, identity: undefined, channel: "widget", live: false, handoff: { cantHelp: true, upset: true, ready: true } }]);
     // söhbət identifikatoru yalnız düzgün formatda ötürülür
     await site("https://motoelan.com").chat(key, { message: "x", sid: "0123456789abcdef0123456789abcdef" });
     assert.equal((p.ai.calls.filter((x) => x.fn === "chat").at(-1)!.args[3] as any).sid, "0123456789abcdef0123456789abcdef");

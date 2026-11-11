@@ -85,7 +85,7 @@ const panelUrl = (deps: Deps) => (deps.config.allowedOrigins[0] ? `\n\n${deps.co
  * Canlı söhbət hadisəsi barədə operatorlara Telegram mesajı.
  * kind "start": həmişə (sayt üzrə saatda 30-a qədər). kind "message": yalnız panel açıq deyilsə və söhbət başına 3 dəqiqədə bir.
  */
-export async function notifyOperators(deps: Deps, t: TenantRecord, p: { kind: "start" | "message"; chatId: string; channel: string; name?: string; text?: string }): Promise<void> {
+export async function notifyOperators(deps: Deps, t: TenantRecord, p: { kind: "start" | "message"; chatId: string; channel: string; name?: string; text?: string; /** AI-ın ötürmə səbəbi, məs. "🔥 Almağa hazırdır" */ reason?: string }): Promise<void> {
   if (!notifyAvailable(deps)) return;
   try {
     if (p.kind === "message") {
@@ -98,7 +98,7 @@ export async function notifyOperators(deps: Deps, t: TenantRecord, p: { kind: "s
     const users = await linkedUsers(deps, t);
     if (!users.length) return;
     const who = p.name?.trim() ? p.name.trim().slice(0, 60) : "Ziyarətçi";
-    const head = p.kind === "start" ? `🟢 Yeni canlı söhbət (${p.channel}) · ${t.businessName}` : `💬 Yeni mesaj (${p.channel}) · ${t.businessName}`;
+    const head = p.kind === "start" ? `${p.reason ? `${p.reason}\n` : ""}🟢 Yeni canlı söhbət (${p.channel}) · ${t.businessName}` : `💬 Yeni mesaj (${p.channel}) · ${t.businessName}`;
     const body = p.text?.trim() ? `\n\n${who}: ${p.text.trim().slice(0, 300)}` : `\n\n${who} operatorla yazışmaq istəyir.`;
     const text = `${head}${body}${panelUrl(deps)}`;
     for (const u of users) {
