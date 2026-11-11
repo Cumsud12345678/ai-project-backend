@@ -120,6 +120,8 @@ export function adminRoutes(deps: Deps) {
     if (action === "approve" && !out.duplicate && out.request?.tenantId) {
       const t = await tenantInfo(String(out.request.tenantId));
       if (t) void (out.request.kind === "plan" || out.request.kind === "pack" ? notifyOrderDone(deps, t, out) : notifyTopupDone(deps, t, Number(out.request.amountAzn), out.balance?.totalAzn));
+      // Referal müştəridirsə partnyorun komissiyası dərhal yazılsın (10 dəqiqəlik növbəni gözləmədən)
+      if (t) void store.findUserById(t.userId).then((u) => (u?.referredBy ? syncThrottled(deps, u.referredBy.partnerId, 0) : undefined)).catch(() => {});
     }
     void audit(res, action === "approve" ? "billing.approve" : "billing.reject", String(req.params.id));
     console.log(`[admin] ${currentUser(res).email} yükləmə sorğusunu ${action === "approve" ? "təsdiqlədi" : "rədd etdi"}: ${req.params.id}`);

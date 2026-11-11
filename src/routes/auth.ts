@@ -121,7 +121,7 @@ export function authRoutes(deps: Deps) {
     const code = normalizeCode(req.params.code);
     const p = validCode(code) ? await store.findUserByPartnerCode(code) : null;
     const s = await getPartnerSettings(deps);
-    res.json({ valid: Boolean(p?.partner?.active), code, bonusPct: s.bonusPct, bonusCapAzn: s.bonusCapAzn });
+    res.json({ valid: Boolean(p?.partner?.active), code, bonusReplies: s.bonusReplies });
   });
 
   r.post("/verify", async (req, res) => {

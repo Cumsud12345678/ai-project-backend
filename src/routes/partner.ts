@@ -20,7 +20,7 @@ export function partnerRoutes(deps: Deps) {
     res.json({
       partner: publicPartner(me.partner),
       link: `${origin}/r/${me.partner.code}`,
-      settings: { months: settings.months, bonusPct: settings.bonusPct, bonusCapAzn: settings.bonusCapAzn },
+      settings: { months: settings.months, bonusReplies: settings.bonusReplies },
       totals: totals[me.id] ?? { earned: 0, adjust: 0, paidOut: 0, balance: 0 },
       customers,
       entries: entries.map((e) => ({ id: e.id, kind: e.kind, amountAzn: e.amountAzn, at: e.at, baseAzn: e.baseAzn ?? null, rate: e.rate ?? null, note: e.note ?? "" })),

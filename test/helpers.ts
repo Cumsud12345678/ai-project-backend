@@ -106,6 +106,7 @@ export function fakeAi(): FakeAi {
     reminders: [] as Record<string, unknown>[],
     async entitlements() { return ai.ent; }, // calls/failNext-ə yazılmır: hər çatda keşdən əvvəl çağırılır
     async billingOrder(id, body, dryRun) { return rec("billingOrder", [id, body, dryRun], dryRun ? { quote: { kind: body.kind, type: "new", plan: body.plan, cycle: body.cycle, amountAzn: 15 } } : { request: { id: "o1", tenantId: id, kind: body.kind, plan: body.plan, cycle: body.cycle, amountAzn: 15, status: "pending", provider: "manual", at: "2026-11-10T00:00:00.000Z" }, provider: "manual", instructions: "Kartdan karta" }); },
+    async billingBonusReplies(id, body) { return rec("billingBonusReplies", [id, body], { duplicate: false, replies: body.replies }); },
     async billingPlanNext(id, plan) { return rec("billingPlanNext", [id, plan], { subscription: { plan: "business", next: plan } }); },
     async billingPlanAssign(id, body) { return rec("billingPlanAssign", [id, body], { subscription: body.plan ? { plan: body.plan } : null }); },
     async billingPlans() { return rec("billingPlans", [], { plans: [{ id: "start", name: "Start", priceAzn: 15, replies: 1000, seats: 1, features: { channels: true } }], packs: [{ id: "p500", replies: 500, priceAzn: 10 }], yearlyMonths: 10, graceDays: 3, packDays: 365 }); },

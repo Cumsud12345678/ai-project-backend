@@ -93,6 +93,8 @@ export type AiClient = {
   billingPlanNext(tenantId: string, plan: string | null): Promise<AiResult>;
   /** Admin: plan vermək (days) və ya götürmək (plan: null) */
   billingPlanAssign(tenantId: string, body: { plan: string | null; days?: number; note?: string; by?: string }): Promise<AiResult>;
+  /** Bonus cavablar (ref ilə bir dəfə) */
+  billingBonusReplies(tenantId: string, body: { replies: number; ref: string; note?: string; by?: string }): Promise<AiResult>;
   /** Plan imkanları (funksiyaların açılması üçün) */
   entitlements(tenantId: string): Promise<AiResult>;
   /** Plan kataloqu (qiymət, limit, imkanlar) */
@@ -193,6 +195,7 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     billingOrder: (id, body, dryRun) => request("POST", `${t(id)}/billing/order${dryRun ? "?dryRun=1" : ""}`, body),
     billingPlanNext: (id, plan) => request("POST", `${t(id)}/billing/plan/next`, { plan }),
     billingPlanAssign: (id, body) => request("POST", `${t(id)}/billing/plan/assign`, body),
+    billingBonusReplies: (id, body) => request("POST", `${t(id)}/billing/bonus-replies`, body),
     entitlements: (id) => request("GET", `${t(id)}/billing/entitlements`, undefined, 8000),
     billingPlans: () => request("GET", "/billing/plans"),
     setBillingPlans: (body) => request("PUT", "/billing/plans", body),

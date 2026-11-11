@@ -12,7 +12,7 @@ after(() => p.close());
 let adminClient: Awaited<ReturnType<typeof p.signedIn>> | undefined;
 const admin = async () => (adminClient ??= await p.signedIn("boss@example.com"));
 const iso = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString();
-const topups = () => p.ai.calls.filter((c) => c.fn === "billingTopup").map((c) => c.args);
+const bonusCalls = () => p.ai.calls.filter((c) => c.fn === "billingBonusReplies").map((c) => c.args);
 
 /** Qeydiyyat (kodla) → təsdiq → sayt yaradılır */
 async function signupWith(email: string, ref: string | undefined, refSource: "link" | "code" = "code") {
@@ -47,7 +47,7 @@ test("admin partnyor təyin edir: yalnız təsdiqlənmiş hesab, kod unikal, fai
 
 test("qeydiyyat: kod yoxlanır; səhv yazılmış kod xəta verir, köhnə link səssizcə keçir", async () => {
   const chk = await p.client().call("GET", "/auth/ref/adil");
-  assert.equal(chk.body.valid, true); assert.equal(chk.body.bonusPct, 10);
+  assert.equal(chk.body.valid, true); assert.equal(chk.body.bonusReplies, 200);
   assert.equal((await p.client().call("GET", "/auth/ref/YOXDUR")).body.valid, false);
   const bad = await p.client().call("POST", "/auth/register", { email: "sehv@example.com", password: "parol12345", ref: "YOXDUR", refSource: "code" });
   assert.equal(bad.body.code, "BAD_REF_CODE");
@@ -72,10 +72,11 @@ test("komissiya: yalnız real ödənişlərdən, partnyorun faizi ilə, bir dəf
   p.ai.payments![m.tenantId] = [{ id: "req:a1", at: iso(-0.001), amountAzn: 20 }, { id: "pay:x:2", at: iso(-0.002), amountAzn: 100 }];
   const r1 = await syncPartners(p.deps);
   assert.deepEqual(r1, { commissions: 2, bonuses: 1 });
-  const bonus = topups().find((x) => (x[1] as { ref?: string }).ref === `bonus:${u.id}`);
+  const bonus = bonusCalls().find((x) => (x[1] as { ref?: string }).ref === `partner:${u.id}`);
   assert.ok(bonus, "bonus verildi");
-  assert.equal((bonus![1] as { amountAzn: number }).amountAzn, 2, "ilk ödəniş 20 AZN × 10% = 2 AZN");
+  assert.equal((bonus![1] as { replies: number }).replies, 200, "ilk ödənişdən sonra +200 cavab");
   assert.equal((bonus![0] as string), m.tenantId);
+  assert.ok(p.mails.some((x) => x.to === "dost@example.com" && /Yeni qazanc: \+3\.00 AZN/.test(x.subject)), "partnyora qazanc e-poçtu");
 
   const again = await syncPartners(p.deps);
   assert.deepEqual(again, { commissions: 0, bonuses: 0 }, "təkrar sinxron heç nə yazmır");
@@ -85,13 +86,12 @@ test("komissiya: yalnız real ödənişlərdən, partnyorun faizi ilə, bir dəf
   assert.equal(t.balance, 18);
 });
 
-test("bonus tavanı; 12 aydan sonrakı ödəniş sayılmır; admin bağlayanda bonus yoxdur, keçmiş ödənişlər istəyə görə", async () => {
+test("bonus bir dəfə; 12 aydan sonrakı ödəniş sayılmır; admin bağlayanda bonus yoxdur, keçmiş ödənişlər istəyə görə", async () => {
   const m = await signupWith("musteri2@example.com", "ADIL");
   const u = (await p.store.findUserByEmail("musteri2@example.com"))!;
   p.ai.payments![m.tenantId] = [{ id: "req:b1", at: iso(-0.001), amountAzn: 200 }, { id: "req:b2", at: iso(-400), amountAzn: 50 }];
   await syncPartners(p.deps);
-  const bonus = topups().find((x) => (x[1] as { ref?: string }).ref === `bonus:${u.id}`)!;
-  assert.equal((bonus[1] as { amountAzn: number }).amountAzn, 5, "tavan 5 AZN");
+  assert.equal(bonusCalls().filter((x) => (x[1] as { ref?: string }).ref === `partner:${u.id}`).length, 1, "bonus bir dəfə");
   const by = await p.store.partnerTotalsByCustomer(partnerId);
   assert.equal(by[u.id]!.base, 200, "400 gün sonrakı ödəniş pəncərədən kənardır");
 
@@ -104,7 +104,7 @@ test("bonus tavanı; 12 aydan sonrakı ödəniş sayılmır; admin bağlayanda b
   const oldU = (await p.store.findUserByEmail("kohnemusteri@example.com"))!;
   assert.equal(oldU.referredBy?.source, "admin");
   assert.equal((await p.store.partnerTotalsByCustomer(partnerId))[oldU.id]!.base, 40);
-  assert.ok(!topups().some((x) => (x[1] as { ref?: string }).ref === `bonus:${oldU.id}`), "admin bağlayanda bonus yoxdur");
+  assert.ok(!bonusCalls().some((x) => (x[1] as { ref?: string }).ref === `partner:${oldU.id}`), "admin bağlayanda bonus yoxdur");
   assert.equal((await a.call("POST", "/admin/partners/referrals", { email: "kohnemusteri@example.com", code: "adil" })).status, 200);
   assert.equal((await a.call("POST", "/admin/partners/referrals", { email: "dost@example.com", code: "adil" })).body.code, "SELF_REFERRAL");
   // Ayırmaq
@@ -158,8 +158,9 @@ test("admin balansı dəyişir: səbəb məcburidir; ödəniş balansdan çox ol
 
 test("proqram ayarları: hədlər daxilində saxlanır", async () => {
   const a = await admin();
-  const s = await a.call("PUT", "/admin/partners/settings", { defaultRate: 99, bonusPct: 0, months: 6 });
-  assert.equal(s.body.defaultRate, 50); assert.equal(s.body.bonusPct, 0); assert.equal(s.body.months, 6);
-  assert.equal((await p.client().call("GET", "/auth/ref/ADIL")).body.bonusPct, 0);
-  await a.call("PUT", "/admin/partners/settings", { defaultRate: 10, bonusPct: 10, months: 12 });
+  const s = await a.call("PUT", "/admin/partners/settings", { defaultRate: 99, bonusReplies: 0, months: 6 });
+  assert.equal(s.body.defaultRate, 50); assert.equal(s.body.bonusReplies, 0); assert.equal(s.body.months, 6);
+  assert.equal((await p.client().call("GET", "/auth/ref/ADIL")).body.bonusReplies, 0);
+  assert.equal((await a.call("PUT", "/admin/partners/settings", { bonusReplies: 99999 })).body.bonusReplies, 5000);
+  await a.call("PUT", "/admin/partners/settings", { defaultRate: 10, bonusReplies: 200, months: 12 });
 });

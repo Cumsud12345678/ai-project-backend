@@ -14,8 +14,10 @@ import type { Deps } from "./deps.js";
 import { HttpError } from "./http.js";
 import type { PartnerInfo, ReferralInfo, User } from "./store/types.js";
 
-export type PartnerSettings = { defaultRate: number; bonusPct: number; bonusCapAzn: number; months: number };
-export const DEFAULT_PARTNER_SETTINGS: PartnerSettings = { defaultRate: 10, bonusPct: 10, bonusCapAzn: 5, months: 12 };
+// defaultRate: partnyorun faizi (müştərinin hər plan/paket ödənişindən); bonusReplies: kodla gələn müştəriyə ilk ödənişdən sonra
+// bir dəfə verilən əlavə cavab sayı (0 = bonus yoxdur); months: komissiyanın neçə ay yazıldığı
+export type PartnerSettings = { defaultRate: number; bonusReplies: number; months: number };
+export const DEFAULT_PARTNER_SETTINGS: PartnerSettings = { defaultRate: 10, bonusReplies: 200, months: 12 };
 const KEY = "partner_program";
 const CODE_RE = /^[A-Z0-9_-]{3,20}$/;
 
@@ -28,8 +30,7 @@ export function normalizeSettings(v: unknown): PartnerSettings {
   const o = (v ?? {}) as Partial<PartnerSettings>;
   return {
     defaultRate: round2(clamp(o.defaultRate, 1, 50, DEFAULT_PARTNER_SETTINGS.defaultRate)),
-    bonusPct: round2(clamp(o.bonusPct, 0, 50, DEFAULT_PARTNER_SETTINGS.bonusPct)),
-    bonusCapAzn: round2(clamp(o.bonusCapAzn, 0, 100, DEFAULT_PARTNER_SETTINGS.bonusCapAzn)),
+    bonusReplies: Math.round(clamp(o.bonusReplies, 0, 5000, DEFAULT_PARTNER_SETTINGS.bonusReplies)),
     months: Math.round(clamp(o.months, 1, 60, DEFAULT_PARTNER_SETTINGS.months)),
   };
 }
@@ -102,17 +103,13 @@ export async function syncPartners(deps: Deps, opts: { partnerId?: string } = {}
     try { pays = await paymentsOf(deps, tenant.tenantId, new Date(ref.at), until); }
     catch (e) { console.warn(`[partners] ${tenant.tenantId} ödənişləri oxunmadı:`, e instanceof Error ? e.message : e); continue; }
 
-    // Yeni müştəri bonusu: ilk real ödənişdən, bir dəfə
-    if (pays.length && ref.source !== "admin" && !ref.bonusAt && settings.bonusPct > 0 && settings.bonusCapAzn > 0) {
-      const first = [...pays].sort((a, b) => (a.at < b.at ? -1 : 1))[0]!;
-      const amount = round2(Math.min(settings.bonusCapAzn, (first.amountAzn * settings.bonusPct) / 100));
-      if (amount >= 0.01) {
-        try {
-          await deps.ai.billingTopup(tenant.tenantId, { amountAzn: amount, note: `Partnyor kodu bonusu (+${settings.bonusPct}%)`, by: "system", ref: `bonus:${c.id}` });
-          await store.updateUser(c.id, { referredBy: { ...ref, bonusAt: new Date() } });
-          bonuses++;
-        } catch (e) { console.warn(`[partners] bonus verilmədi (${tenant.tenantId}):`, e instanceof Error ? e.message : e); }
-      }
+    // Yeni müştəri bonusu: ilk real ödənişdən (plan alanda) sonra bir dəfə əlavə cavablar
+    if (pays.length && ref.source !== "admin" && !ref.bonusAt && settings.bonusReplies > 0) {
+      try {
+        await deps.ai.billingBonusReplies(tenant.tenantId, { replies: settings.bonusReplies, ref: `partner:${c.id}`, note: `Partnyor kodu: ${ref.code}`, by: "system" });
+        await store.updateUser(c.id, { referredBy: { ...ref, bonusAt: new Date() } });
+        bonuses++;
+      } catch (e) { console.warn(`[partners] bonus verilmədi (${tenant.tenantId}):`, e instanceof Error ? e.message : e); }
     }
 
     // Söndürülmüş partnyora yeni komissiya yazılmır (yenidən açılanda pəncərə daxilindəki ödənişlər yazılır)
@@ -124,7 +121,11 @@ export async function syncPartners(deps: Deps, opts: { partnerId?: string } = {}
         partnerId: partner.id, kind: "commission", amountAzn: amount, at: new Date(p.at), sourceRef: `c:${p.id}`,
         tenantId: tenant.tenantId, customerId: c.id, baseAzn: p.amountAzn, rate: partner.partner.rate, note: tenant.businessName,
       });
-      if (fresh) commissions++;
+      if (fresh) {
+        commissions++;
+        // Partnyora xəbər: qazancı paneldə dərhal görünür
+        void deps.mailer.send(partner.email, `Yeni qazanc: +${amount.toFixed(2)} AZN`, `${tenant.businessName} ${p.amountAzn.toFixed(2)} AZN ödədi. Sənin payın (${partner.partner.rate}%): +${amount.toFixed(2)} AZN.\n\nQazancın və ödənişlərin “Partnyor” səhifəsindədir.`, { action: "Partnyor səhifəsi", preheader: `+${amount.toFixed(2)} AZN komissiya` }).catch(() => {});
+      }
     }
   }
   return { commissions, bonuses };
