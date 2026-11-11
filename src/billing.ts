@@ -3,7 +3,8 @@ import type { MailOptions } from "./mailer.js";
 import type { Deps } from "./deps.js";
 import { HttpError } from "./http.js";
 import type { TenantRecord } from "./store/types.js";
-import { alertDailyLimit, alertTopupRequest } from "./alerts.js";
+import { alertDailyLimit, alertOrder, alertTopupRequest } from "./alerts.js";
+import { invalidateEntitlements } from "./plans.js";
 
 export function parseAmount(v: unknown, { allowNegative = false } = {}): number {
   const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v.replace(",", ".")) : NaN;
@@ -42,3 +43,48 @@ export async function notifyDailyLimit(deps: Deps, t: TenantRecord) {
 
 export const notifyTopupDone = (deps: Deps, t: TenantRecord, amountAzn: number, balanceAzn: unknown) =>
   mailOwner(deps, t, `Balans yükləndi: +${fmt(amountAzn)}`, `Balansınıza vəsait əlavə olundu.\n\nMəbləğ: +${fmt(amountAzn)}\nCari balans: ${fmt(balanceAzn)}\nTarix: ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC`, { preheader: `Cari balans: ${fmt(balanceAzn)}` });
+
+// ---- Abunə ----
+const date = (iso: unknown) => (typeof iso === "string" ? iso.slice(0, 10).split("-").reverse().join(".") : "");
+const PLAN_PANEL = "Panelin “Plan və ödəniş” bölməsindən planı yeniləyə, yüksəldə və ya əlavə cavab paketi ala bilərsiniz.";
+
+/** Planın cavab limitinin 80%-i / hamısı işlənib (AI servisi hər dövrdə bir dəfə xəbər verir) */
+export function notifyUsage(deps: Deps, t: TenantRecord, kind: "usage80" | "usage100", plan: { used?: number; included?: number } | undefined) {
+  const used = Number(plan?.used ?? 0), inc = Number(plan?.included ?? 0);
+  if (kind === "usage80") return mailOwner(deps, t, `Cavab limitinin 80%-i işlənib: ${t.businessName}`, `Bu dövr üçün ${inc} cavabdan ${used}-i işlənib. Limit dolanda köməkçi ziyarətçilərə cavab verməyəcək, əvəzinə əlaqə forması göstəriləcək.\n\n${PLAN_PANEL}`, { action: "Planı idarə et", preheader: `${used}/${inc} cavab işlənib` });
+  return mailOwner(deps, t, `Cavab limiti doldu: ${t.businessName}`, `Bu dövrün cavab limiti (${inc}) doldu: köməkçi ziyarətçilərə cavab vermir, əvəzinə əlaqə forması göstərilir (müraciətlər itmir). Planı yüksəltsəniz və ya əlavə paket alsanız, köməkçi dərhal davam edir. Limit növbəti dövrdə özü yenilənir.\n\n${PLAN_PANEL}`, { action: "Planı idarə et", preheader: "Köməkçi ziyarətçilərə cavab vermir" });
+}
+
+/** Pulsuz sınaq cavabları bitdi (AI servisi bir dəfə xəbər verir) */
+export function notifyTrialEnd(deps: Deps, t: TenantRecord) {
+  return mailOwner(deps, t, `Pulsuz sınaq bitdi: ${t.businessName}`, `Pulsuz sınaq cavabları bitdi: köməkçi ziyarətçilərə cavab vermir, əvəzinə əlaqə forması göstərilir (müraciətlər itmir). Bilik bazanız və ayarlarınız saxlanılır: plan seçən kimi köməkçi davam edir.\n\n${PLAN_PANEL}`, { action: "Plan seç", preheader: "Köməkçinin işləməsi üçün plan seçin" });
+}
+
+/** Abunənin bitməsinə az qalıb / bitib (saatlıq yoxlamadan) */
+export function notifyPlanReminder(deps: Deps, t: TenantRecord, r: { kind: string; planName?: string; end?: string; next?: string | null }) {
+  if (r.kind === "expiring") return mailOwner(deps, t, `Planın müddəti bitir: ${t.businessName}`, `“${r.planName}” planının müddəti ${date(r.end)} tarixində bitir. Fasilə olmaması üçün vaxtında yeniləyin: yeni dövr köhnəsinin bitdiyi gündən başlayır, heç bir gün itmir.\n\n${PLAN_PANEL}`, { action: "Planı yenilə", preheader: `${date(r.end)} tarixində bitir` });
+  return mailOwner(deps, t, `Planın müddəti bitdi: ${t.businessName}`, `“${r.planName}” planının müddəti bitdi və köməkçi ziyarətçilərə cavab vermir (əvəzinə əlaqə forması göstərilir). Bilik bazanız və ayarlarınız saxlanılır: planı yeniləyən kimi köməkçi davam edir.\n\n${PLAN_PANEL}`, { action: "Planı yenilə", preheader: "Köməkçi ziyarətçilərə cavab vermir" });
+}
+
+/** Yeni plan/paket sifarişi: adminə xəbər */
+export async function notifyOrder(deps: Deps, t: TenantRecord, order: Record<string, unknown>) {
+  await alertOrder(deps, t, order);
+}
+
+/** Sifariş təsdiqləndi: sahibə e-poçt, imkanlar keşi yenilənir */
+export function notifyOrderDone(deps: Deps, t: TenantRecord, out: Record<string, any>) {
+  invalidateEntitlements(t.tenantId);
+  const r = out.request ?? {};
+  const sub = out.subscription ?? {};
+  if (r.kind === "pack") return mailOwner(deps, t, `Əlavə paket aktivdir: +${r.replies} cavab`, `Hesabınıza ${r.replies} əlavə cavab əlavə olundu. Planın limiti dolanda köməkçi bu paketdən istifadə edir.\n\nMəbləğ: ${fmt(r.amountAzn)}`, { preheader: `+${r.replies} cavab` });
+  return mailOwner(deps, t, `Plan aktivdir: ${sub.planName ?? r.plan}`, `Ödənişiniz təsdiqləndi.\n\nPlan: ${sub.planName ?? r.plan}\nDövr: ${date(sub.start)} – ${date(sub.end)}\nCavab limiti: ${sub.included ?? ""} / ${sub.cycle === "year" ? "hər 30 gün" : "ay"}\nMəbləğ: ${fmt(r.amountAzn)}`, { preheader: `${date(sub.end)} tarixinədək aktivdir` });
+}
+
+/** Saatlıq: bitməyə yaxın və bitmiş abunələr üçün sahibə xatırlatma */
+export async function sendPlanReminders(deps: Deps) {
+  const out = await deps.ai.planReminders();
+  for (const r of (out.reminders ?? []) as { tenantId: string; kind: string; planName?: string; end?: string; next?: string | null }[]) {
+    const t = await deps.store.findTenantById(r.tenantId).catch(() => null);
+    if (t) { invalidateEntitlements(t.tenantId); await notifyPlanReminder(deps, t, r); }
+  }
+}

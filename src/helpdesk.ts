@@ -1,4 +1,5 @@
 // Operator helpdesk və proaktiv mesaj ayarlarının doğrulanması, işçi saatları hesabı.
+import { hasFeature } from "./plans.js";
 import { randomBytes } from "node:crypto";
 import { HttpError } from "./http.js";
 import type { CannedReply, ProactiveRule, TenantRecord, WorkHours } from "./store/types.js";
@@ -42,7 +43,8 @@ export function withinHours(h: WorkHours | null | undefined, now = new Date()): 
 }
 
 /** Canlı operator hazırda ziyarətçiyə təklif olunurmu: açıqdır və işçi saatlarındadır. */
-export const liveOpenNow = (t: TenantRecord, now = new Date()) => Boolean(t.widget?.live?.enabled) && withinHours(t.widget?.live?.hours, now);
+// Canlı söhbət planda olmalıdır (keşdən; əsas axınlar əvvəlcə loadEntitlements çağırır)
+export const liveOpenNow = (t: TenantRecord, now = new Date()) => Boolean(t.widget?.live?.enabled) && hasFeature(t.tenantId, "live") && withinHours(t.widget?.live?.hours, now);
 
 export const MAX_CAMPAIGNS = 10;
 const clean = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max + 1) : "");

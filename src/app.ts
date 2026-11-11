@@ -1,3 +1,4 @@
+import { getPublicPlans } from "./public-plans.js";
 import express from "express";
 import type { Deps } from "./deps.js";
 import { createErrorHandler, notFound } from "./http.js";
@@ -48,6 +49,8 @@ export function createApp(deps: Deps) {
     }
     res.status(204).end();
   });
+  // Qiymət planları (saytın qiymət bölməsi, girişsiz)
+  app.get("/plans", async (_req, res) => { res.set("Cache-Control", "public, max-age=300"); res.json(await getPublicPlans(deps)); });
   // Bütün giriş etmiş istifadəçilərə göstərilən elan (admin təyin edir)
   app.get("/announcement", async (_req, res) => {
     if (!res.locals.user) return void res.json({ announcement: null });

@@ -6,6 +6,7 @@
 //  - limit:   müştəri gündəlik xərc limitinə çatanda (müştəri üzrə gündə bir)
 //  - provider: Claude və ya Gemini hesabında balans/limit bitəndə, açar səhv olanda; bərpa olanda da xəbər gedir
 // Vəziyyət (son göndərmə, servis vəziyyəti) yaddaşdadır: tək server prosesi üçündür.
+import { sendPlanReminders } from "./billing.js";
 import type { Deps } from "./deps.js";
 import { notifyAvailable, sendNotify } from "./operator-notify.js";
 import type { User } from "./store/types.js";
@@ -31,7 +32,7 @@ let ctxCache = new WeakMap<object, Ctx>();
 const health = { ai: { down: false, fails: 0, since: 0 }, db: { down: false, fails: 0, since: 0 } };
 
 /** Testlər üçün */
-export function resetAlerts() { last.clear(); sentTimes.length = 0; log.length = 0; providerSeen.clear(); ctxCache = new WeakMap(); health.ai = { down: false, fails: 0, since: 0 }; health.db = { down: false, fails: 0, since: 0 }; }
+export function resetAlerts() { remindAt = 0; last.clear(); sentTimes.length = 0; log.length = 0; providerSeen.clear(); ctxCache = new WeakMap(); health.ai = { down: false, fails: 0, since: 0 }; health.db = { down: false, fails: 0, since: 0 }; }
 export const alertLog = () => [...log].reverse();
 export const healthState = () => ({ ai: { down: health.ai.down, since: health.ai.since ? new Date(health.ai.since) : null }, db: { down: health.db.down, since: health.db.since ? new Date(health.db.since) : null } });
 
@@ -196,7 +197,10 @@ export async function alertTick(deps: Deps) {
   await checkService(deps, "ai", () => deps.ai.ping());
   if (!health.ai.down) await checkProviders(deps).catch(() => {});
   if (!health.db.down) await checkErrors(deps).catch(() => {});
+  // Abunə xatırlatmaları: saatda bir dəfə (AI servisi hər abunə üçün bir dəfə qaytarır)
+  if (!health.ai.down && Date.now() - remindAt >= 60 * 60_000) { remindAt = Date.now(); await sendPlanReminders(deps).catch(() => {}); }
 }
+let remindAt = 0;
 
 /** Server açılanda: hər 2 dəqiqədən bir yoxlama. */
 export function startAlertScheduler(deps: Deps, everyMs = 2 * 60_000) {
@@ -215,3 +219,6 @@ export const alertChannel = (deps: Deps, tenantId: string, businessName: string,
   sendAlert(deps, "channel", `${tenantId}:${channel}`, `${channel} bağlantısı qırıldı: ${businessName}`, `${problem}\n\nMüştəri paneldən yenidən qoşmalıdır. Vəziyyət: admin → "Kanallar".`);
 export const alertDailyLimit = (deps: Deps, t: { tenantId: string; businessName: string; domain: string }) =>
   sendAlert(deps, "limit", `${t.tenantId}:${new Date().toISOString().slice(0, 10)}`, `Gündəlik limitə çatıldı: ${t.businessName}`, `${t.businessName} (${t.domain}) bu gün üçün xərc limitinə çatdı, çat sabaha qədər cavab vermir. Qəfil artım ola bilər (bot hücumu, səhv inteqrasiya). Limiti "İstifadəçilər" → "Balansı idarə et" bölməsindən dəyişmək olar.`);
+export const alertOrder = (deps: Deps, t: { tenantId: string; businessName: string; domain: string }, o: Record<string, unknown>) =>
+  sendAlert(deps, "topup", String(o.id ?? `${t.tenantId}:${Date.now()}`), o.kind === "pack" ? `Yeni paket sifarişi: ${fmt(o.amountAzn)}` : `Yeni plan sifarişi: ${String(o.plan ?? "")} · ${fmt(o.amountAzn)}`,
+    `${t.businessName} (${t.domain}) ${o.kind === "pack" ? `əlavə paket (+${String(o.replies ?? "")} cavab)` : `“${String(o.plan ?? "")}” planı (${o.cycle === "year" ? "illik" : "aylıq"}${o.orderType === "upgrade" ? ", yüksəltmə" : o.orderType === "renew" ? ", yeniləmə" : ""})`} sifariş etdi: ${fmt(o.amountAzn)}. Ödəniş gəlibsə "Ödənişlər" bölməsində təsdiqlə.`);

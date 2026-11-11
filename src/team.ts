@@ -2,7 +2,7 @@
 import type { Deps } from "./deps.js";
 import type { Store, TenantRecord, User } from "./store/types.js";
 
-export const MAX_TEAM = 5;
+export const MAX_TEAM = 20; // texniki tavan; real hədd planın yerlərindən gəlir (plans.ts)
 export const nameOf = (u: { email: string }) => u.email.split("@")[0]!.slice(0, 40);
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const validEmail = (e: string) => e.length <= 120 && EMAIL.test(e);

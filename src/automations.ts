@@ -3,6 +3,7 @@
 // Addımlar: Telegram qrupu, e-poçt (sahibə), webhook, Bitrix24 (bağlantılar "Müraciətləri ötür"dəndir), müraciət (bilet) yarat, teq qoy.
 // Ziyarətçini heç vaxt gözlətmir; səhvlər xəta jurnalına və avtomatlaşdırmanın "son işləmə"sinə yazılır.
 // Köhnə hesablar (automations yoxdur): qoşulmuş yerlərə "yeni müraciət → göndər" əvvəlki kimi işləyir.
+import { loadEntitlements } from "./plans.js";
 import { randomBytes } from "node:crypto";
 import { Router } from "express";
 import type { Deps } from "./deps.js";
@@ -215,6 +216,7 @@ export async function execute(deps: Deps, t: TenantRecord, a: Automation, ev: Au
 /** Hadisə baş verəndə uyğun avtomatlaşdırmaları işə salır. Heç vaxt xəta atmır. */
 export async function runAutomations(deps: Deps, t: TenantRecord, ev: AutoEvent): Promise<void> {
   try {
+    if (!(await loadEntitlements(deps, t.tenantId)).features.automations) return; // planda yoxdur
     const { items, implicit } = automationsOf(t);
     await Promise.all(items.filter((a) => matches(a, ev)).map(async (a) => {
       if (!deps.limiter.hit(`auto:${t.tenantId}:${a.id}`, RUNS_PER_HOUR, 60 * 60_000)) return;

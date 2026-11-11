@@ -87,6 +87,19 @@ export type AiClient = {
   ping(): Promise<void>;
   /** Claude/Gemini hesab problemləri (balans bitib, limit, açar səhvi) */
   providers(): Promise<AiResult>;
+  /** Abunə: plan/paket sifarişi (dryRun: yalnız qiymət) */
+  billingOrder(tenantId: string, body: { kind: string; plan?: string; cycle?: string; pack?: string }, dryRun?: boolean): Promise<AiResult>;
+  /** Növbəti dövrdən başqa plana keçid (null — ləğv) */
+  billingPlanNext(tenantId: string, plan: string | null): Promise<AiResult>;
+  /** Admin: plan vermək (days) və ya götürmək (plan: null) */
+  billingPlanAssign(tenantId: string, body: { plan: string | null; days?: number; note?: string; by?: string }): Promise<AiResult>;
+  /** Plan imkanları (funksiyaların açılması üçün) */
+  entitlements(tenantId: string): Promise<AiResult>;
+  /** Plan kataloqu (qiymət, limit, imkanlar) */
+  billingPlans(): Promise<AiResult>;
+  setBillingPlans(body: object): Promise<AiResult>;
+  /** Bitməyə yaxın / bitmiş abunələr (hər biri bir dəfə qaytarılır) */
+  planReminders(): Promise<AiResult>;
 };
 
 export function createAiClient(baseUrl: string, token: string): AiClient {
@@ -177,6 +190,13 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     aiControl: () => request("GET", "/ai-control"),
     setAiControl: (body) => request("PUT", "/ai-control", body),
     providers: () => request("GET", "/providers", undefined, 8000),
+    billingOrder: (id, body, dryRun) => request("POST", `${t(id)}/billing/order${dryRun ? "?dryRun=1" : ""}`, body),
+    billingPlanNext: (id, plan) => request("POST", `${t(id)}/billing/plan/next`, { plan }),
+    billingPlanAssign: (id, body) => request("POST", `${t(id)}/billing/plan/assign`, body),
+    entitlements: (id) => request("GET", `${t(id)}/billing/entitlements`, undefined, 8000),
+    billingPlans: () => request("GET", "/billing/plans"),
+    setBillingPlans: (body) => request("PUT", "/billing/plans", body),
+    planReminders: () => request("POST", "/billing/plan-reminders"),
     async ping() {
       const res = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(8000) });
       if (!res.ok) throw new Error(`AI servisi ${res.status} qaytardı`);

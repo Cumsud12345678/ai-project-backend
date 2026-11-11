@@ -6,7 +6,9 @@ import { isAdmin, isOwner } from "../deps.js";
 import { HttpError } from "../http.js";
 import { currentUser, requireAdmin, requireAuth } from "../middleware.js";
 import { normalizeEmail } from "../security.js";
-import { notifyTopupDone, parseAmount } from "../billing.js";
+import { notifyOrderDone, notifyTopupDone, parseAmount } from "../billing.js";
+import { invalidateEntitlements } from "../plans.js";
+import { publicPlans } from "../public-plans.js";
 import { ALERT_KINDS, alertLog, getAlertSettings, healthState, saveAlertSettings, sendAlert } from "../alerts.js";
 import { getPartnerSettings, normalizeCode, partnerCustomers, savePartnerSettings, syncThrottled, validCode, validRate } from "../partners.js";
 import { notifyAvailable, notifyBotName, sendNotify, userLinkUrl } from "../operator-notify.js";
@@ -117,7 +119,7 @@ export function adminRoutes(deps: Deps) {
     const out = await ai.billingResolve(String(req.params.id), action, currentUser(res).email);
     if (action === "approve" && !out.duplicate && out.request?.tenantId) {
       const t = await tenantInfo(String(out.request.tenantId));
-      if (t) void notifyTopupDone(deps, t, Number(out.request.amountAzn), out.balance?.totalAzn);
+      if (t) void (out.request.kind === "plan" || out.request.kind === "pack" ? notifyOrderDone(deps, t, out) : notifyTopupDone(deps, t, Number(out.request.amountAzn), out.balance?.totalAzn));
     }
     void audit(res, action === "approve" ? "billing.approve" : "billing.reject", String(req.params.id));
     console.log(`[admin] ${currentUser(res).email} yükləmə sorğusunu ${action === "approve" ? "təsdiqlədi" : "rədd etdi"}: ${req.params.id}`);
@@ -136,6 +138,29 @@ export function adminRoutes(deps: Deps) {
     if (amount > 0) { const t = await tenantInfo(tenantId); if (t) void notifyTopupDone(deps, t, amount, out.balance?.totalAzn); }
     res.json(out);
   });
+  // ---- Abunə planları (admin) ----
+  // Kataloq: qiymət, cavab limiti, operator sayı və imkanlar. Dəyişiklik mövcud abunələrin limitinə növbəti dövrdən təsir edir.
+  r.get("/billing/plans", async (_req, res) => { res.json(await ai.billingPlans()); });
+  r.put("/billing/plans", async (req, res) => {
+    const out = await ai.setBillingPlans((req.body ?? {}) as object);
+    invalidateEntitlements(); publicPlans.at = 0;
+    void audit(res, "billing.plans", "catalog", JSON.stringify((out.plans ?? []).map((p: { id: string; priceAzn: number; replies: number }) => `${p.id}:${p.priceAzn}/${p.replies}`)));
+    res.json(out);
+  });
+  // Müştəriyə plan vermək (pulsuz/endirim, days gün) və ya götürmək (plan: null)
+  r.post("/tenants/:tenantId/billing/plan", async (req, res) => {
+    const tenantId = await known(req.params.tenantId);
+    const b = (req.body ?? {}) as { plan?: unknown; days?: unknown; note?: unknown };
+    const plan = b.plan === null ? null : typeof b.plan === "string" && b.plan ? b.plan.slice(0, 20) : undefined;
+    if (plan === undefined) throw new HttpError(400, "Plan seçin");
+    const days = Number(b.days ?? 30);
+    if (plan !== null && (!Number.isFinite(days) || days < 1 || days > 3650)) throw new HttpError(400, "Gün sayı 1–3650 olmalıdır");
+    const out = await ai.billingPlanAssign(tenantId, { plan, days, note: typeof b.note === "string" ? b.note.slice(0, 200) : "", by: currentUser(res).email });
+    invalidateEntitlements(tenantId);
+    void audit(res, "billing.plan", tenantId, plan === null ? "plan götürüldü" : `${plan} · ${days} gün${typeof b.note === "string" && b.note ? ` · ${b.note}` : ""}`);
+    res.json(out);
+  });
+
   // "Powered by" yazısını söndürmək/qaytarmaq (ödənişli xidmət, yalnız admin)
   r.patch("/tenants/:tenantId/branding", async (req, res) => {
     const tenantId = await known(req.params.tenantId);

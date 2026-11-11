@@ -17,7 +17,8 @@ import type { Deps } from "./deps.js";
 import { HttpError } from "./http.js";
 import type { LiveChat, TenantRecord, WidgetImage, WidgetImageKind, WidgetSettings } from "./store/types.js";
 import { cleanContact } from "./kb.js";
-import { notifyBalance, notifyDailyLimit } from "./billing.js";
+import { notifyBalance, notifyDailyLimit, notifyTrialEnd, notifyUsage } from "./billing.js";
+import { loadEntitlements } from "./plans.js";
 import { hub } from "./hub.js";
 import { beat, pidOf, takeInvite, type ChatState } from "./presence.js";
 import { isBlocked, parseVisitorInfo } from "./visitors.js";
@@ -250,14 +251,15 @@ export function widgetRoutes(deps: Deps) {
   });
 
   r.options("/widget/:key/{*rest}", access);
-  r.get("/widget/:key/config", access, (_req, res) => {
+  r.get("/widget/:key/config", access, async (_req, res) => {
     const w = (res.locals.widgetTenant as TenantRecord).widget!;
     const wt = res.locals.widgetTenant as TenantRecord;
+    const ent = await loadEntitlements(deps, wt.tenantId);
     const mode = modeOf(wt.config);
     // Quraşdırmanın işlədiyini göstərmək üçün: ən çox 10 dəqiqədən bir yazılır
     if (!w.lastSeenAt || Date.now() - new Date(w.lastSeenAt).getTime() > 10 * 60_000) void store.touchWidget(wt.tenantId, new Date()).catch(() => {});
-    res.json({ title: w.title, greeting: w.greeting, color: widgetColor(w), label: w.label ?? DEFAULT_LABEL, effects: { pulse: Boolean(w.effects?.pulse), bounce: Boolean(w.effects?.bounce) }, mode, contact: true, live: liveOpenNow(wt), csat: w.live?.csat !== false, proactive: w.proactive?.enabled ? w.proactive.rules.filter((r) => campaignRunning(r, liveOpenNow(wt))).map((r) => ({ id: r.id, text: r.text, delaySec: r.delaySec, match: r.match, ...(r.title && { title: r.title }), ...(r.buttons?.length && { buttons: r.buttons }), ...(r.audience && r.audience !== "all" && { audience: r.audience }), ...(r.device && r.device !== "all" && { device: r.device }), ...(r.freq === "once" && { freq: "once" }) })) : [], // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
-      theme: w.theme ?? "light", brand: wt.brandRemoved ? null : { name: deps.config.brandName, url: deps.config.brandUrl }, imageSearch: imageEnabled(wt), presence: Boolean(w.live?.enabled), ...(w.logo && { logo: imageUrl(deps.config.publicPortalUrl, w, "logo") }), ...(w.avatar && { avatar: imageUrl(deps.config.publicPortalUrl, w, "avatar") }) });
+    res.json({ title: w.title, greeting: w.greeting, color: widgetColor(w), label: w.label ?? DEFAULT_LABEL, effects: { pulse: Boolean(w.effects?.pulse), bounce: Boolean(w.effects?.bounce) }, mode, contact: true, live: liveOpenNow(wt), csat: w.live?.csat !== false, proactive: w.proactive?.enabled && ent.features.campaigns ? w.proactive.rules.filter((r) => campaignRunning(r, liveOpenNow(wt))).map((r) => ({ id: r.id, text: r.text, delaySec: r.delaySec, match: r.match, ...(r.title && { title: r.title }), ...(r.buttons?.length && { buttons: r.buttons }), ...(r.audience && r.audience !== "all" && { audience: r.audience }), ...(r.device && r.device !== "all" && { device: r.device }), ...(r.freq === "once" && { freq: "once" }) })) : [], // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
+      theme: w.theme ?? "light", brand: wt.brandRemoved || ent.features.noBranding ? null : { name: deps.config.brandName, url: deps.config.brandUrl }, imageSearch: imageEnabled(wt), presence: Boolean(w.live?.enabled), ...(w.logo && { logo: imageUrl(deps.config.publicPortalUrl, w, "logo") }), ...(w.avatar && { avatar: imageUrl(deps.config.publicPortalUrl, w, "avatar") }) });
   });
 
   // Operatorla əlaqə (cavab tapılmayanda): sayt ziyarətçisi telefon/e-poçt qoyur, sayt sahibi panelda görür və e-poçtla xəbər alır.
@@ -293,6 +295,7 @@ export function widgetRoutes(deps: Deps) {
 
   r.post("/widget/:key/chat", access, async (req, res) => {
     const t = res.locals.widgetTenant as TenantRecord;
+    await loadEntitlements(deps, t.tenantId); // canlı söhbət/kampaniya yoxlamaları üçün keş təzələnir
     const key = t.widget!.key;
     const ip = req.ip ?? "unknown";
     // Limitləri müştəri özü təyin edir (0 = limitsiz). Ziyarətçi anonim brauzer ID-si (vid) ilə tanınır, yoxdursa IP ilə:
@@ -338,6 +341,8 @@ export function widgetRoutes(deps: Deps) {
       // Balans azalıb/bitibsə sayt sahibinə email (AI servisi eyni vəziyyət üçün yalnız bir dəfə xəbər verir)
       const notify = out.billing?.notify;
       if (notify === "low" || notify === "empty") void notifyBalance(deps, t, notify, out.billing?.balanceAzn);
+      if (notify === "usage80" || notify === "usage100") void notifyUsage(deps, t, notify, out.billing?.plan);
+      if (notify === "trialEnd") void notifyTrialEnd(deps, t);
       const listings = (Array.isArray(out.listings) ? out.listings : []).slice(0, 10).map(publicListing);
       const sources = (Array.isArray(out.sources) ? out.sources : []).slice(0, 3).map((s: Record<string, unknown>) => ({ title: str(s.title, 120) ?? "", url: httpUrl(s.url) }));
       const confirm = publicConfirm(out.confirm);
@@ -417,6 +422,7 @@ export function widgetRoutes(deps: Deps) {
   // Ziyarətçi söhbəti başladanda gizli token alır (yalnız hash-i saxlanır). Sonra bu token ilə mesaj göndərir və yeni mesajları oxuyur.
   r.post("/widget/:key/live", access, async (req, res) => {
     const t = res.locals.widgetTenant as TenantRecord;
+    await loadEntitlements(deps, t.tenantId);
     if (!t.widget?.live?.enabled) throw new HttpError(404, "Canlı söhbət söndürülüb", "LIVE_OFF");
     if (!liveOpenNow(t)) throw new HttpError(409, "Operatorlar hazırda işləmir, əlaqə qoyun", "OUTSIDE_HOURS");
     const key = t.widget.key, ip = req.ip ?? "unknown";

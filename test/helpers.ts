@@ -1,3 +1,4 @@
+import { invalidateEntitlements } from "../src/plans.js";
 import type { Deps } from "../src/deps.js";
 import type { AddressInfo } from "node:net";
 import { createApp } from "../src/app.js";
@@ -16,7 +17,7 @@ export const config: Config = {
   resendApiKey: undefined, mailFrom: "x", mailReplyTo: undefined, trustProxy: 1, secretKey: "test-secret-key-test-secret-key-0000", isProd: false,
 };
 
-export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown>; nextDraft?: Record<string, unknown>; heard?: string; aiState: Record<string, unknown>; pingFail: boolean; providerState: Record<string, unknown>; payments: Record<string, { id: string; at: string; amountAzn: number }[]> | null };
+export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown>; nextDraft?: Record<string, unknown>; heard?: string; aiState: Record<string, unknown>; pingFail: boolean; providerState: Record<string, unknown>; ent: Record<string, any>; reminders: Record<string, unknown>[]; payments: Record<string, { id: string; at: string; amountAzn: number }[]> | null };
 
 /** Saxta AI servisi: çağırışları qeyd edir, istənilsə xəta qaytarır. */
 export function fakeAi(): FakeAi {
@@ -101,6 +102,15 @@ export function fakeAi(): FakeAi {
     aiState: { paused: false } as Record<string, unknown>,
     async aiControl() { return rec("aiControl", [], ai.aiState); },
     async setAiControl(b) { ai.aiState = b.paused ? { ...b, at: new Date().toISOString() } : { paused: false }; return rec("setAiControl", [b], ai.aiState); },
+    ent: { source: "trial", plan: null, features: { channels: true, live: true, automations: true, campaigns: true, actions: true, customerData: true, noBranding: false }, seats: 6 } as Record<string, any>,
+    reminders: [] as Record<string, unknown>[],
+    async entitlements() { return ai.ent; }, // calls/failNext-ə yazılmır: hər çatda keşdən əvvəl çağırılır
+    async billingOrder(id, body, dryRun) { return rec("billingOrder", [id, body, dryRun], dryRun ? { quote: { kind: body.kind, type: "new", plan: body.plan, cycle: body.cycle, amountAzn: 15 } } : { request: { id: "o1", tenantId: id, kind: body.kind, plan: body.plan, cycle: body.cycle, amountAzn: 15, status: "pending", provider: "manual", at: "2026-11-10T00:00:00.000Z" }, provider: "manual", instructions: "Kartdan karta" }); },
+    async billingPlanNext(id, plan) { return rec("billingPlanNext", [id, plan], { subscription: { plan: "business", next: plan } }); },
+    async billingPlanAssign(id, body) { return rec("billingPlanAssign", [id, body], { subscription: body.plan ? { plan: body.plan } : null }); },
+    async billingPlans() { return rec("billingPlans", [], { plans: [{ id: "start", name: "Start", priceAzn: 15, replies: 1000, seats: 1, features: { channels: true } }], packs: [{ id: "p500", replies: 500, priceAzn: 10 }], yearlyMonths: 10, graceDays: 3, packDays: 365 }); },
+    async setBillingPlans(body) { return rec("setBillingPlans", [body], body as Record<string, unknown>); },
+    async planReminders() { const r = ai.reminders; ai.reminders = []; return { reminders: r }; },
     providerState: {} as Record<string, unknown>,
     async providers() { return rec("providers", [], { providers: ai.providerState }); },
     pingFail: false,
@@ -157,6 +167,7 @@ export function fakeTelegram(): FakeTelegram {
 }
 
 export async function startPortal(overrides: Partial<Config> = {}, waBatchMs = 0) {
+  invalidateEntitlements(); // plan imkanları keşi testlər arasında daşınmasın
   const store = createMemoryStore();
   const mails: { to: string; subject: string; text: string }[] = [];
   const ai = fakeAi();

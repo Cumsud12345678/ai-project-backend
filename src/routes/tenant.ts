@@ -6,7 +6,9 @@ import { MAX_TEAM, memberTenant, nameOf, tenantFor, validEmail } from "../team.j
 import type { Deps } from "../deps.js";
 import type { AiResult } from "../ai.js";
 import { HttpError } from "../http.js";
-import { notifyTopupRequest, parseAmount } from "../billing.js";
+import { notifyOrder, notifyTopupRequest, parseAmount } from "../billing.js";
+import { FEATURE_KEYS, invalidateEntitlements, loadEntitlements } from "../plans.js";
+import { getPublicPlans } from "../public-plans.js";
 import { mailVisitorReply } from "../live.js";
 import { exportCsv, funnel, type ExportKind } from "../stats.js";
 import { hub } from "../hub.js";
@@ -65,6 +67,8 @@ const liveItem = (c: LiveChat) => {
 
 export function tenantRoutes(deps: Deps) {
   const { store, ai, limiter, config } = deps;
+  // Operator sayı planın yerlərindən asılıdır (sahib də bir yerdir)
+  const teamMax = async (tenantId: string) => Math.min(MAX_TEAM, Math.max(0, (await loadEntitlements(deps, tenantId)).seats - 1));
   const r = Router();
   r.use(requireAuth);
 
@@ -100,7 +104,7 @@ export function tenantRoutes(deps: Deps) {
   // ---- Operator komandası (yalnız sahib) ----
   r.get("/team", async (_req, res) => {
     const t = await mine(currentUser(res).id);
-    res.json({ max: MAX_TEAM, members: (t.team ?? []).map((m) => ({ email: m.email, joined: Boolean(m.userId), addedAt: m.addedAt })) });
+    res.json({ max: await teamMax(t.tenantId), members: (t.team ?? []).map((m) => ({ email: m.email, joined: Boolean(m.userId), addedAt: m.addedAt })) });
   });
   r.post("/team", async (req, res) => {
     const user = currentUser(res);
@@ -109,7 +113,8 @@ export function tenantRoutes(deps: Deps) {
     const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
     if (!validEmail(email)) throw new HttpError(400, "Düzgün e-poçt yaz");
     if (email === user.email.toLowerCase()) throw new HttpError(400, "Bu sənin öz e-poçtundur");
-    if ((t.team ?? []).length >= MAX_TEAM) throw new HttpError(400, `Ən çox ${MAX_TEAM} operator əlavə edə bilərsən`, "TEAM_FULL");
+    const max = await teamMax(t.tenantId);
+    if ((t.team ?? []).length >= max) throw new HttpError(400, max === 0 ? "Planınızda operator əlavə etmək yoxdur" : `Planınızda ən çox ${max} operator əlavə etmək olar`, "TEAM_FULL");
     if ((t.team ?? []).some((m) => m.email === email)) throw new HttpError(409, "Bu e-poçt artıq əlavə olunub", "TEAM_EXISTS");
     const other = await store.findUserByEmail(email);
     if (other && (await store.findTenantByUser(other.id))) throw new HttpError(409, "Bu istifadəçinin öz hesabı var, onu operator kimi əlavə etmək olmaz", "HAS_OWN_ACCOUNT");
@@ -359,7 +364,10 @@ export function tenantRoutes(deps: Deps) {
       limits: limitsOf(t.widget),
       live: { enabled: Boolean(t.widget?.live?.enabled), open: liveOpen.length, waiting: liveWaiting },
       feedback: fb,
-      billing: billing ? { state: billing.state, balanceAzn: billing.balance?.totalAzn, freeAzn: billing.balance?.freeAzn, paidAzn: billing.balance?.paidAzn, monthAzn: billing.spend?.monthAzn, enforced: billing.enforced } : null,
+      billing: billing ? { state: billing.state, balanceAzn: billing.balance?.totalAzn, freeAzn: billing.balance?.freeAzn, paidAzn: billing.balance?.paidAzn, monthAzn: billing.spend?.monthAzn, enforced: billing.enforced,
+        // Abunə: üst zolaqda plan və limit göstərilir
+        plan: billing.subscription ? { name: billing.subscription.planName, status: billing.subscription.status, used: billing.subscription.used, included: billing.subscription.included, packLeft: billing.packLeft ?? 0, end: billing.subscription.end } : null,
+        trial: billing.trial ? { left: billing.trial.left, total: billing.trial.total, until: billing.trial.until } : null } : null,
       setup: {
         // both: elan mənbəyi VƏ YA bilik kifayətdir; listings: yalnız mənbə; support: yalnız bilik (və ya şirkət məlumatı)
         // Məqsəd seçilibsə sehirbazla eyni qayda: elan axtarışı seçilibsə kataloq, yalnız suallar seçilibsə bilik.
@@ -975,6 +983,38 @@ export function tenantRoutes(deps: Deps) {
     const out = await ai.billingTopupRequest(t.tenantId, amount);
     void notifyTopupRequest(deps, t, amount, typeof out.request?.id === "string" ? out.request.id : undefined);
     res.status(201).json(out);
+  });
+
+  // Abunə: plan/paket sifarişi. Məbləği AI servisi hesablayır (müştəri göndərmir). ?dryRun=1 — yalnız qiymət.
+  r.post("/billing/order", async (req, res) => {
+    const user = currentUser(res);
+    const t = await mine(user.id);
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const s = (v: unknown) => (typeof v === "string" ? v.slice(0, 20) : undefined);
+    const body = { kind: s(b.kind) ?? "", plan: s(b.plan), cycle: b.cycle === "year" ? "year" : "month", pack: s(b.pack) };
+    if (body.kind !== "plan" && body.kind !== "pack") throw new HttpError(400, "kind plan və ya pack olmalıdır");
+    const dry = req.query.dryRun === "1";
+    if (!dry && !limiter.hit(`order:${t.tenantId}`, 10, 60 * 60_000)) throw new HttpError(429, "Çox tez-tez sifariş göndərirsən", "RATE_LIMITED");
+    const out = await ai.billingOrder(t.tenantId, body, dry);
+    if (!dry && out.request) void notifyOrder(deps, t, out.request);
+    res.status(dry ? 200 : 201).json(out);
+  });
+  // Panel: plan imkanları və hər bağlı imkanın açıldığı ən ucuz plan ("Biznes planında" nişanı üçün)
+  r.get("/entitlements", async (_req, res) => {
+    const t = await mine(currentUser(res).id);
+    const ent = await loadEntitlements(deps, t.tenantId);
+    const cat = await getPublicPlans(deps).catch(() => null);
+    const plans = ([...((cat?.plans ?? []) as { name: string; priceAzn: number; features: Record<string, boolean> }[])]).sort((a, b) => a.priceAzn - b.priceAzn);
+    const unlock = Object.fromEntries(FEATURE_KEYS.map((k) => [k, plans.find((p) => p.features?.[k])?.name ?? null]));
+    res.json({ ...ent, unlock });
+  });
+  // Növbəti dövrdən başqa (ucuz) plana keçid; plan: null — ləğv
+  r.post("/billing/plan/next", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const p = (req.body as { plan?: unknown } | undefined)?.plan;
+    const out = await ai.billingPlanNext(t.tenantId, typeof p === "string" && p ? p.slice(0, 20) : null);
+    invalidateEntitlements(t.tenantId);
+    res.json(out);
   });
 
   r.post("/chat", async (req, res) => {
