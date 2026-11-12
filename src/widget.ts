@@ -172,10 +172,22 @@ function publicListing(l: Record<string, unknown>) {
 export const sha = (v: string) => createHash("sha256").update(v).digest();
 export const sameToken = (token: unknown, hash: string) => typeof token === "string" && token.length <= 100 && timingSafeEqual(sha(token), Buffer.from(hash, "hex"));
 /** Vidjetə yalnız ziyarətçinin görməli olduğu sahələr çıxır. */
-const liveView = (c: LiveChat, after: number) => ({
+/** Operator şəklinin ictimai istinadı: userId ziyarətçiyə çıxmır */
+export const opRef = (tenantId: string, uid: string) => sha(`op|${tenantId}|${uid}`).toString("hex").slice(0, 16);
+export const opPhotoUrl = (portalUrl: string, key: string, tenantId: string, uid: string, v: number) => `${portalUrl}/widget/${key}/op/${opRef(tenantId, uid)}?v=${v}`;
+type OpInfo = (uid?: string) => { name: string; photo?: string } | undefined;
+/** Ziyarətçiyə görünən operator: yalnız profil yazılıbsa (e-poçtdan alınan ad göstərilmir) */
+const opsOf = (t: TenantRecord, portalUrl: string): OpInfo => (uid) => {
+  const p = uid ? t.opProfiles?.[uid] : undefined;
+  return p && uid ? { name: p.name, ...(p.photo && t.widget && { photo: opPhotoUrl(portalUrl, t.widget.key, t.tenantId, uid, p.photo.v) }) } : undefined;
+};
+const liveView = (c: LiveChat, after: number, op?: OpInfo) => ({
   status: c.status, total: c.messages.length,
   // Ziyarətçinin öz şəkli: yalnız işarə. Operatorun faylı: ziyarətçi onu tokenlə ayrıca yükləyir (/live/:id/file).
-  messages: c.messages.slice(after).map((m) => ({ from: m.from, text: m.text, at: m.at, ...(m.file && (m.from === "operator" ? { file: { id: m.file.id, mime: m.file.mime, ...(m.file.name && { name: m.file.name }) } } : { file: true })) })),
+  messages: c.messages.slice(after).map((m) => {
+    const who = m.from === "operator" ? op?.(m.uid) : undefined;
+    return { from: m.from, text: m.text, at: m.at, ...(who && { op: who }), ...(m.file && (m.from === "operator" ? { file: { id: m.file.id, mime: m.file.mime, ...(m.file.name && { name: m.file.name }) } } : { file: true })) };
+  }),
 });
 /** Səhifə yolu: yalnız "/..." və sorğu/hash olmadan; başlıq qısaldılır. */
 const cleanPage = (v: unknown): { path: string; title?: string } | undefined => {
@@ -199,6 +211,8 @@ async function widgetScript(): Promise<string> {
   return text;
 }
 
+/** Köməkçinin adı (Köməkçi → Profil): vidjetdə "AI köməkçi" nişanı ilə göstərilir */
+const botNameOf = (t: TenantRecord) => { const v = (t.config as { profile?: { agentName?: unknown } } | undefined)?.profile?.agentName; return typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 40) : ""; };
 export const WIDGET_IMAGE_KINDS: readonly WidgetImageKind[] = ["logo", "avatar"];
 export const imageUrl = (portalUrl: string, w: Pick<WidgetSettings, "key" | "logo" | "avatar">, kind: WidgetImageKind) => `${portalUrl}/widget/${w.key}/${kind}?v=${w[kind]?.v ?? 0}`;
 export const logoUrl = (portalUrl: string, w: Pick<WidgetSettings, "key" | "logo">) => imageUrl(portalUrl, w, "logo");
@@ -261,6 +275,21 @@ export function widgetRoutes(deps: Deps) {
       res.send(Buffer.from(logo.data, "base64"));
     } catch (e) { next(e); }
   });
+  // Operatorun profil şəkli (canlı söhbətdə ziyarətçi görür)
+  r.get("/widget/:key/op/:ref", async (req, res, next) => {
+    try {
+      const key = String(req.params.key ?? ""), ref = String(req.params.ref ?? "");
+      const tenant = WIDGET_KEY_RE.test(key) && /^[a-f0-9]{16}$/.test(ref) ? await store.findTenantByWidgetKey(key) : null;
+      const hit = tenant?.widget?.enabled ? Object.entries(tenant.opProfiles ?? {}).find(([uid]) => opRef(tenant.tenantId, uid) === ref) : undefined;
+      const photo = hit?.[1].photo;
+      if (!photo) throw new HttpError(404, "Şəkil tapılmadı", "NO_PHOTO");
+      res.set({
+        "Content-Type": photo.mime, "Cache-Control": "public, max-age=86400", "Cross-Origin-Resource-Policy": "cross-origin",
+        "Content-Security-Policy": "default-src 'none'; sandbox", "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline",
+      });
+      res.send(Buffer.from(photo.data, "base64"));
+    } catch (e) { next(e); }
+  });
 
   r.options("/widget/:key/{*rest}", access);
   r.get("/widget/:key/config", access, async (_req, res) => {
@@ -271,7 +300,7 @@ export function widgetRoutes(deps: Deps) {
     // Quraşdırmanın işlədiyini göstərmək üçün: ən çox 10 dəqiqədən bir yazılır
     if (!w.lastSeenAt || Date.now() - new Date(w.lastSeenAt).getTime() > 10 * 60_000) void store.touchWidget(wt.tenantId, new Date()).catch(() => {});
     res.json({ title: w.title, greeting: w.greeting, color: widgetColor(w), label: w.label ?? DEFAULT_LABEL, effects: { pulse: Boolean(w.effects?.pulse), bounce: Boolean(w.effects?.bounce) }, mode, contact: true, live: liveOpenNow(wt), csat: w.live?.csat !== false, proactive: w.proactive?.enabled && ent.features.campaigns ? w.proactive.rules.filter((r) => campaignRunning(r, liveOpenNow(wt))).map((r) => ({ id: r.id, text: r.text, delaySec: r.delaySec, match: r.match, ...(r.title && { title: r.title }), ...(r.buttons?.length && { buttons: r.buttons }), ...(r.audience && r.audience !== "all" && { audience: r.audience }), ...(r.device && r.device !== "all" && { device: r.device }), ...(r.freq === "once" && { freq: "once" }) })) : [], // əlaqə forması: cavab tapılmayanda və ya balans bitəndə
-      theme: w.theme ?? "light", brand: wt.brandRemoved || ent.features.noBranding ? null : { name: deps.config.brandName, url: deps.config.brandUrl }, imageSearch: imageEnabled(wt), presence: Boolean(w.live?.enabled), ...(w.logo && { logo: imageUrl(deps.config.publicPortalUrl, w, "logo") }), ...(w.avatar && { avatar: imageUrl(deps.config.publicPortalUrl, w, "avatar") }) });
+      theme: w.theme ?? "light", brand: wt.brandRemoved || ent.features.noBranding ? null : { name: deps.config.brandName, url: deps.config.brandUrl }, imageSearch: imageEnabled(wt), ...(botNameOf(wt) && { botName: botNameOf(wt) }), presence: Boolean(w.live?.enabled), ...(w.logo && { logo: imageUrl(deps.config.publicPortalUrl, w, "logo") }), ...(w.avatar && { avatar: imageUrl(deps.config.publicPortalUrl, w, "avatar") }) });
   });
 
   // Operatorla əlaqə (cavab tapılmayanda): sayt ziyarətçisi telefon/e-poçt qoyur, sayt sahibi panelda görür və e-poçtla xəbər alır.
@@ -480,7 +509,7 @@ export function widgetRoutes(deps: Deps) {
     void notifyTeam(deps, t, `${hReason && hReason !== "asked" ? `${REASON_LABEL[hReason]} · ` : ""}Canlı söhbət: ${t.businessName}`, `Saytınızın çatında ziyarətçi operatorla yazışmaq istəyir.${text ? `\n\nİlk mesaj: ${text.slice(0, 300)}` : ""}\n\nPanelin "Müraciətlər" bölməsində "Canlı söhbət" tabını açın.`);
     hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "start", by: "visitor" });
     void notifyOperators(deps, t, { kind: "start", chatId: chat.id, channel: "sayt", name, text, ...(hReason && hReason !== "asked" && { reason: REASON_LABEL[hReason] }) });
-    res.status(201).json({ id: chat.id, token, ...liveView(chat, 0) });
+    res.status(201).json({ id: chat.id, token, ...liveView(chat, 0, opsOf(t, deps.config.publicPortalUrl)) });
   });
 
   // Ziyarətçi canlı söhbətdən çıxdı ("Yeni söhbət", "AI-a qayıt"): söhbət bağlanır ki, panel operatorla yazışma davam edir kimi göstərməsin
@@ -535,9 +564,9 @@ export function widgetRoutes(deps: Deps) {
       const next = await store.pushLive(t.tenantId, id, { from: "visitor", text, at: new Date(), ...(file && { file }) });
       hub.toOperators(t.tenantId, { t: "live", id, kind: "message", by: "visitor" });
       void notifyOperators(deps, t, { kind: "message", chatId: id, channel: "sayt", name: chat.name, text });
-      return void res.json(liveView(next ?? chat, after));
+      return void res.json(liveView(next ?? chat, after, opsOf(t, deps.config.publicPortalUrl)));
     }
-    res.json(liveView(chat, after));
+    res.json(liveView(chat, after, opsOf(t, deps.config.publicPortalUrl)));
   });
 
   // Operatorun göndərdiyi fayl: yalnız söhbətin tokeni ilə, yalnız həmin söhbətin faylı

@@ -17,7 +17,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { makeTicket, wsUrlOf } from "../realtime.js";
 import { currentUser, requireAuth } from "../middleware.js";
 import { type LiveChat, type TenantRecord, type User } from "../store/types.js";
-import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, imageUrl, widgetColor, WIDGET_IMAGE_KINDS, sha } from "../widget.js";
+import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, imageUrl, widgetColor, WIDGET_IMAGE_KINDS, sha, opPhotoUrl } from "../widget.js";
 import { blockOf, domainRoot, recordDomain } from "../domains.js";
 import { createTenantFor, withoutSecrets } from "../tenant-create.js";
 import { conversationSummary, liveSummary } from "../chat-summary.js";
@@ -465,7 +465,7 @@ export function tenantRoutes(deps: Deps) {
       await store.pushLive(t.tenantId, chat.id, { from: "system", text: "closed", at: new Date() }, { status: "closed" });
       throw new HttpError(502, channel === "telegram" ? "Mesaj Telegram-a göndərilə bilmədi" : "Mesaj WhatsApp-a göndərilə bilmədi", "CHANNEL_SEND_FAILED");
     }
-    await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date(), by: who }, { operatorSeenAt: new Date(), assignee: { userId: user.id, name: who } });
+    await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date(), by: who, uid: user.id }, { operatorSeenAt: new Date(), assignee: { userId: user.id, name: who } });
     hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "start" });
     res.status(201).json({ id: chat.id });
   });
@@ -596,7 +596,7 @@ export function tenantRoutes(deps: Deps) {
       id: randomUUID(), tenantId: t.tenantId, tokenHash: sha(token).toString("hex"), name: "", contact: "", status: "open", context,
       page: { path: v.path, ...(v.title && { title: v.title }) },
       visitor: { pid, ...(v.tz && { tz: v.tz }), ...(v.first && { first: v.first }), ...(v.visits && { visits: v.visits }), ...(v.lang && { lang: v.lang }), mobile: v.mobile, ...(v.ref && { ref: v.ref }) },
-      messages: [{ from: "operator", text, at: now, by: who }], createdAt: now, updatedAt: now, operatorSeenAt: now, assignee: { userId: user.id, name: who },
+      messages: [{ from: "operator", text, at: now, by: who, uid: user.id }], createdAt: now, updatedAt: now, operatorSeenAt: now, assignee: { userId: user.id, name: who },
     };
     await store.createLive(chat);
     setInvite(t.tenantId, pid, { id: chat.id, token }); // ziyarətçinin növbəti xəbərində (≤15 san) ona çatır
@@ -626,7 +626,7 @@ export function tenantRoutes(deps: Deps) {
       catch { throw new HttpError(502, chat.channel.type === "telegram" ? "Mesaj Telegram-a göndərilə bilmədi" : "Mesaj WhatsApp-a göndərilə bilmədi", "CHANNEL_SEND_FAILED"); }
     }
     const who = nameOf(user);
-    const next = await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date(), by: who }, { operatorSeenAt: new Date(), ...(!chat.assignee && { assignee: { userId: user.id, name: who } }) });
+    const next = await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date(), by: who, uid: user.id }, { operatorSeenAt: new Date(), ...(!chat.assignee && { assignee: { userId: user.id, name: who } }) });
     void mailVisitorReply(deps, t, chat, text); // yalnız ziyarətçi çatdan ayrılıbsa və e-poçt yazıbsa
     const total = next?.messages.length ?? chat.messages.length;
     hub.toChat(chat.id, { t: "new", total });                                   // ziyarətçi dərhal oxuyur
@@ -651,7 +651,7 @@ export function tenantRoutes(deps: Deps) {
     await store.addLiveFile({ id, tenantId: t.tenantId, chatId: chat.id, mime: f.mime, name: f.name, data: f.b64, at: new Date() });
     const who = nameOf(user);
     const text = caption || (f.mime === "application/pdf" ? `📄 ${f.name}` : "📷");
-    const next = await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date(), by: who, file: { id, mime: f.mime, name: f.name } }, { operatorSeenAt: new Date(), ...(!chat.assignee && { assignee: { userId: user.id, name: who } }) });
+    const next = await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date(), by: who, uid: user.id, file: { id, mime: f.mime, name: f.name } }, { operatorSeenAt: new Date(), ...(!chat.assignee && { assignee: { userId: user.id, name: who } }) });
     const total = next?.messages.length ?? chat.messages.length;
     hub.toChat(chat.id, { t: "new", total });
     hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "message" });
@@ -775,6 +775,36 @@ export function tenantRoutes(deps: Deps) {
     const followup = parseFollowup(req.body);
     await store.updateTenant(t.tenantId, { followup });
     res.json({ followup, delays: FOLLOWUP_DELAYS });
+  });
+
+  // ---- Operatorun ziyarətçiyə görünən profili (ad + şəkil): hər komanda üzvü öz profilini yazır ----
+  const opView = (t: TenantRecord, uid: string) => {
+    const p = t.opProfiles?.[uid];
+    return { profile: p ? { name: p.name, photoUrl: p.photo && t.widget ? opPhotoUrl(config.publicPortalUrl, t.widget.key, t.tenantId, uid, p.photo.v) : null } : null };
+  };
+  r.get("/operator-profile", async (_req, res) => {
+    const user = currentUser(res);
+    res.json(opView((await opTenant(user)).tenant, user.id));
+  });
+  r.put("/operator-profile", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`opprof:${user.id}`, 20, 10 * 60_000)) throw new HttpError(429, "Çox əməliyyat oldu, bir az gözləyin", "RATE_LIMITED");
+    const { tenant: t } = await opTenant(user);
+    const b = (req.body ?? {}) as { name?: unknown; photo?: unknown };
+    const name = typeof b.name === "string" ? b.name.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim() : "";
+    if (!name || name.length > 40) throw new HttpError(400, "Ad 1-40 simvol olmalıdır");
+    if (/@|https?:\/\/|www\./i.test(name)) throw new HttpError(400, "Ad e-poçt və ya link ola bilməz");
+    const old = t.opProfiles?.[user.id];
+    const photo = b.photo === null ? undefined : typeof b.photo === "string" ? parseLogo({ data: b.photo }) : old?.photo;
+    const profile = { name, ...(photo && { photo }), updatedAt: new Date() };
+    await store.setOpProfile(t.tenantId, user.id, profile);
+    res.json(opView({ ...t, opProfiles: { ...(t.opProfiles ?? {}), [user.id]: profile } }, user.id));
+  });
+  r.delete("/operator-profile", async (_req, res) => {
+    const user = currentUser(res);
+    const { tenant: t } = await opTenant(user);
+    await store.setOpProfile(t.tenantId, user.id, null);
+    res.json({ profile: null });
   });
 
   // ---- Ağıllı operator çağırışı: AI hansı hallarda söhbəti operatora ötürsün ----

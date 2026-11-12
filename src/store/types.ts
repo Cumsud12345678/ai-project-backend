@@ -95,6 +95,8 @@ export type WidgetSettings = {
 };
 
 export type TeamMember = { email: string; userId?: string; addedAt: Date };
+/** Operatorun ziyarətçiyə görünən profili (hər müştəri hesabında ayrıca): canlı söhbətdə "Leyla qoşuldu" + şəkil */
+export type OperatorProfile = { name: string; photo?: WidgetImage; updatedAt: Date };
 
 /** Müştərinin aktiv AI tenant-ı. `config` apiSecret olmadan saxlanır. */
 export type TenantRecord = {
@@ -119,6 +121,8 @@ export type TenantRecord = {
   report?: { monthly?: boolean; lastSent?: string };
   /** Operator komandası: sahibin dəvət etdiyi işçilər yalnız canlı söhbət qutusunu görür. `userId` işçi qeydiyyatdan keçəndə dolur. */
   team?: TeamMember[];
+  /** userId → operatorun görünən adı və şəkli */
+  opProfiles?: Record<string, OperatorProfile>;
   telegram?: TelegramLink | null;
   whatsapp?: WhatsAppLink | null;
   /** WhatsApp-da köməkçinin cavab yazmadığı nömrələr və ya adlar. Nömrə qoşulmazdan əvvəl də yazılır, ayıranda silinmir. */
@@ -180,7 +184,7 @@ export type HandoffSettings = { cantHelp: boolean; upset: boolean; ready: boolea
 /** Susan müştəriyə xatırlatma (Telegram/WhatsApp): AI cavabından sonra müştəri delayMin dəqiqə yazmasa bir dəfə */
 export type FollowupSettings = { enabled: boolean; delayMin: number; text?: string };
 
-export type LiveMessage = { from: "visitor" | "operator" | "system"; text: string; at: Date; /** operator mesajını yazan komanda üzvü */ by?: string; /** göndərilən fayl: ziyarətçinin şəkli və ya operatorun şəkli/PDF-i (baytlar ayrıca, live_files-da) */ file?: { id: string; mime: string; name?: string } };
+export type LiveMessage = { from: "visitor" | "operator" | "system"; text: string; at: Date; /** operator mesajını yazan komanda üzvü */ by?: string; /** həmin üzvün userId-si (ziyarətçiyə profil adı/şəkli üçün) */ uid?: string; /** göndərilən fayl: ziyarətçinin şəkli və ya operatorun şəkli/PDF-i (baytlar ayrıca, live_files-da) */ file?: { id: string; mime: string; name?: string } };
 /** Canlı söhbətdə göndərilən şəkil. Söhbət sənədini böyütməmək üçün ayrıca saxlanır, söhbətlə eyni müddətdə silinir. */
 export type LiveFile = { id: string; tenantId: string; chatId: string; mime: "image/png" | "image/jpeg" | "image/webp" | "application/pdf"; name?: string; data: string; at: Date };
 /** Ziyarətçi ilə operator arasında canlı söhbət. Ziyarətçi yalnız `tokenHash`-ın sahibi olan token ilə oxuya/yaza bilər. */
@@ -270,6 +274,8 @@ export interface Store {
   createTenant(t: TenantRecord): Promise<void>; // DuplicateError: istifadəçinin artıq tenant-ı var
   /** Yalnız vidjet loqosunu dəyişir (bütün vidjet sənədini yenidən yazmır). null = sil. */
   setWidgetLogo(tenantId: string, logo: WidgetImage | null, kind?: WidgetImageKind): Promise<void>;
+  /** Bir operatorun profilini atomik yazır (null = silinir) */
+  setOpProfile(tenantId: string, userId: string, profile: OperatorProfile | null): Promise<void>;
   /** Vidjetin ayrı sahələrini yazır (widget.<sahə>), qalanına (loqo, profil şəkli) toxunmur. Vidjet yoxdursa heç nə etmir. */
   patchWidget(tenantId: string, fields: Partial<Omit<WidgetSettings, "logo" | "avatar">>): Promise<void>;
   updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "testedAt" | "setup" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats" | "automations" | "waIgnore" | "followup" | "handoff">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;

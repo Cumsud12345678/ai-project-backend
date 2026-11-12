@@ -133,6 +133,11 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
       await tenants.updateOne({ tenantId, widget: { $type: "object" } }, { $set: set, ...(Object.keys(unset).length && { $unset: unset }) });
     },
     async updateTenant(tenantId, patch) { await tenants.updateOne({ tenantId }, { $set: { ...patch, updatedAt: new Date() } }); },
+    async setOpProfile(tenantId, userId, profile) {
+      if (!/^[\w-]{1,64}$/.test(userId)) return; // açar kimi yalnız təhlükəsiz id
+      const f = `opProfiles.${userId}`;
+      await tenants.updateOne({ tenantId }, profile ? { $set: { [f]: profile, updatedAt: new Date() } } : { $unset: { [f]: "" }, $set: { updatedAt: new Date() } });
+    },
     async setWidgetLogo(tenantId, logo, kind = "logo") {
       const f = `widget.${kind}`;
       await tenants.updateOne({ tenantId, widget: { $exists: true } }, logo ? { $set: { [f]: logo, updatedAt: new Date() } } : { $unset: { [f]: "" }, $set: { updatedAt: new Date() } });

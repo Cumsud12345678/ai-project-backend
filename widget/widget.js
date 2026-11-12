@@ -126,10 +126,10 @@
   var L = (function () {
     var lang = ((document.documentElement.lang || navigator.language || "az") + "").slice(0, 2).toLowerCase();
     var T = {
-      az: { menu: "Əlavə imkanlar", soundOff: "Səsi bağla", soundOn: "Səsi aç", emoji: "Emoji", sendL: "Göndər", months: ["Yanvar","Fevral","Mart","Aprel","May","İyun","İyul","Avqust","Sentyabr","Oktyabr","Noyabr","Dekabr"], poweredBy: "Hazırlayan:", csatQ: "Operatorun xidmətini qiymətləndirin", proClose: "Bağla", actYes: "Təsdiq et", actExpired: "Bu təsdiqin vaxtı keçib. Əməliyyatı yenidən istəyin.", actUnknown: "Əməliyyatın icra olunub-olunmadığı bəlli deyil. Təkrar etməyin, operatorla yoxlayın.", actFail: "Təsdiqlənə bilmədi, əməliyyat icra olunmayıb. Yenidən cəhd edin.", actWait: "Gözləyin…", actCheck: "Əməliyyatı yoxlayın:", src: "Mənbə:", offline: "Çat hazırda cavab vermir. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", contact: "Operatorla əlaqə", name: "Adınız (ixtiyari)", cont: "Telefon və ya e-poçt", send: "Göndər", ok: "Təşəkkürlər! Müraciətiniz qəbul edildi, tezliklə sizinlə əlaqə saxlayacağıq.", bad: "Düzgün telefon nömrəsi və ya e-poçt yazın", fail: "Göndərilə bilmədi, bir azdan yenidən cəhd edin", cancel: "Ləğv et", fresh: "Yeni söhbət", toDark: "Gecə rejimi", toLight: "Gündüz rejimi", photoAdd: "Şəkil əlavə et", photoDel: "Şəkli sil", photoBad: "Şəkil oxuna bilmədi. PNG, JPG və ya WebP seçin.", photoSent: "Şəkil göndərildi", live: "Operatorla canlı yaz", liveStart: "Operatora qoşuldunuz. Mesajınızı yazın, cavab gələndə burada görəcəksiniz.", opTyping: "Operator yazır…", liveMailPh: "E-poçt (ixtiyari)", liveMailHint: "Çatdan çıxsanız, operatorun cavabını e-poçtla göndərək.", liveBack: "AI-a qayıt", liveWait: "Operator hələ cavab verməyib. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", liveEnd: "Operator söhbəti bitirdi. Yeni sual yazsanız, yenidən AI cavab verəcək.", liveFail: "Mesaj göndərilmədi, yenidən cəhd edin", livePh: "Operatora mesaj yazın…", op: "Operator", up: "Cavab faydalı idi", down: "Cavab faydalı deyildi", thanks: "Təşəkkürlər!", limit: "Bu gün üçün sual limitinə çatdınız. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", busy: "Çat hazırda çox yüklüdür. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq." , ph: "Mesajınızı yazın…", msgLabel: "Mesaj" },
-      en: { menu: "More options", soundOff: "Mute sounds", soundOn: "Turn sounds on", emoji: "Emoji", sendL: "Send", months: ["January","February","March","April","May","June","July","August","September","October","November","December"], poweredBy: "Powered by", csatQ: "Please rate the operator's help", proClose: "Close", actYes: "Confirm", actExpired: "This confirmation has expired. Please ask for the action again.", actUnknown: "It is not known whether the action was carried out. Do not repeat it; check with an operator.", actFail: "Could not confirm; the action was not carried out. Please try again.", actWait: "Please wait…", actCheck: "Please check the action:", src: "Source:", offline: "The chat can't answer right now. Leave your contact and we'll get back to you.", contact: "Contact an operator", name: "Your name (optional)", cont: "Phone or email", send: "Send", ok: "Thank you! Your request was received, we'll contact you soon.", bad: "Enter a valid phone number or email", fail: "Could not send, please try again shortly", cancel: "Cancel", fresh: "New chat", toDark: "Night mode", toLight: "Day mode", photoAdd: "Attach a photo", photoDel: "Remove photo", photoBad: "Couldn't read the image. Choose PNG, JPG or WebP.", photoSent: "Photo sent", live: "Chat with an operator", liveStart: "You are connected to an operator. Type your message, replies will appear here.", opTyping: "Operator is typing…", liveMailPh: "Email (optional)", liveMailHint: "If you leave the chat, we will email you the operator's reply.", liveBack: "Back to AI", liveWait: "The operator has not replied yet. Leave your contact and we'll get back to you.", liveEnd: "The operator ended the chat. Write a new question and the AI will answer again.", liveFail: "Message not sent, please try again", livePh: "Message the operator…", op: "Operator", up: "Helpful answer", down: "Not helpful", thanks: "Thanks!", limit: "You have reached today's question limit. Leave your contact and we'll get back to you.", busy: "The chat is very busy right now. Leave your contact and we'll get back to you." , ph: "Type your message…", msgLabel: "Message" },
-      ru: { menu: "Дополнительно", soundOff: "Выключить звук", soundOn: "Включить звук", emoji: "Эмодзи", sendL: "Отправить", months: ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"], poweredBy: "Работает на", csatQ: "Оцените помощь оператора", proClose: "Закрыть", actYes: "Подтвердить", actExpired: "Срок подтверждения истёк. Запросите действие заново.", actUnknown: "Неизвестно, выполнено ли действие. Не повторяйте его, уточните у оператора.", actFail: "Не удалось подтвердить, действие не выполнено. Попробуйте ещё раз.", actWait: "Подождите…", actCheck: "Проверьте действие:", src: "Источник:", offline: "Чат сейчас не может ответить. Оставьте контакт, и мы свяжемся с вами.", contact: "Связаться с оператором", name: "Ваше имя (необязательно)", cont: "Телефон или e-mail", send: "Отправить", ok: "Спасибо! Ваше обращение принято, мы скоро свяжемся с вами.", bad: "Введите корректный телефон или e-mail", fail: "Не удалось отправить, попробуйте позже", cancel: "Отмена", fresh: "Новый чат", toDark: "Ночной режим", toLight: "Дневной режим", photoAdd: "Прикрепить фото", photoDel: "Убрать фото", photoBad: "Не удалось прочитать изображение. Выберите PNG, JPG или WebP.", photoSent: "Фото отправлено", live: "Написать оператору", liveStart: "Вы подключены к оператору. Напишите сообщение, ответ появится здесь.", opTyping: "Оператор печатает…", liveMailPh: "E-mail (необязательно)", liveMailHint: "Если вы выйдете из чата, мы отправим ответ оператора на e-mail.", liveBack: "Назад к ИИ", liveWait: "Оператор пока не ответил. Оставьте контакт, и мы свяжемся с вами.", liveEnd: "Оператор завершил чат. Напишите новый вопрос, и снова ответит ИИ.", liveFail: "Сообщение не отправлено, попробуйте ещё раз", livePh: "Сообщение оператору…", op: "Оператор", up: "Ответ полезен", down: "Ответ не полезен", thanks: "Спасибо!", limit: "Вы достигли лимита вопросов на сегодня. Оставьте контакт, и мы свяжемся с вами.", busy: "Чат сейчас сильно загружен. Оставьте контакт, и мы свяжемся с вами." , ph: "Напишите сообщение…", msgLabel: "Сообщение" },
-      tr: { menu: "Diğer seçenekler", soundOff: "Sesi kapat", soundOn: "Sesi aç", emoji: "Emoji", sendL: "Gönder", months: ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"], poweredBy: "Sağlayan:", csatQ: "Operatörün yardımını değerlendirin", proClose: "Kapat", actYes: "Onayla", actExpired: "Bu onayın süresi doldu. İşlemi yeniden isteyin.", actUnknown: "İşlemin gerçekleştirilip gerçekleştirilmediği belli değil. Tekrarlamayın, operatörle kontrol edin.", actFail: "Onaylanamadı, işlem gerçekleştirilmedi. Lütfen tekrar deneyin.", actWait: "Lütfen bekleyin…", actCheck: "İşlemi kontrol edin:", src: "Kaynak:", offline: "Sohbet şu anda yanıt veremiyor. İsterseniz iletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", contact: "Operatörle iletişim", name: "Adınız (isteğe bağlı)", cont: "Telefon veya e-posta", send: "Gönder", ok: "Teşekkürler! Başvurunuz alındı, kısa süre içinde sizinle iletişime geçeceğiz.", bad: "Geçerli bir telefon numarası veya e-posta yazın", fail: "Gönderilemedi, birazdan tekrar deneyin", cancel: "İptal", fresh: "Yeni sohbet", toDark: "Gece modu", toLight: "Gündüz modu", photoAdd: "Fotoğraf ekle", photoDel: "Fotoğrafı kaldır", photoBad: "Görsel okunamadı. PNG, JPG veya WebP seçin.", photoSent: "Fotoğraf gönderildi", live: "Operatörle canlı yaz", liveStart: "Operatöre bağlandınız. Mesajınızı yazın, yanıt geldiğinde burada göreceksiniz.", opTyping: "Operatör yazıyor…", liveMailPh: "E-posta (isteğe bağlı)", liveMailHint: "Sohbetten çıkarsanız operatörün yanıtını e-postayla gönderelim.", liveBack: "AI'a dön", liveWait: "Operatör henüz yanıt vermedi. İsterseniz iletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", liveEnd: "Operatör sohbeti bitirdi. Yeni bir soru yazarsanız yine AI yanıt verecek.", liveFail: "Mesaj gönderilemedi, tekrar deneyin", livePh: "Operatöre mesaj yazın…", op: "Operatör", up: "Yanıt faydalıydı", down: "Faydalı değildi", thanks: "Teşekkürler!", limit: "Bugünkü soru sınırına ulaştınız. İletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", busy: "Sohbet şu anda çok yoğun. İletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", ph: "Mesajınızı yazın…", msgLabel: "Mesaj" }
+      az: { menu: "Əlavə imkanlar", soundOff: "Səsi bağla", soundOn: "Səsi aç", emoji: "Emoji", sendL: "Göndər", months: ["Yanvar","Fevral","Mart","Aprel","May","İyun","İyul","Avqust","Sentyabr","Oktyabr","Noyabr","Dekabr"], poweredBy: "Hazırlayan:", csatQ: "Operatorun xidmətini qiymətləndirin", proClose: "Bağla", actYes: "Təsdiq et", actExpired: "Bu təsdiqin vaxtı keçib. Əməliyyatı yenidən istəyin.", actUnknown: "Əməliyyatın icra olunub-olunmadığı bəlli deyil. Təkrar etməyin, operatorla yoxlayın.", actFail: "Təsdiqlənə bilmədi, əməliyyat icra olunmayıb. Yenidən cəhd edin.", actWait: "Gözləyin…", actCheck: "Əməliyyatı yoxlayın:", src: "Mənbə:", offline: "Çat hazırda cavab vermir. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", contact: "Operatorla əlaqə", name: "Adınız (ixtiyari)", cont: "Telefon və ya e-poçt", send: "Göndər", ok: "Təşəkkürlər! Müraciətiniz qəbul edildi, tezliklə sizinlə əlaqə saxlayacağıq.", bad: "Düzgün telefon nömrəsi və ya e-poçt yazın", fail: "Göndərilə bilmədi, bir azdan yenidən cəhd edin", cancel: "Ləğv et", fresh: "Yeni söhbət", toDark: "Gecə rejimi", toLight: "Gündüz rejimi", photoAdd: "Şəkil əlavə et", photoDel: "Şəkli sil", photoBad: "Şəkil oxuna bilmədi. PNG, JPG və ya WebP seçin.", photoSent: "Şəkil göndərildi", live: "Operatorla canlı yaz", liveStart: "Operatora qoşuldunuz. Mesajınızı yazın, cavab gələndə burada görəcəksiniz.", opTyping: "Operator yazır…", liveMailPh: "E-poçt (ixtiyari)", liveMailHint: "Çatdan çıxsanız, operatorun cavabını e-poçtla göndərək.", liveBack: "AI-a qayıt", liveWait: "Operator hələ cavab verməyib. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", liveEnd: "Operator söhbəti bitirdi. Yeni sual yazsanız, yenidən AI cavab verəcək.", liveFail: "Mesaj göndərilmədi, yenidən cəhd edin", livePh: "Operatora mesaj yazın…", op: "Operator", aiBadge: "AI köməkçi", joined: "{n} söhbətə qoşuldu", up: "Cavab faydalı idi", down: "Cavab faydalı deyildi", thanks: "Təşəkkürlər!", limit: "Bu gün üçün sual limitinə çatdınız. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq.", busy: "Çat hazırda çox yüklüdür. İstəsəniz əlaqə qoyun, sizinlə əlaqə saxlayaq." , ph: "Mesajınızı yazın…", msgLabel: "Mesaj" },
+      en: { menu: "More options", soundOff: "Mute sounds", soundOn: "Turn sounds on", emoji: "Emoji", sendL: "Send", months: ["January","February","March","April","May","June","July","August","September","October","November","December"], poweredBy: "Powered by", csatQ: "Please rate the operator's help", proClose: "Close", actYes: "Confirm", actExpired: "This confirmation has expired. Please ask for the action again.", actUnknown: "It is not known whether the action was carried out. Do not repeat it; check with an operator.", actFail: "Could not confirm; the action was not carried out. Please try again.", actWait: "Please wait…", actCheck: "Please check the action:", src: "Source:", offline: "The chat can't answer right now. Leave your contact and we'll get back to you.", contact: "Contact an operator", name: "Your name (optional)", cont: "Phone or email", send: "Send", ok: "Thank you! Your request was received, we'll contact you soon.", bad: "Enter a valid phone number or email", fail: "Could not send, please try again shortly", cancel: "Cancel", fresh: "New chat", toDark: "Night mode", toLight: "Day mode", photoAdd: "Attach a photo", photoDel: "Remove photo", photoBad: "Couldn't read the image. Choose PNG, JPG or WebP.", photoSent: "Photo sent", live: "Chat with an operator", liveStart: "You are connected to an operator. Type your message, replies will appear here.", opTyping: "Operator is typing…", liveMailPh: "Email (optional)", liveMailHint: "If you leave the chat, we will email you the operator's reply.", liveBack: "Back to AI", liveWait: "The operator has not replied yet. Leave your contact and we'll get back to you.", liveEnd: "The operator ended the chat. Write a new question and the AI will answer again.", liveFail: "Message not sent, please try again", livePh: "Message the operator…", op: "Operator", aiBadge: "AI assistant", joined: "{n} joined the chat", up: "Helpful answer", down: "Not helpful", thanks: "Thanks!", limit: "You have reached today's question limit. Leave your contact and we'll get back to you.", busy: "The chat is very busy right now. Leave your contact and we'll get back to you." , ph: "Type your message…", msgLabel: "Message" },
+      ru: { menu: "Дополнительно", soundOff: "Выключить звук", soundOn: "Включить звук", emoji: "Эмодзи", sendL: "Отправить", months: ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"], poweredBy: "Работает на", csatQ: "Оцените помощь оператора", proClose: "Закрыть", actYes: "Подтвердить", actExpired: "Срок подтверждения истёк. Запросите действие заново.", actUnknown: "Неизвестно, выполнено ли действие. Не повторяйте его, уточните у оператора.", actFail: "Не удалось подтвердить, действие не выполнено. Попробуйте ещё раз.", actWait: "Подождите…", actCheck: "Проверьте действие:", src: "Источник:", offline: "Чат сейчас не может ответить. Оставьте контакт, и мы свяжемся с вами.", contact: "Связаться с оператором", name: "Ваше имя (необязательно)", cont: "Телефон или e-mail", send: "Отправить", ok: "Спасибо! Ваше обращение принято, мы скоро свяжемся с вами.", bad: "Введите корректный телефон или e-mail", fail: "Не удалось отправить, попробуйте позже", cancel: "Отмена", fresh: "Новый чат", toDark: "Ночной режим", toLight: "Дневной режим", photoAdd: "Прикрепить фото", photoDel: "Убрать фото", photoBad: "Не удалось прочитать изображение. Выберите PNG, JPG или WebP.", photoSent: "Фото отправлено", live: "Написать оператору", liveStart: "Вы подключены к оператору. Напишите сообщение, ответ появится здесь.", opTyping: "Оператор печатает…", liveMailPh: "E-mail (необязательно)", liveMailHint: "Если вы выйдете из чата, мы отправим ответ оператора на e-mail.", liveBack: "Назад к ИИ", liveWait: "Оператор пока не ответил. Оставьте контакт, и мы свяжемся с вами.", liveEnd: "Оператор завершил чат. Напишите новый вопрос, и снова ответит ИИ.", liveFail: "Сообщение не отправлено, попробуйте ещё раз", livePh: "Сообщение оператору…", op: "Оператор", aiBadge: "ИИ-ассистент", joined: "К чату подключился оператор: {n}", up: "Ответ полезен", down: "Ответ не полезен", thanks: "Спасибо!", limit: "Вы достигли лимита вопросов на сегодня. Оставьте контакт, и мы свяжемся с вами.", busy: "Чат сейчас сильно загружен. Оставьте контакт, и мы свяжемся с вами." , ph: "Напишите сообщение…", msgLabel: "Сообщение" },
+      tr: { menu: "Diğer seçenekler", soundOff: "Sesi kapat", soundOn: "Sesi aç", emoji: "Emoji", sendL: "Gönder", months: ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"], poweredBy: "Sağlayan:", csatQ: "Operatörün yardımını değerlendirin", proClose: "Kapat", actYes: "Onayla", actExpired: "Bu onayın süresi doldu. İşlemi yeniden isteyin.", actUnknown: "İşlemin gerçekleştirilip gerçekleştirilmediği belli değil. Tekrarlamayın, operatörle kontrol edin.", actFail: "Onaylanamadı, işlem gerçekleştirilmedi. Lütfen tekrar deneyin.", actWait: "Lütfen bekleyin…", actCheck: "İşlemi kontrol edin:", src: "Kaynak:", offline: "Sohbet şu anda yanıt veremiyor. İsterseniz iletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", contact: "Operatörle iletişim", name: "Adınız (isteğe bağlı)", cont: "Telefon veya e-posta", send: "Gönder", ok: "Teşekkürler! Başvurunuz alındı, kısa süre içinde sizinle iletişime geçeceğiz.", bad: "Geçerli bir telefon numarası veya e-posta yazın", fail: "Gönderilemedi, birazdan tekrar deneyin", cancel: "İptal", fresh: "Yeni sohbet", toDark: "Gece modu", toLight: "Gündüz modu", photoAdd: "Fotoğraf ekle", photoDel: "Fotoğrafı kaldır", photoBad: "Görsel okunamadı. PNG, JPG veya WebP seçin.", photoSent: "Fotoğraf gönderildi", live: "Operatörle canlı yaz", liveStart: "Operatöre bağlandınız. Mesajınızı yazın, yanıt geldiğinde burada göreceksiniz.", opTyping: "Operatör yazıyor…", liveMailPh: "E-posta (isteğe bağlı)", liveMailHint: "Sohbetten çıkarsanız operatörün yanıtını e-postayla gönderelim.", liveBack: "AI'a dön", liveWait: "Operatör henüz yanıt vermedi. İsterseniz iletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", liveEnd: "Operatör sohbeti bitirdi. Yeni bir soru yazarsanız yine AI yanıt verecek.", liveFail: "Mesaj gönderilemedi, tekrar deneyin", livePh: "Operatöre mesaj yazın…", op: "Operatör", aiBadge: "AI asistan", joined: "{n} sohbete katıldı", up: "Yanıt faydalıydı", down: "Faydalı değildi", thanks: "Teşekkürler!", limit: "Bugünkü soru sınırına ulaştınız. İletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", busy: "Sohbet şu anda çok yoğun. İletişim bilgilerinizi bırakın, sizinle iletişime geçelim.", ph: "Mesajınızı yazın…", msgLabel: "Mesaj" }
     };
     T_EN = T.en;
     return T[lang] || T.az;
@@ -256,7 +256,9 @@
     ".panel{position:fixed;bottom:calc(var(--cy) + 68px);" + position + ":var(--cx);width:380px;max-width:calc(100vw - 24px);height:560px;max-height:max(240px,calc(100vh - var(--cy) - 88px));background:var(--bg);color:var(--fg);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:none;flex-direction:column;overflow:hidden;z-index:calc(var(--ca-z) + 1);border:1px solid var(--border)}",
     ".panel.open{display:flex}",
     ".head{display:flex;align-items:center;gap:8px;padding:14px 16px;background:var(--accent);color:var(--accent-fg)}",
-    ".head h2{flex:1;margin:0;font-size:15px;font-weight:600;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    ".head h2{margin:0;font-size:15px;font-weight:600;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    ".htx{flex:1;min-width:0;display:flex;flex-direction:column}.hsub{font-size:11.5px;line-height:1.3;opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    ".hsub b{display:inline-block;font-weight:600;font-size:10px;letter-spacing:.02em;padding:0 5px;margin-right:4px;border-radius:4px;background:color-mix(in srgb,var(--accent-fg) 20%,transparent);vertical-align:1px}",
     ".close{background:transparent;border:0;color:inherit;cursor:pointer;padding:4px;border-radius:6px;display:grid;place-items:center}",
     ".close svg{width:20px;height:20px}",
     ".newb[hidden]{display:none}",
@@ -573,16 +575,43 @@
       return box;
     }
     var headAvatar = avatarInto(el("span", { class: "hav", "aria-hidden": "true" }));
+    var botName = typeof cfg.botName === "string" ? cfg.botName.slice(0, 40) : "";
+    var headSub = el("span", { class: "hsub" });
+    // Başlıq altı: AI danışırsa "[AI] Aysel" (ad yoxdursa "AI köməkçi"), operator qoşulubsa onun adı və şəkli (bot insan kimi göstərilmir)
+    function opPhoto(op) { return op && typeof op.photo === "string" && /^https?:\/\//i.test(op.photo) ? op.photo : ""; }
+    function opInto(box, op) {
+      var url = opPhoto(op);
+      if (url) {
+        var im = el("img", { src: url, alt: "", referrerpolicy: "no-referrer" });
+        im.addEventListener("error", function () { box.innerHTML = ICON_USER; }); // sabit SVG
+        box.appendChild(im);
+      } else box.innerHTML = ICON_USER; // sabit SVG
+      return box;
+    }
+    function updateHead() {
+      var op = state.live && state.live.op;
+      headSub.textContent = "";
+      headAvatar.textContent = "";
+      if (state.live) {
+        headSub.textContent = op && op.name ? op.name + " · " + L.op : L.op;
+        if (op) opInto(headAvatar, op); else avatarInto(headAvatar);
+      } else {
+        if (botName) { headSub.appendChild(el("b", { text: "AI" })); headSub.appendChild(document.createTextNode(botName)); }
+        else headSub.textContent = L.aiBadge;
+        avatarInto(headAvatar);
+      }
+    }
     function botAv() { return avatarInto(el("span", { class: "av", "aria-hidden": "true" })); }
-    function opAv() { var a = el("span", { class: "av op", "aria-hidden": "true" }); a.innerHTML = ICON_USER; return a; } // sabit SVG
+    function opAv(op) { return opInto(el("span", { class: "av op", "aria-hidden": "true" }), op); }
     var brandEl = null;
     if (cfg.brand && typeof cfg.brand.name === "string" && cfg.brand.name) {
       brandEl = el("div", { class: "brand" }, [el("span", { text: L.poweredBy + " " })]);
       brandEl.appendChild(isUrl(cfg.brand.url) ? el("a", { href: cfg.brand.url, target: "_blank", rel: "noopener noreferrer", text: cfg.brand.name }) : el("span", { text: cfg.brand.name }));
     }
     var panel = el("div", { class: "panel", role: "dialog", "aria-label": cfg.title || "Çat" }, [
-      el("div", { class: "head" }, [headAvatar, el("h2", { text: cfg.title || "Çat" }), newBtn, moreBtn, closeBtn]), log, pv, form,
+      el("div", { class: "head" }, [headAvatar, el("div", { class: "htx" }, [el("h2", { text: cfg.title || "Çat" }), headSub]), newBtn, moreBtn, closeBtn]), log, pv, form,
     ].concat(brandEl ? [brandEl] : [], [sheetBg, sheet]));
+    updateHead();
     var launcher = el("button", { class: "launcher", type: "button", "aria-label": "Çatı aç", "aria-expanded": "false" });
     launcher.innerHTML = ICON_CHAT;
     var fx = cfg.effects || {};
@@ -777,17 +806,17 @@
       }
       log.appendChild(el("div", { class: withBack ? "note back" : "note" }, kids));
     }
-    function liveBubble(role, text, t, withFile, opFile) {
+    function liveBubble(role, text, t, withFile, opFile, op) {
       if (role === "system") return note(L.liveEnd, false);
       maybeDay(t);
       if (role === "operator") {
-        var b = el("div", { class: "msg operator" }, [el("div", { class: "who", text: L.op })]);
+        var b = el("div", { class: "msg operator" }, [el("div", { class: "who", text: op && op.name ? op.name : L.op })]);
         if (opFile && opFile.id) {
           b.appendChild(opFileEl(opFile));
           if (text === "📷" || text === "📄 " + opFile.name) text = ""; // yalnız işarə idi
         }
         if (text) b.appendChild(el("div", { text: text }));
-        return row("mb", b, t, opAv());
+        return row("mb", b, t, opAv(op));
       }
       // Şəkil: bu tabda yenicə göndərilibsə önizləmə, yoxsa "Şəkil göndərildi" qeydi. Şəkilsiz mətn "📷" yalnız işarədir, göstərilmir.
       var url = withFile && sentShot ? sentShot : null;
@@ -827,6 +856,7 @@
       log.appendChild(b);
     }
     function updateLiveUi() {
+      updateHead();
       liveItem.b.hidden = !cfg.live || !!state.live;
       input.placeholder = state.live ? L.livePh : L.ph;
       updateAct();
@@ -882,7 +912,8 @@
       bubble("model", cfg.greeting || "");
       var q = "";
       state.messages.forEach(function (m) {
-        if (m.live) return liveBubble(m.role, m.text, m.t, m.img === true, m.file);
+        if (m.joined) return note(m.text, false);
+        if (m.live) return liveBubble(m.role, m.text, m.t, m.img === true, m.file, m.op);
         maybeDay(m.t);
         bubble(m.role, m.text, null, m.img, m.t); if (m.role === "user") q = m.text; else extras(m, q);
       });
@@ -970,8 +1001,15 @@
         var withFile = role === "user" && m.file === true;
         // Operatorun faylı: { id, mime, name } (baytlar tokenlə ayrıca yüklənir)
         var opFile = role === "operator" && m.file && typeof m.file.id === "string" ? { id: m.file.id, mime: String(m.file.mime || ""), name: String(m.file.name || "") } : null;
-        state.messages.push({ role: role, text: text, live: true, t: at, img: withFile || undefined, file: opFile || undefined });
-        liveBubble(role, text, at, withFile, opFile);
+        var op = role === "operator" && m.op && typeof m.op.name === "string" ? { name: m.op.name.slice(0, 40), photo: opPhoto(m.op) || undefined } : null;
+        // Yeni operator qoşuldu (və ya söhbəti başqası götürdü): "Leyla söhbətə qoşuldu"
+        if (op && state.live && (!state.live.op || state.live.op.name !== op.name)) {
+          state.live.op = op; updateHead();
+          state.messages.push({ role: "model", live: true, joined: true, text: L.joined.replace("{n}", op.name), t: at });
+          note(L.joined.replace("{n}", op.name), false);
+        }
+        state.messages.push({ role: role, text: text, live: true, t: at, img: withFile || undefined, file: opFile || undefined, op: op || undefined });
+        liveBubble(role, text, at, withFile, opFile, op);
         if (role === "operator") gotOperator = true;
       });
       if (gotOperator) chime();

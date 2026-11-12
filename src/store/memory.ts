@@ -85,6 +85,13 @@ export function createMemoryStore(): Store {
       const t = tenants.get(tenantId);
       if (t) tenants.set(tenantId, { ...t, ...patch, updatedAt: new Date() });
     },
+    async setOpProfile(tenantId, userId, profile) {
+      const t = tenants.get(tenantId);
+      if (!t) return;
+      const rest = { ...(t.opProfiles ?? {}) };
+      delete rest[userId];
+      tenants.set(tenantId, { ...t, opProfiles: profile ? { ...rest, [userId]: profile } : rest, updatedAt: new Date() });
+    },
     async setWidgetLogo(tenantId, logo, kind = "logo") {
       const t = tenants.get(tenantId);
       if (!t?.widget) return;
