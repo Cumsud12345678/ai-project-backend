@@ -115,7 +115,7 @@ export type TenantRecord = {
   /** Sahib panelin sınaq çatında köməkçini öz məlumatı ilə ilk dəfə uğurla yoxlayıb (quraşdırma addımı) */
   testedAt?: Date;
   /** Quraşdırma sehirbazında seçilən məqsədlər: hansı məlumat addımının lazım olduğunu həll edir (panelin hər yerində eyni hazırlıq) */
-  setup?: { goals: ("answer" | "catalog")[]; at: Date };
+  setup?: { goals: ("answer" | "catalog")[]; bizType?: BizType; at: Date };
   widget?: WidgetSettings;
   /** "Powered by" yazısı vidjetdə defolt görünür; yalnız admin söndürə bilir (ödənişli xidmət). */
   brandRemoved?: boolean;
@@ -186,6 +186,9 @@ export type SetupRequest = {
 
 /** Ağıllı operator çağırışı: hansı hallarda AI söhbəti operatora ötürsün (müştəri özü istəyəndə həmişə) */
 export type AiMode = "auto" | "draft" | "off";
+/** Biznesin növü (sehirbaz): onlayn mağaza, sosial şəbəkədə satış, xidmət/randevu, yemək/çatdırılma, kurs, digər */
+export const BIZ_TYPES = ["shop", "social", "service", "food", "edu", "other"] as const;
+export type BizType = (typeof BIZ_TYPES)[number];
 export type HandoffSettings = { cantHelp: boolean; upset: boolean; ready: boolean; /** ardıcıl 2 cavabsız sual */ misses: boolean };
 
 /** Susan müştəriyə xatırlatma (Telegram/WhatsApp): AI cavabından sonra müştəri delayMin dəqiqə yazmasa bir dəfə */

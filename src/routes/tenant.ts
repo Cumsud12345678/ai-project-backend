@@ -13,6 +13,7 @@ import { sendOperatorMessage } from "../live-send.js";
 import { bookingText, isEmailContact, leadView, ORDER_STAGES, orderStageText, parseReach, sendToReach, type Lead, type OrderStage } from "../customer-notify.js";
 import { scheduleBookingReminder } from "../booking.js";
 import { aiModeOf, aiModesView, parseAiMode } from "../ai-mode.js";
+import { BIZ_TYPES, type BizType } from "../store/types.js";
 import { learnFromLive } from "../learn.js";
 import { exportCsv, funnel, type ExportKind } from "../stats.js";
 import { hub } from "../hub.js";
@@ -40,7 +41,7 @@ function extractConfig(body: unknown): Record<string, unknown> {
 
 const publicTenant = (t: TenantRecord) => ({
   tenantId: t.tenantId, businessName: t.businessName, domain: t.domain, config: t.config,
-  setup: { goals: t.setup?.goals ?? [], tested: Boolean(t.testedAt) },
+  setup: { goals: t.setup?.goals ?? [], tested: Boolean(t.testedAt), ...(t.setup?.bizType && { bizType: t.setup.bizType }) },
   createdAt: t.createdAt, updatedAt: t.updatedAt, keyRotatedAt: t.keyRotatedAt ?? null,
   // Sahib panelində xəbərdarlıq göstərmək üçün (kim dayandırıb göstərilmir)
   suspended: t.suspended ? { at: t.suspended.at, reason: t.suspended.reason } : null,
@@ -206,8 +207,11 @@ export function tenantRoutes(deps: Deps) {
     const raw = (req.body as { goals?: unknown } | undefined)?.goals;
     const goals = Array.isArray(raw) ? [...new Set(raw.filter((g): g is "answer" | "catalog" => g === "answer" || g === "catalog"))] : [];
     if (!goals.length) throw new HttpError(400, "Ən azı bir məqsəd seç");
-    await store.updateTenant(t.tenantId, { setup: { goals, at: new Date() } });
-    res.json({ goals });
+    // Biznesin növü (sehirbaz hazır ayarları buna görə seçir); göndərilməyibsə köhnəsi qalır
+    const bt = (req.body as { bizType?: unknown } | undefined)?.bizType;
+    const bizType = BIZ_TYPES.includes(bt as BizType) ? (bt as BizType) : t.setup?.bizType;
+    await store.updateTenant(t.tenantId, { setup: { goals, ...(bizType && { bizType }), at: new Date() } });
+    res.json({ goals, ...(bizType && { bizType }) });
   });
 
   r.patch("/profile", async (req, res) => {

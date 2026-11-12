@@ -238,5 +238,10 @@ test("sehirbaz məqsədləri serverdə saxlanır və hazırlığı müəyyən ed
     o = (await c.call("GET", "/tenant/overview")).body;
     assert.equal(o.setup.dataReady, true);
     assert.deepEqual((await c.call("GET", "/tenant")).body.tenant.setup.goals, ["answer"]);
+    // Biznes növü: tanınmayan dəyər atılır, göndərilməyəndə köhnəsi qalır
+    assert.equal((await c.call("PUT", "/tenant/setup", { goals: ["answer"], bizType: "service" })).body.bizType, "service");
+    assert.equal((await c.call("PUT", "/tenant/setup", { goals: ["answer"], bizType: "casino" })).body.bizType, "service");
+    await c.call("PUT", "/tenant/setup", { goals: ["answer", "catalog"] });
+    assert.equal((await c.call("GET", "/tenant")).body.tenant.setup.bizType, "service");
   } finally { Object.assign(p.ai, orig); }
 });
