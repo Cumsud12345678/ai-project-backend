@@ -1,3 +1,4 @@
+import { aiModesView } from "../ai-mode.js";
 import { modeOf } from "../widget.js";
 import { Router } from "express";
 import { deleteAccount } from "../account.js";
@@ -572,7 +573,7 @@ export function adminRoutes(deps: Deps) {
         tenantId: t.tenantId, businessName: t.businessName, domain: t.domain, email: email.get(t.userId) ?? "",
         telegram: t.telegram ? { enabled: t.telegram.enabled, bot: t.telegram.botUsername, connectedAt: t.telegram.connectedAt, lastAt: tgLast, idle: !tgLast || new Date(tgLast).getTime() < stale } : null,
         whatsapp: t.whatsapp ? { enabled: t.whatsapp.enabled, phone: t.whatsapp.phone ? `${t.whatsapp.phone.slice(0, 5)}•••${t.whatsapp.phone.slice(-2)}` : null, connectedAt: t.whatsapp.connectedAt, state: wa?.state ?? "off", error: wa?.error ?? null, lastAt: waLast, idle: !waLast || new Date(waLast).getTime() < stale } : null,
-        errors24h: errs[t.tenantId] ?? 0, problems,
+        errors24h: errs[t.tenantId] ?? 0, problems, aiMode: aiModesView(t),
       };
     }).sort((a, b) => b.problems.length - a.problems.length || b.errors24h - a.errors24h);
     res.json({
