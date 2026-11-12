@@ -6,6 +6,7 @@ import { bookingText, sendToReach } from "./customer-notify.js";
 import type { Deps } from "./deps.js";
 import { recordError } from "./errorlog.js";
 import { hub } from "./hub.js";
+import { notifyTeam } from "./operator-notify.js";
 import { forwardLead } from "./lead-forward.js";
 import type { Reach, TenantRecord } from "./store/types.js";
 
@@ -43,6 +44,7 @@ export async function onBooking(deps: Deps, t: TenantRecord, raw: unknown, sourc
   if (!b) return;
   hub.toOperators(t.tenantId, { t: "leads", kind: "booking" });
   const line = `${b.service} · ${b.date} ${b.time}`;
+  void notifyTeam(deps, t, `📅 Yeni randevu (${source}) · ${t.businessName}\n\n${line}\n${[b.name, b.contact].filter(Boolean).join(", ")}`, "/bookings");
   void forwardLead(deps, t, { source: `${source}, randevu`, name: b.name, contact: b.contact, question: `${b.title}: ${line}`, conversation: conversation.slice(-10) });
   if (reach && b.reminders) await scheduleBookingReminder(deps, t, b, reach).catch((e) => console.warn("[booking] xatırlatma planlanmadı:", e instanceof Error ? e.message : e));
   try {

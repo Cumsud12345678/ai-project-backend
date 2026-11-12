@@ -3,6 +3,7 @@
 // Ziyarətçini gözlətmir: hamısı fonda gedir, alınmasa da sifariş paneldə qalır.
 import type { Deps } from "./deps.js";
 import { hub } from "./hub.js";
+import { notifyTeam } from "./operator-notify.js";
 import { forwardLead } from "./lead-forward.js";
 import type { TenantRecord } from "./store/types.js";
 
@@ -28,6 +29,7 @@ export async function onOrder(deps: Deps, t: TenantRecord, raw: unknown, source:
   if (!order) return;
   const lines = order.fields.map((f) => `${f.label}: ${f.value}`);
   hub.toOperators(t.tenantId, { t: "leads", kind: "order" });
+  void notifyTeam(deps, t, `🛒 Yeni sifariş${order.id ? ` №${order.id.slice(0, 8).toUpperCase()}` : ""} (${source}) · ${t.businessName}\n\n${[order.name, order.contact].filter(Boolean).join(", ")}\n${lines.slice(0, 8).join("\n")}`, "/orders");
   void forwardLead(deps, t, { source: `${source}, sifariş`, name: order.name, contact: order.contact, question: `${order.title}: ${lines.join("; ")}`.slice(0, 500), conversation: conversation.slice(-10), order: { title: order.title, fields: order.fields } });
   try {
     const owner = await deps.store.findUserById(t.userId);

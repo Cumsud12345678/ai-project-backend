@@ -92,6 +92,17 @@ const refOf = (text: string) => [...text.matchAll(/#L([\w-]{1,64}):([\w-]{1,64})
 /** Panelin ünvanı: ALLOWED_ORIGINS-in birincisi (panel saytı) */
 const panelUrl = (deps: Deps) => (deps.config.allowedOrigins[0] ? `\n\n${deps.config.allowedOrigins[0]}/inbox` : "");
 
+/** Yeni sifariş / randevu: Telegram-ı bağlı olan sahibə və komandaya (sayt üzrə saatda 60-a qədər). */
+export async function notifyTeam(deps: Deps, t: TenantRecord, text: string, path: "/orders" | "/bookings"): Promise<void> {
+  if (!notifyAvailable(deps)) return;
+  try {
+    if (!deps.limiter.hit(`notify:tg:lead:${t.tenantId}`, 60, 60 * 60_000)) return;
+    const users = await linkedUsers(deps, t);
+    const url = deps.config.allowedOrigins[0] ? `\n\n${deps.config.allowedOrigins[0]}${path}` : "";
+    for (const u of users) await send(deps, u.tgNotify!.chatId, `${text.slice(0, 1500)}${url}`);
+  } catch (e) { console.warn("[notify] sifariş/randevu bildirişi getmədi:", e instanceof Error ? e.message : e); }
+}
+
 /**
  * Canlı söhbət hadisəsi barədə operatorlara Telegram mesajı.
  * kind "start": həmişə (sayt üzrə saatda 30-a qədər). kind "message": yalnız panel açıq deyilsə və söhbət başına 3 dəqiqədə bir.

@@ -25,7 +25,8 @@ export function parseAiMode(body: unknown): { telegram: AiMode; whatsapp: AiMode
 
 /** Ziyarətçinin son mesajına AI qaralaması: canlı söhbətdə saxlanır, panel dərhal yenilənir. Alınmasa susur (operator özü yazır). */
 export async function prepareDraft(deps: Deps, t: TenantRecord, liveId: string): Promise<void> {
-  if (!deps.limiter.hit(`aidraft:${t.tenantId}:${liveId}`, 30, 10 * 60_000) || !deps.limiter.hit(`aidraft:${t.tenantId}`, 600, 60 * 60_000)) return;
+  // Xərc qoruması: qaralamalar plan limitinə sayılmır, ona görə söhbət üzrə gündəlik və sayt üzrə saatlıq tavan var
+  if (!deps.limiter.hit(`aidraft:${t.tenantId}:${liveId}`, 30, 10 * 60_000) || !deps.limiter.hit(`aidraft:d:${t.tenantId}:${liveId}`, 60, 24 * 3_600_000) || !deps.limiter.hit(`aidraft:${t.tenantId}`, 300, 60 * 60_000)) return;
   try {
     const chat = await deps.store.getLive(t.tenantId, liveId);
     if (!chat || chat.status !== "open" || chat.messages.at(-1)?.from !== "visitor") return;

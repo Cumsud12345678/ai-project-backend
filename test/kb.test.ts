@@ -215,6 +215,11 @@ test("overview hazırlığı: sınaq çatı məlumatla cavab verəndə 'tested',
     assert.equal((await c.call("GET", "/tenant/overview")).body.setup.tested, false);
     // şirkət məlumatı da bilikdir
     await c.call("PATCH", "/tenant/profile", { company: { phone: "+994 50 000 00 00" } });
+    // Yeni hesab sehirbaz ardıcıllığı ilə gedir: biznes növü seçilməyibsə sınaq sayılmır
+    p.ai.nextChat = { answer: "Çatdırılma 1-2 gün", listings: [], sources: [{ title: "FAQ" }], usage: { tokens: 5 } };
+    await c.call("POST", "/tenant/chat", { message: "çatdırılma?" });
+    assert.equal((await c.call("GET", "/tenant/overview")).body.setup.tested, false);
+    await c.call("PUT", "/tenant/setup", { goals: ["answer"], bizType: "shop" });
     p.ai.nextChat = { answer: "Çatdırılma 1-2 gün", listings: [], sources: [{ title: "FAQ" }], usage: { tokens: 5 } };
     await c.call("POST", "/tenant/chat", { message: "çatdırılma?" });
     o = (await c.call("GET", "/tenant/overview")).body;

@@ -115,7 +115,10 @@ export type TenantRecord = {
   /** Sahib panelin sınaq çatında köməkçini öz məlumatı ilə ilk dəfə uğurla yoxlayıb (quraşdırma addımı) */
   testedAt?: Date;
   /** Quraşdırma sehirbazında seçilən məqsədlər: hansı məlumat addımının lazım olduğunu həll edir (panelin hər yerində eyni hazırlıq) */
-  setup?: { goals: ("answer" | "catalog")[]; bizType?: BizType; at: Date };
+  setup?: { goals: ("answer" | "catalog")[]; bizType?: BizType; at: Date;
+    /** sehirbazda təsdiqlənmiş son addım (1-5); yoxdursa köhnə hesab */ stage?: number;
+    /** "Sürətli başlanğıc" formasının qaralamaları (biznes növünə görə) */ drafts?: Partial<Record<BizType, Record<string, string | number | boolean>>>;
+    /** sürətli başlanğıcın son dəfə yaratdıqları */ made?: SetupMade };
   widget?: WidgetSettings;
   /** "Powered by" yazısı vidjetdə defolt görünür; yalnız admin söndürə bilir (ödənişli xidmət). */
   brandRemoved?: boolean;
@@ -137,6 +140,8 @@ export type TenantRecord = {
   handoff?: HandoffSettings;
   /** Kanal üzrə AI rejimi: auto (AI cavab verir), draft (AI qaralama yazır, operator göndərir), off (yalnız operator) */
   aiMode?: { telegram?: AiMode; whatsapp?: AiMode };
+  /** Panelin sifariş / randevu səhifəsinin son açılma vaxtı: bundan sonrakı yenilər qırmızı nişanla sayılır */
+  seen?: { orders?: Date; bookings?: Date };
   /** Hazır cavablar: operatorlar söhbətdə bir kliklə mesaja əlavə edir */
   canned?: CannedReply[];
   /** Yeni müraciətin ötürüldüyü yerlər. Bitrix24 və webhook linkləri sirr daşıyır: şifrəli saxlanır (CHANNEL_SECRET_KEY). */
@@ -186,6 +191,7 @@ export type SetupRequest = {
 
 /** Ağıllı operator çağırışı: hansı hallarda AI söhbəti operatora ötürsün (müştəri özü istəyəndə həmişə) */
 export type AiMode = "auto" | "draft" | "off";
+export type SetupMade = { type: BizType; kbSources: string[]; booking: boolean; orderForm: boolean; followup: boolean; at: Date };
 /** Biznesin növü (sehirbaz): onlayn mağaza, sosial şəbəkədə satış, xidmət/randevu, yemək/çatdırılma, kurs, digər */
 export const BIZ_TYPES = ["shop", "social", "service", "food", "edu", "other"] as const;
 export type BizType = (typeof BIZ_TYPES)[number];
@@ -296,7 +302,7 @@ export interface Store {
   deleteRemindersByRef(tenantId: string, ref: string): Promise<void>;
   /** Vidjetin ayrı sahələrini yazır (widget.<sahə>), qalanına (loqo, profil şəkli) toxunmur. Vidjet yoxdursa heç nə etmir. */
   patchWidget(tenantId: string, fields: Partial<Omit<WidgetSettings, "logo" | "avatar">>): Promise<void>;
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "testedAt" | "setup" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats" | "automations" | "waIgnore" | "followup" | "handoff" | "aiMode">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "testedAt" | "setup" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats" | "automations" | "waIgnore" | "followup" | "handoff" | "aiMode" | "seen">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;

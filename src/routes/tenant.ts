@@ -14,6 +14,7 @@ import { bookingText, isEmailContact, leadView, ORDER_STAGES, orderStageText, pa
 import { scheduleBookingReminder } from "../booking.js";
 import { aiModeOf, aiModesView, parseAiMode } from "../ai-mode.js";
 import { BIZ_TYPES, type BizType } from "../store/types.js";
+import { bizTypeOf, cleanDraft, cleanMade, finalizeSetup, setStage, stageOf, testedOf, undoMade } from "../setup-flow.js";
 import { learnFromLive } from "../learn.js";
 import { exportCsv, funnel, type ExportKind } from "../stats.js";
 import { hub } from "../hub.js";
@@ -41,13 +42,19 @@ function extractConfig(body: unknown): Record<string, unknown> {
 
 const publicTenant = (t: TenantRecord) => ({
   tenantId: t.tenantId, businessName: t.businessName, domain: t.domain, config: t.config,
-  setup: { goals: t.setup?.goals ?? [], tested: Boolean(t.testedAt), ...(t.setup?.bizType && { bizType: t.setup.bizType }) },
+  setup: { goals: t.setup?.goals ?? [], tested: testedOf(t), ...(t.setup?.bizType && { bizType: t.setup.bizType }), ...(t.setup?.stage !== undefined && { stage: t.setup.stage }),
+    ...(t.setup?.drafts && { drafts: t.setup.drafts }), ...(t.setup?.made && { made: { type: t.setup.made.type, booking: t.setup.made.booking, orderForm: t.setup.made.orderForm, followup: t.setup.made.followup } }) },
   createdAt: t.createdAt, updatedAt: t.updatedAt, keyRotatedAt: t.keyRotatedAt ?? null,
   // Sahib panelində xəbərdarlıq göstərmək üçün (kim dayandırıb göstərilmir)
   suspended: t.suspended ? { at: t.suspended.at, reason: t.suspended.reason } : null,
 });
 
 /** Ziyarətçi yazıb, operator hələ cavab verməyib (və ya söhbəti açmayıb). */
+/** Panel son açıldıqdan sonra gələn və hələ baxılmamış (yeni) sifariş/randevu sayı */
+const freshCount = (items: Lead[] | undefined, open: (l: Lead) => boolean, seen?: Date) => {
+  const since = seen ? new Date(seen).getTime() : 0;
+  return (items ?? []).filter((l) => open(l) && new Date(String(l.at ?? 0)).getTime() > since).length;
+};
 const isWaiting = (c: LiveChat) => {
   const last = c.messages[c.messages.length - 1];
   return c.status === "open" && (!last || last.from === "visitor") && (!c.operatorSeenAt || c.operatorSeenAt < (last?.at ?? c.createdAt));
@@ -181,6 +188,8 @@ export function tenantRoutes(deps: Deps) {
     if (await store.findTenantByUser(user.id)) throw new HttpError(409, "Artıq aktiv mənbən var. Konfiqurasiyanı yeniləyə bilərsən.", "TENANT_EXISTS");
     if (await memberTenant(store, user)) throw new HttpError(409, "Sən başqa hesabın operatorusan, öz hesabını yaratmaq olmur", "IS_OPERATOR");
     const result = await exclusive(user.id, () => createTenantFor(deps, user, cfg));
+    const created = await mine(user.id);
+    await store.updateTenant(created.tenantId, { setup: { goals: [], at: new Date(), stage: 1 } }); // yeni hesab: sehirbaz addım-addım
     const t = await mine(user.id);
     void recordDomain(deps, t, user.email);
     res.status(201).json({ apiKey: result.apiKey, tenant: publicTenant(t), sampleListings: result.sampleListings ?? [] });
@@ -196,6 +205,8 @@ export function tenantRoutes(deps: Deps) {
     // Profil AI servisində birləşdirilir (JSON-da olmayan ayarlar, məs. rejim, saxlanır): panel həmin son vəziyyəti görməlidir
     const profile = result.profile && typeof result.profile === "object" ? result.profile : undefined;
     await store.updateTenant(t.tenantId, { config: { ...withoutSecrets(cfg), ...(profile && { profile }) }, businessName: String(cfg.businessName).trim(), domain: String(cfg.domain).trim() });
+    // Sehirbaz hələ bitməyibsə ad/sayt dəyişəndə sonrakı addımlar yenidən keçilir; bitibsə (Ayarlarda ad dəyişmək) hazırlıq pozulmur
+    if ((stageOf(t) ?? 5) < 5 && (String(cfg.businessName).trim() !== t.businessName || String(cfg.domain).trim() !== t.domain)) await setStage(deps, await mine(user.id), 1, true);
     const fresh = await mine(user.id);
     if (domainChanged) void recordDomain(deps, fresh, user.email);
     res.json({ tenant: publicTenant(fresh), sampleListings: result.sampleListings ?? [], ...(result.modeChanged === true && profile && { modeChanged: profile.mode }) });
@@ -210,8 +221,53 @@ export function tenantRoutes(deps: Deps) {
     // Biznesin növü (sehirbaz hazır ayarları buna görə seçir); göndərilməyibsə köhnəsi qalır
     const bt = (req.body as { bizType?: unknown } | undefined)?.bizType;
     const bizType = BIZ_TYPES.includes(bt as BizType) ? (bt as BizType) : t.setup?.bizType;
-    await store.updateTenant(t.tenantId, { setup: { goals, ...(bizType && { bizType }), at: new Date() } });
-    res.json({ goals, ...(bizType && { bizType }) });
+    // Seçim dəyişibsə sonrakı addımlar (məlumat, sınaq) yenidən keçilməlidir
+    const old = t.setup;
+    const changed = !old || old.bizType !== bizType || [...old.goals].sort().join() !== [...goals].sort().join();
+    // Köhnə hesab (stage yoxdur) dəyişiklik etmədən təsdiqləyirsə köhnə qayda qalır
+    const stage = changed ? 2 : old?.stage === undefined ? undefined : Math.max(old.stage, 2);
+    // Biznes növü dəyişdi: əvvəlki növün sürətli başlanğıcının yaratdıqları (məs. randevu) silinir ki, sınaqda qarışmasın; qaralama qalır
+    if (old?.made && bizType && old.made.type !== bizType) await undoMade(deps, t);
+    const cur = (await store.findTenantById(t.tenantId))?.setup ?? old;
+    await store.updateTenant(t.tenantId, { setup: { ...(cur ?? {}), goals, ...(bizType && { bizType }), at: new Date(), ...(stage !== undefined && { stage }) } });
+    res.json({ goals, ...(bizType && { bizType }), ...(stage !== undefined && { stage }) });
+  });
+
+  // Addımın təsdiqi: 3 = məlumat addımı tamam (və ya sehirbazda məlumat dəyişdi: sınaq yenidən), 5 = sehirbaz bitdi (təmizlik)
+  r.put("/setup/stage", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const b = (req.body ?? {}) as { stage?: unknown; changed?: unknown };
+    if (b.stage === 3) return void res.json({ stage: await setStage(deps, t, 3, b.changed === true) });
+    if (b.stage === 5) {
+      if ((stageOf(t) ?? 0) < 4) throw new HttpError(409, "Əvvəlki addımlar tamamlanmayıb", "SETUP_INCOMPLETE");
+      if (stageOf(t) !== 5) await finalizeSetup(deps, t);
+      return void res.json({ stage: 5 });
+    }
+    throw new HttpError(400, "Addım düzgün deyil");
+  });
+  // Sürətli başlanğıc: formanın qaralaması (biznes növünə görə), əvvəlki işə salınmanın təmizlənməsi və yaradılanların qeydi
+  r.put("/setup/draft", async (req, res) => {
+    const user = currentUser(res);
+    if (!limiter.hit(`setupdraft:${user.id}`, 120, 10 * 60_000)) throw new HttpError(429, "Çox tez-tez yazılır", "RATE_LIMITED");
+    const t = await mine(user.id);
+    const b = (req.body ?? {}) as { type?: unknown; values?: unknown };
+    const type = bizTypeOf(b.type);
+    const setup = t.setup ?? { goals: [], at: new Date() };
+    await store.updateTenant(t.tenantId, { setup: { ...setup, drafts: { ...(setup.drafts ?? {}), [type]: cleanDraft(b.values) } } });
+    res.json({ ok: true });
+  });
+  r.post("/setup/quickstart/reset", async (_req, res) => {
+    const t = await mine(currentUser(res).id);
+    await undoMade(deps, t);
+    res.json({ ok: true });
+  });
+  r.put("/setup/made", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const b = (req.body ?? {}) as { type?: unknown };
+    const made = cleanMade(req.body, bizTypeOf(b.type));
+    const fresh = await mine(currentUser(res).id);
+    await store.updateTenant(t.tenantId, { setup: { ...(fresh.setup ?? { goals: [], at: new Date() }), made } });
+    res.json({ stage: await setStage(deps, (await mine(currentUser(res).id)), 3, true) });
   });
 
   r.patch("/profile", async (req, res) => {
@@ -318,13 +374,15 @@ export function tenantRoutes(deps: Deps) {
     const since30 = new Date(Date.now() - 30 * 86_400_000);
     const [liveOpen, fb] = await Promise.all([store.listLive(t.tenantId, "open", 200).catch(() => []), store.feedbackCounts(t.tenantId, since30).catch(() => ({ up: 0, down: 0 }))]);
     const liveWaiting = liveOpen.filter(isWaiting).length;
-    const [stats, kb, un, leads, billing] = (await Promise.allSettled([
+    const [stats, kb, un, leads, billing, ordersR, bookingsR] = (await Promise.allSettled([
       ai.queryStats(t.tenantId, 30),
       kbOn ? ai.kbInfo(t.tenantId) : Promise.resolve(null),
       kbOn ? ai.kbUnanswered(t.tenantId) : Promise.resolve(null),
       ai.kbLeads(t.tenantId), // əlaqə forması bütün rejimlərdə var (balans bitəndə ziyarətçi müraciət qoyur)
       ai.billing(t.tenantId),
-    ])).map(ok) as [AiResult | null, AiResult | null, AiResult | null, AiResult | null, AiResult | null];
+      ai.kbLeads(t.tenantId, "order"),
+      ai.kbLeads(t.tenantId, "booking"),
+    ])).map(ok) as (AiResult | null)[];
 
     const sources = (kb?.sources ?? []) as { status: string }[];
     // Hazırlıq: quraşdırma sehirbazının addımları ilə eyni (Məlumat → Sınaq → Yayım)
@@ -342,6 +400,10 @@ export function tenantRoutes(deps: Deps) {
     if (liveWaiting > 0) attention.push({ kind: "live", count: liveWaiting });
     if (leads && leads.open > 0) attention.push({ kind: "leads", count: leads.open });
     if (unanswered7 > 0) attention.push({ kind: "unanswered", count: unanswered7 });
+    const newOrders = freshCount(ordersR?.items as Lead[] | undefined, (l) => l.order?.stage === "new", t.seen?.orders);
+    const newBookings = freshCount(bookingsR?.items as Lead[] | undefined, (l) => l.booking?.status === "booked", t.seen?.bookings);
+    if (newOrders > 0) attention.push({ kind: "orders", count: newOrders });
+    if (newBookings > 0) attention.push({ kind: "bookings", count: newBookings });
     if (failed > 0) attention.push({ kind: "sourceErrors", count: failed });
     if (!kbOn && stats && stats.noResults > 0) attention.push({ kind: "noResults", count: stats.noResults });
 
@@ -363,7 +425,7 @@ export function tenantRoutes(deps: Deps) {
         dataReady: goals.length ? (goals.includes("catalog") ? catalogReady : kbReady) : mode === "listings" ? catalogReady : mode === "support" ? kbReady : catalogReady || kbReady,
         goals, goalsSet: goals.length > 0,
         catalogReady, kbReady,
-        tested: Boolean(t.testedAt) || total > 0,
+        tested: testedOf(t, total), ...(stageOf(t) !== undefined && { stage: stageOf(t) }),
         hasSite: !String(t.domain).toLowerCase().endsWith(".invalid"),
         channels,
         // Yayımda: vidjet saytda görünüb və ya Telegram/WhatsApp qoşulub (saytı olmayan müştəri üçün də)
@@ -1004,6 +1066,14 @@ export function tenantRoutes(deps: Deps) {
     const out = await ai.kbLeads((await mine(currentUser(res).id)).tenantId, "booking") as { items?: Lead[] };
     res.json({ items: (out.items ?? []).filter((l) => l.booking).map(leadView).sort((a, b) => String(a.booking?.start).localeCompare(String(b.booking?.start))) });
   });
+  /** Sifariş / randevu səhifəsi açıldı: qırmızı nişan sıfırlanır */
+  r.post("/seen", async (req, res) => {
+    const kind = req.body?.kind;
+    if (kind !== "orders" && kind !== "bookings") throw new HttpError(400, "Növ düzgün deyil");
+    const t = await mine(currentUser(res).id);
+    await store.updateTenant(t.tenantId, { seen: { ...t.seen, [kind]: new Date() } });
+    res.json({ ok: true });
+  });
   r.patch("/bookings/:id", async (req, res) => {
     const user = currentUser(res), b = req.body ?? {};
     const t = await mine(user.id);
@@ -1160,7 +1230,11 @@ export function tenantRoutes(deps: Deps) {
     const r = await ai.chat(t.tenantId, message.trim(), clean, { test: true }); // sınaq söhbəti sorğu qeydinə düşmür
     // Quraşdırmanın "Sınaq" addımı: köməkçi müştərinin öz məlumatı ilə cavab veribsə (elan və ya bilik mənbəyi) bir dəfə qeyd olunur
     const fromData = (Array.isArray(r.listings) && r.listings.length > 0) || (Array.isArray(r.sources) && r.sources.length > 0);
-    if (!t.testedAt && fromData && !r.unanswered) await store.updateTenant(t.tenantId, { testedAt: new Date() }).catch(() => {});
+    if (fromData && !r.unanswered) {
+      if (!t.testedAt) await store.updateTenant(t.tenantId, { testedAt: new Date() }).catch(() => {});
+      // Sehirbaz: biznes növü seçilibsə və köməkçi məlumatla cavab veribsə sınaq tamamdır (məlumat da təsdiqlənmiş sayılır)
+      if ((stageOf(t) ?? 0) >= 2 && (stageOf(t) ?? 0) < 4) await setStage(deps, (await mine(currentUser(res).id)), 4, false).catch(() => 0);
+    }
     res.json(r);
   });
 
