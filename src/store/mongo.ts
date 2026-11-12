@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { MongoClient, MongoServerError, ObjectId, type AnyBulkWriteOperation, type Db } from "mongodb";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery, type PartnerEntry, type SetupRequest } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery, type PartnerEntry, type SetupRequest, type Reminder } from "./types.js";
 
 type UserDoc = Omit<User, "id"> & { _id: ObjectId };
 
@@ -29,6 +29,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
   const clicksCol = db.collection<{ tenantId: string; at: Date }>("clicks");
   const errors = db.collection<ErrorRecord>("error_log");
   const channelSessions = db.collection<ChannelSession>("channel_sessions");
+  const remindersCol = db.collection<Reminder>("reminders");
   const waAuth = db.collection<{ tenantId: string; name: string; value: string }>("wa_auth");
   const audits = db.collection<AuditRecord>("admin_audit");
   const settings = db.collection<{ _id: string; value: unknown }>("settings");
@@ -57,6 +58,9 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     clicksCol.createIndex({ tenantId: 1, at: -1 }),
     clicksCol.createIndex({ at: 1 }, { expireAfterSeconds: 90 * 24 * 3600 }),
     channelSessions.createIndex({ tenantId: 1, channel: 1, chatId: 1 }, { unique: true }),
+    remindersCol.createIndex({ id: 1 }, { unique: true }),
+    remindersCol.createIndex({ at: 1 }),
+    remindersCol.createIndex({ tenantId: 1, ref: 1 }),
     setupRequests.createIndex({ userId: 1 }, { unique: true }),
     setupRequests.createIndex({ status: 1, createdAt: -1 }),
     channelSessions.createIndex({ updatedAt: 1 }, { expireAfterSeconds: 14 * 24 * 3600 }), // 14 gün hərəkətsiz qalan söhbət silinir
@@ -133,6 +137,10 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
       await tenants.updateOne({ tenantId, widget: { $type: "object" } }, { $set: set, ...(Object.keys(unset).length && { $unset: unset }) });
     },
     async updateTenant(tenantId, patch) { await tenants.updateOne({ tenantId }, { $set: { ...patch, updatedAt: new Date() } }); },
+    async addReminder(r) { await remindersCol.insertOne({ ...r }); },
+    async dueReminders(now, limit) { return (await remindersCol.find({ at: { $lte: now } }).sort({ at: 1 }).limit(limit).toArray()).map((d) => strip(d) as Reminder); },
+    async deleteReminder(id) { await remindersCol.deleteOne({ id }); },
+    async deleteRemindersByRef(tenantId, ref) { await remindersCol.deleteMany({ tenantId, ref }); },
     async setOpProfile(tenantId, userId, profile) {
       if (!/^[\w-]{1,64}$/.test(userId)) return; // açar kimi yalnız təhlükəsiz id
       const f = `opProfiles.${userId}`;
@@ -153,7 +161,7 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async touchWidget(tenantId, at) { await tenants.updateOne({ tenantId, widget: { $exists: true } }, { $set: { "widget.lastSeenAt": at } }); },
     async deleteTenant(tenantId) {
       await tenants.deleteOne({ tenantId });
-      await Promise.all([lives.deleteMany({ tenantId }), liveFiles.deleteMany({ tenantId }), feedbacks.deleteMany({ tenantId }), channelSessions.deleteMany({ tenantId }), waAuth.deleteMany({ tenantId })]);
+      await Promise.all([lives.deleteMany({ tenantId }), liveFiles.deleteMany({ tenantId }), feedbacks.deleteMany({ tenantId }), channelSessions.deleteMany({ tenantId }), waAuth.deleteMany({ tenantId }), remindersCol.deleteMany({ tenantId })]);
     },
 
     async createLive(c) { await lives.insertOne({ ...c }); },

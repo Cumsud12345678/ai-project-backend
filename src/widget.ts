@@ -5,6 +5,7 @@ import { notifyTeam } from "./team.js";
 import { notifyOperators } from "./operator-notify.js";
 import { forwardLead } from "./lead-forward.js";
 import { onOrder } from "./orders.js";
+import { onBooking } from "./booking.js";
 import { publicConfirm } from "./action-card.js";
 import { campaignRunning, liveOpenNow, parseHours, parseProactive } from "./helpdesk.js";
 import { chatClosedEvent, liveEventBase, runAutomations } from "./automations.js";
@@ -390,6 +391,7 @@ export function widgetRoutes(deps: Deps) {
       // Balans azalıb/bitibsə sayt sahibinə email (AI servisi eyni vəziyyət üçün yalnız bir dəfə xəbər verir)
       const notify = out.billing?.notify;
       if (out.order) void onOrder(deps, t, out.order, "sayt", [...clean, { role: "user", text: message.trim() }]);
+      if (out.booking) void onBooking(deps, t, out.booking, "sayt", null, [...clean, { role: "user", text: message.trim() }]);
       if (notify === "low" || notify === "empty") void notifyBalance(deps, t, notify, out.billing?.balanceAzn);
       if (notify === "usage80" || notify === "usage100") void notifyUsage(deps, t, notify, out.billing?.plan);
       if (notify === "trialEnd") void notifyTrialEnd(deps, t);

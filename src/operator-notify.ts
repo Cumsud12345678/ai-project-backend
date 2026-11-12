@@ -3,6 +3,8 @@
 //  - Operator paneldə "Telegram-da bildiriş al" basır -> birdəfəlik kodlu link (t.me/<bot>?start=<kod>) -> botda Start -> bağlanır.
 //  - Yeni canlı söhbət başlayanda bağlı bütün operatorlara (sahib + komanda) mesaj gedir.
 //  - Açıq söhbətdə ziyarətçi yazanda yalnız panel açıq deyilsə (heç bir operator soketi yoxdur) xəbər gedir, söhbət başına 3 dəqiqədə bir.
+//  - Operator bildirişə Telegram-da "Reply" edib yazırsa, mətn həmin canlı söhbətə operator mesajı kimi gedir (panel açmadan cavab).
+//    Bundan sonra 30 dəqiqə ərzində həmin söhbətdə ziyarətçinin hər mesajı bu operatora dərhal (fasiləsiz) çatdırılır.
 // Kodlar yaddaşda saxlanır (10 dəqiqə): tək server prosesi üçündür, çox serverdə kodu yaradan prosesə webhook gəlməyə bilər.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { Router } from "express";
@@ -10,6 +12,7 @@ import type { Deps } from "./deps.js";
 import { isAdmin } from "./deps.js";
 import { hub } from "./hub.js";
 import { HttpError } from "./http.js";
+import { sendOperatorMessage } from "./live-send.js";
 import { currentUser, requireAuth } from "./middleware.js";
 import { tenantFor } from "./team.js";
 import { TelegramError } from "./telegram.js";
@@ -78,6 +81,14 @@ async function linkedUsers(deps: Deps, t: TenantRecord): Promise<User[]> {
 }
 
 const lastMsgAt = new Map<string, number>();
+/** Telegram-dan cavab yazan operatorlar: canlı söhbət id → (Telegram chatId → son cavab vaxtı) */
+const TG_ACTIVE_MS = 30 * 60_000;
+const tgActive = new Map<string, Map<string, number>>();
+const activeOn = (chatId: string) => { const m = tgActive.get(chatId); if (!m) return []; for (const [k, at] of m) if (Date.now() - at > TG_ACTIVE_MS) m.delete(k); if (!m.size) tgActive.delete(chatId); return [...m.keys()]; };
+/** Bildirişin sonundakı istinad: Reply ediləndə hansı söhbətə yazılacağını göstərir */
+const refLine = (tenantId: string, chatId: string) => `↩️ Cavab yazmaq üçün bu mesaja “Reply” et\n#L${tenantId}:${chatId}`;
+/** Son istinad götürülür: ziyarətçinin mətnində saxta "#L..." olsa da bildirişin öz istinadı ondan sonradır */
+const refOf = (text: string) => [...text.matchAll(/#L([\w-]{1,64}):([\w-]{1,64})/g)].at(-1) ?? null;
 /** Panelin ünvanı: ALLOWED_ORIGINS-in birincisi (panel saytı) */
 const panelUrl = (deps: Deps) => (deps.config.allowedOrigins[0] ? `\n\n${deps.config.allowedOrigins[0]}/inbox` : "");
 
@@ -88,6 +99,13 @@ const panelUrl = (deps: Deps) => (deps.config.allowedOrigins[0] ? `\n\n${deps.co
 export async function notifyOperators(deps: Deps, t: TenantRecord, p: { kind: "start" | "message"; chatId: string; channel: string; name?: string; text?: string; /** AI-ın ötürmə səbəbi, məs. "🔥 Almağa hazırdır" */ reason?: string }): Promise<void> {
   if (!notifyAvailable(deps)) return;
   try {
+    const active = p.kind === "message" ? activeOn(p.chatId) : [];
+    if (active.length) {
+      // Operator bu söhbətə Telegram-dan cavab yazır: hər mesaj dərhal ona çatır
+      const who = p.name?.trim() ? p.name.trim().slice(0, 60) : "Ziyarətçi";
+      for (const id of active) await send(deps, id, `💬 ${who} (${p.channel}): ${(p.text ?? "").trim().slice(0, 1000) || "📎"}\n\n${refLine(t.tenantId, p.chatId)}`);
+      return;
+    }
     if (p.kind === "message") {
       if (hub.operatorCount(t.tenantId) > 0) return; // panel açıqdır: operator onsuz da görür (səs və brauzer bildirişi)
       const last = lastMsgAt.get(p.chatId) ?? 0;
@@ -100,7 +118,7 @@ export async function notifyOperators(deps: Deps, t: TenantRecord, p: { kind: "s
     const who = p.name?.trim() ? p.name.trim().slice(0, 60) : "Ziyarətçi";
     const head = p.kind === "start" ? `${p.reason ? `${p.reason}\n` : ""}🟢 Yeni canlı söhbət (${p.channel}) · ${t.businessName}` : `💬 Yeni mesaj (${p.channel}) · ${t.businessName}`;
     const body = p.text?.trim() ? `\n\n${who}: ${p.text.trim().slice(0, 300)}` : `\n\n${who} operatorla yazışmaq istəyir.`;
-    const text = `${head}${body}${panelUrl(deps)}`;
+    const text = `${head}${body}\n\n${refLine(t.tenantId, p.chatId)}${panelUrl(deps)}`;
     for (const u of users) {
       const r = await send(deps, u.tgNotify!.chatId, text);
       if (r === "gone") await deps.store.updateUser(u.id, { tgNotify: null }); // botu bloklayıb və ya söhbəti silib
@@ -108,7 +126,27 @@ export async function notifyOperators(deps: Deps, t: TenantRecord, p: { kind: "s
   } catch (e) { console.warn("[notify] Telegram bildirişi göndərilmədi:", e instanceof Error ? e.message : e); }
 }
 
-type Update = { message?: { text?: string; chat?: { id?: number; type?: string; title?: string }; from?: { first_name?: string; username?: string; is_bot?: boolean } } };
+type Update = { message?: { text?: string; chat?: { id?: number; type?: string; title?: string }; from?: { first_name?: string; username?: string; is_bot?: boolean }; reply_to_message?: { text?: string; from?: { is_bot?: boolean } } } };
+
+/** Operatorun bildirişə "Reply" cavabı: yoxlanır (bu söhbətin komandasındadırmı) və canlı söhbətə göndərilir */
+async function replyFromTelegram(deps: Deps, tgChat: string, ref: RegExpMatchArray, text: string): Promise<void> {
+  const t = await deps.store.findTenantById(ref[1]!);
+  const u = t ? (await linkedUsers(deps, t)).find((x) => x.tgNotify?.chatId === tgChat) : undefined;
+  if (!t || !u) { await send(deps, tgChat, "Bu söhbətə cavab yazmaq icazən yoxdur."); return; }
+  if (!text) { await send(deps, tgChat, "Telegram-dan hələlik yalnız mətn göndərmək olur. Şəkil və fayl üçün paneli aç."); return; }
+  if (!deps.limiter.hit(`live:op:${u.id}`, 60, 60_000)) { await send(deps, tgChat, "Çox tez-tez yazırsan, bir az gözlə."); return; }
+  const chat = await deps.store.getLive(t.tenantId, ref[2]!);
+  if (!chat) { await send(deps, tgChat, "Söhbət tapılmadı."); return; }
+  try {
+    await sendOperatorMessage(deps, t, u, chat, text);
+    const m = tgActive.get(chat.id) ?? new Map<string, number>();
+    m.set(tgChat, Date.now()); tgActive.set(chat.id, m);
+    if (tgActive.size > 2000) for (const k of tgActive.keys()) activeOn(k);
+    await send(deps, tgChat, "✅ Göndərildi");
+  } catch (e) {
+    await send(deps, tgChat, e instanceof HttpError ? `❌ ${e.message}` : "❌ Göndərilmədi, bir az sonra yenidən yoxla.");
+  }
+}
 
 /** İctimai webhook: Telegram bura çağırır. Yalnız "/start <kod>" bağlama üçündür, qalan mesajlara qısa izah verilir. */
 export function notifyWebhook(deps: Deps) {
@@ -136,8 +174,10 @@ export function notifyWebhook(deps: Deps) {
     if (!msg?.chat || msg.chat.type !== "private" || msg.from?.is_bot || typeof msg.chat.id !== "number") return;
     const chatId = String(msg.chat.id);
     const text = typeof msg.text === "string" ? msg.text.trim() : "";
+    const ref = msg.reply_to_message?.from?.is_bot && typeof msg.reply_to_message.text === "string" ? refOf(msg.reply_to_message.text) : null;
+    if (ref) { await replyFromTelegram(deps, chatId, ref, text.slice(0, 1000)); return; }
     const m = text.match(/^\/start\s+([A-Za-z0-9_-]{10,40})$/);
-    if (!m) { await send(deps, chatId, "Bu bot yalnız canlı söhbət bildirişləri göndərir. Bağlamaq üçün paneldə “Telegram-da bildiriş al” düyməsini bas."); return; }
+    if (!m) { await send(deps, chatId, "Bu bot canlı söhbət bildirişləri göndərir. Müştəriyə cavab yazmaq üçün bildiriş mesajına “Reply” et və cavabını yaz."); return; }
     const c = codes.get(m[1]!);
     codes.delete(m[1]!);
     if (!c || c.exp < Date.now()) { await send(deps, chatId, "Link köhnəlib. Paneldən yenisini al (link 10 dəqiqə etibarlıdır)."); return; }
@@ -147,7 +187,7 @@ export function notifyWebhook(deps: Deps) {
     const admin = linked ? isAdmin(deps.config, linked) : false;
     await send(deps, chatId, admin
       ? "✅ Bildirişlər qoşuldu. Admin xəbərdarlıqları (xəta artımı, servis əlçatmazlığı, yeni yükləmə sorğusu, kanal problemləri) və öz saytının canlı söhbətləri burada gələcək.\n\nAyırmaq üçün admin paneldə “Ayarlar” bölməsinə bax."
-      : "✅ Bildirişlər qoşuldu. Saytında yeni canlı söhbət başlayanda, panel bağlı olanda isə ziyarətçi yazanda burada xəbər alacaqsan.\n\nAyırmaq üçün paneldə “Ayır” düyməsini bas.");
+      : "✅ Bildirişlər qoşuldu. Saytında yeni canlı söhbət başlayanda, panel bağlı olanda isə ziyarətçi yazanda burada xəbər alacaqsan.\n\nMüştəriyə cavab yazmaq üçün bildirişə “Reply” et: cavabın birbaşa ona gedəcək.\n\nAyırmaq üçün paneldə “Ayır” düyməsini bas.");
   });
   return r;
 }

@@ -17,7 +17,7 @@ export const config: Config = {
   resendApiKey: undefined, mailFrom: "x", mailReplyTo: undefined, trustProxy: 1, secretKey: "test-secret-key-test-secret-key-0000", isProd: false,
 };
 
-export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown>; nextDraft?: Record<string, unknown>; heard?: string; aiState: Record<string, unknown>; pingFail: boolean; providerState: Record<string, unknown>; ent: Record<string, any>; reminders: Record<string, unknown>[]; payments: Record<string, { id: string; at: string; amountAzn: number }[]> | null };
+export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown>; nextDraft?: Record<string, unknown>; nextLead?: Record<string, unknown>; leads?: Record<string, unknown>[]; heard?: string; aiState: Record<string, unknown>; pingFail: boolean; providerState: Record<string, unknown>; ent: Record<string, any>; reminders: Record<string, unknown>[]; payments: Record<string, { id: string; at: string; amountAzn: number }[]> | null };
 
 /** Saxta AI servisi: çağırışları qeyd edir, istənilsə xəta qaytarır. */
 export function fakeAi(): FakeAi {
@@ -43,7 +43,14 @@ export function fakeAi(): FakeAi {
     async insights(...a) { return rec("insights", a, { asked: 12, topics: [{ name: "Çatdırılma", count: 8, unanswered: 2, examples: ["çatdırılma var?"] }], gaps: [{ title: "Çatdırılma qaydası", why: "Cavabsız qalıb", count: 2, examples: ["çatdırılma var?"] }], cached: false, analyzedAt: new Date().toISOString() }); },
     async queryStats(...a) { return rec("queryStats", a, { enabled: true, days: 30, total: 1, noResults: 0, errors: 0, cached: 0, top: [{ message: "toyota", count: 1 }], topNoResults: [] }); },
     async conversations(...a) { return rec("conversations", a, { enabled: true, hasMore: false, nextCursor: null, conversations: [{ sid: "aaaaaaaa11", startedAt: "2026-10-17T00:00:00.000Z", lastAt: "2026-10-17T00:01:00.000Z", messages: 2, first: "salam", unanswered: 0, costAzn: 0.01 }] }); },
-    async kbUpdateLead(...a) { return rec("kbUpdateLead", a, { lead: { id: a[1], status: "open" } }); },
+    async kbUpdateLead(...a) { const l = ai.nextLead; ai.nextLead = undefined; return rec("kbUpdateLead", a, { lead: l ?? { id: a[1], status: "open" } }); },
+    async booking(...a) { return rec("booking", a, { booking: null }); },
+    async kbLearn(...a) { return rec("kbLearn", a, { added: 1 }); },
+    async kbSuggestions(...a) { return rec("kbSuggestions", a, { total: 1, items: [{ id: "sug-00000001", at: "2026-11-12T00:00:00.000Z", question: "Gəncəyə çatdırılma var?", answer: "Bəli, 2 günə" }] }); },
+    async kbDeleteSuggestion(...a) { return rec("kbDeleteSuggestion", a, { ok: true }); },
+    async kbAcceptSuggestion(...a) { return rec("kbAcceptSuggestion", a, { source: { id: "src-1", type: "qa" } }); },
+    async setBooking(...a) { return rec("setBooking", a, { booking: { ...(a[1] as object), tz: "Asia/Baku" } }); },
+    async deleteBooking(...a) { return rec("deleteBooking", a, { ok: true }); },
     async recordClick(...a) { return rec("recordClick", a, { ok: true }); },
     async conversation(...a) { return rec("conversation", a, { sid: "aaaaaaaa11", messages: [{ id: "1", at: "2026-10-17T00:00:00.000Z", message: "salam", answer: "Salam!", results: 1 }] }); },
     async privateData(...a) { return rec("privateData", a, { configured: false, identity: { configured: false } }); },
@@ -77,7 +84,7 @@ export function fakeAi(): FakeAi {
     async kbDelete(...a) { return rec("kbDelete", a, { ok: true }); },
     async kbUnanswered(...a) { return rec("kbUnanswered", a, { total: 0, items: [] }); },
     async kbDeleteUnanswered(...a) { return rec("kbDeleteUnanswered", a, { ok: true }); },
-    async kbLeads(...a) { return rec("kbLeads", a, { total: 0, open: 0, items: [] }); },
+    async kbLeads(...a) { return rec("kbLeads", a, { total: ai.leads?.length ?? 0, open: 0, items: ai.leads ?? [] }); },
     async kbAddLead(...a) { return rec("kbAddLead", a, { ok: true, lead: { id: "lead-1" } }); },
     async orderForm(...a) { return rec("orderForm", a, { form: null }); },
     async setOrderForm(...a) { return rec("setOrderForm", a, { form: a[1] }); },

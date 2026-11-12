@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery, type PartnerEntry, type SetupRequest } from "./types.js";
+import { DuplicateError, LIVE_MAX_MESSAGES, type CodePurpose, type Announcement, type AuditRecord, type ChannelSession, type CodeRecord, type ErrorRecord, type FeedbackRecord, type LiveChat, type LiveFile, type Session, type Store, type TenantRecord, type User, type UserQuery, type PartnerEntry, type SetupRequest, type Reminder } from "./types.js";
 
 /** Test və DB-siz sınaq üçün. Proses bitəndə məlumat itir. */
 export function createMemoryStore(): Store {
@@ -13,6 +13,7 @@ export function createMemoryStore(): Store {
   const feedback: FeedbackRecord[] = [];
   const errors: ErrorRecord[] = [];
   const sessionsCh = new Map<string, ChannelSession>();
+  const reminders = new Map<string, Reminder>();
   const waAuth = new Map<string, string>();
   const audit: AuditRecord[] = [];
   let announcement: Announcement | null = null;
@@ -85,6 +86,10 @@ export function createMemoryStore(): Store {
       const t = tenants.get(tenantId);
       if (t) tenants.set(tenantId, { ...t, ...patch, updatedAt: new Date() });
     },
+    async addReminder(r) { reminders.set(r.id, { ...r }); },
+    async dueReminders(now, limit) { return [...reminders.values()].filter((r) => r.at <= now).sort((a, b) => a.at.getTime() - b.at.getTime()).slice(0, limit).map((r) => ({ ...r })); },
+    async deleteReminder(id) { reminders.delete(id); },
+    async deleteRemindersByRef(tenantId, ref) { for (const [k, r] of reminders) if (r.tenantId === tenantId && r.ref === ref) reminders.delete(k); },
     async setOpProfile(tenantId, userId, profile) {
       const t = tenants.get(tenantId);
       if (!t) return;
@@ -122,6 +127,7 @@ export function createMemoryStore(): Store {
       for (let i = feedback.length - 1; i >= 0; i--) if (feedback[i]!.tenantId === tenantId) feedback.splice(i, 1);
       for (const k of [...sessionsCh.keys()]) if (k.startsWith(`${tenantId}|`)) sessionsCh.delete(k);
       for (const k of [...waAuth.keys()]) if (k.startsWith(`${tenantId}|`)) waAuth.delete(k);
+      for (const [k, r] of reminders) if (r.tenantId === tenantId) reminders.delete(k);
     },
 
     async createLive(c) { live.set(c.id, c); },

@@ -14,6 +14,7 @@ import { startAutomationScheduler } from "./automations.js";
 import { startAlertScheduler } from "./alerts.js";
 import { startPartnerScheduler } from "./partners.js";
 import { startFollowupScheduler } from "./followup.js";
+import { startReminderScheduler } from "./booking.js";
 import { createMongoStore } from "./store/mongo.js";
 
 const config = loadConfig();
@@ -40,6 +41,7 @@ startAutomationScheduler(deps); // gündəlik xülasə avtomatlaşdırmaları
 startAlertScheduler(deps); // admin xəbərdarlıqları: xəta artımı, AI/baza əlçatmazlığı (hər 2 dəqiqə)
 startPartnerScheduler(deps); // partnyor komissiyaları və yeni müştəri bonusu (hər 10 dəqiqə)
 startFollowupScheduler(deps); // Telegram/WhatsApp-da susan müştəriyə bir dəfə xatırlatma (hər 5 dəqiqə)
+startReminderScheduler(deps); // randevu xatırlatmaları (dəqiqədə bir)
 void initNotifyBot(deps); // operatorlara Telegram bildirişi (NOTIFY_TELEGRAM_TOKEN varsa)
 void deps.whatsapp.restoreAll(deps).then((n) => { if (n) console.log(`[whatsapp] ${n} nömrə bərpa olunur`); });
 for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => { void deps.whatsapp.shutdown().finally(() => server.close(() => store.close().then(() => process.exit(0)))); });

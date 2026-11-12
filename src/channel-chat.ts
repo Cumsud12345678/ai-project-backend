@@ -17,6 +17,8 @@ import { hub } from "./hub.js";
 import { notifyOperators } from "./operator-notify.js";
 import { forwardLead } from "./lead-forward.js";
 import { onOrder } from "./orders.js";
+import { onBooking } from "./booking.js";
+import { aiModeOf, prepareDraft } from "./ai-mode.js";
 import { aiRules, cleanReason, handoffOf, offlineLead, REASON_LABEL, type HandoffReason } from "./handoff.js";
 import { notifyTeam } from "./team.js";
 import { LIVE_STALE_MS, isBotCmd, isOperatorCmd, liveEnabled, startChannelLive, wantsHuman } from "./channel-live.js";
@@ -170,6 +172,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       await store.pushLive(tenant.tenantId, liveNow.id, { from: "visitor", text: body, at: new Date(), ...(file && { file }) }, { visitorSeenAt: new Date(), ...(!liveNow.name && io.senderName ? { name: clip(io.senderName, 80) } : {}) });
       hub.toOperators(tenant.tenantId, { t: "live", id: liveNow.id, kind: "message", by: "visitor" });
       void notifyOperators(deps, tenant, { kind: "message", chatId: liveNow.id, channel: label, name: liveNow.name || clip(io.senderName, 80), text: body });
+      if (aiModeOf(tenant, channel) === "draft") void prepareDraft(deps, tenant, liveNow.id);
       return;
     } else if ((isOperatorCmd(text) || (liveEnabled(tenant) && wantsHuman(text))) && !io.reset) {
       if (!liveEnabled(tenant)) { await io.send(tenant.widget?.live?.enabled ? M.live.offHours : M.live.off); return; }
@@ -183,6 +186,16 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     if (io.reset) {
       await store.saveChannelSession({ ...session, history: [], pending: null, updatedAt: new Date() });
       await io.send(greeting);
+      return;
+    }
+    // AI qaralama / söndürülüb rejimi: AI müştəriyə yazmır, söhbət canlı qutuya düşür (qaralama rejimində AI cavab hazırlayır)
+    const aiMode = aiModeOf(tenant, channel);
+    if (aiMode !== "auto") {
+      const body = clip(text, 1000) || (io.image ? "[şəkil]" : "");
+      if (!body || !limiter.hit(`${lk}liverate:${tenant.tenantId}:${chatId}`, 20, 60_000)) return;
+      const chat = await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), ...(io.phone && { phone: io.phone }), name: clip(io.senderName, 80), history: session.history, first: body });
+      await store.saveChannelSession({ ...session, ...(clip(io.senderName, 80) && { name: clip(io.senderName, 80) }), ...(io.ref && { ref: io.ref }), ...(io.phone && { phone: io.phone }), updatedAt: new Date() });
+      if (aiMode === "draft") void prepareDraft(deps, tenant, chat.id);
       return;
     }
     const imgOn = Boolean(io.image) && imageEnabled(tenant);
@@ -254,7 +267,9 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     }
     try { void Promise.resolve(io.typing()).catch(() => {}); } catch { /* göstərici vacib deyil */ }
     let out: Record<string, any>;
-    try { out = await ai.chat(tenant.tenantId, text, session.history.slice(-HISTORY_KEEP), { sid: session.sid, channel, ...(liveEnabled(tenant) && { live: true }), ...(image && { image }), handoff: aiRules(tenant) }); }
+    // Kanal ünvanı: sifariş/randevu ilə saxlanır ki, sonra müştəriyə status və xatırlatma yazmaq olsun
+    const reach = { type: channel, chatId, ...(io.ref && { ref: io.ref }), lang: chatLang(tenant, text) };
+    try { out = await ai.chat(tenant.tenantId, text, session.history.slice(-HISTORY_KEEP), { sid: session.sid, channel, ...(liveEnabled(tenant) && { live: true }), ...(image && { image }), handoff: aiRules(tenant), reach }); }
     catch (e) {
       if (e instanceof AiError) {
         if (e.status !== 402) await recordError(store, { source: "channel", message: `${label}: AI cavab vermədi (${e.status}) ${e.message}`, tenantId: tenant.tenantId, code: e.code, status: e.status });
@@ -266,6 +281,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     }
     const notify = out.billing?.notify;
     if (out.order) void onOrder(deps, tenant, out.order, label, [...session.history.slice(-9), { role: "user", text }]);
+    if (out.booking) void onBooking(deps, tenant, out.booking, label, reach, [...session.history.slice(-9), { role: "user", text }]);
     if (notify === "low" || notify === "empty") void notifyBalance(deps, tenant, notify, out.billing?.balanceAzn);
     if (notify === "usage80" || notify === "usage100") void notifyUsage(deps, tenant, notify, out.billing?.plan);
     if (notify === "trialEnd") void notifyTrialEnd(deps, tenant);

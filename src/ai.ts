@@ -20,7 +20,7 @@ export type AiClient = {
   usage(tenantId: string): Promise<AiResult>;
   usageSummary(): Promise<AiResult>;
   listings(tenantId: string, query: string): Promise<AiResult>;
-  chat(tenantId: string, message: string, history: unknown[], opts?: { test?: boolean; sid?: string; identity?: string; /** canlı operator açıqdır: AI operatora ötürmə qərarı verə bilər */ live?: boolean; /** base64 şəkil (şəkilli sual) */ image?: string; /** əməliyyat təsdiqi hansı kanaldadır */ channel?: "widget" | "telegram" | "whatsapp"; /** operatora ötürmə qaydaları (sahibin ayarı) */ handoff?: { cantHelp: boolean; upset: boolean; ready: boolean } }): Promise<AiResult>;
+  chat(tenantId: string, message: string, history: unknown[], opts?: { test?: boolean; sid?: string; identity?: string; /** canlı operator açıqdır: AI operatora ötürmə qərarı verə bilər */ live?: boolean; /** base64 şəkil (şəkilli sual) */ image?: string; /** əməliyyat təsdiqi hansı kanaldadır */ channel?: "widget" | "telegram" | "whatsapp"; /** operatora ötürmə qaydaları (sahibin ayarı) */ handoff?: { cantHelp: boolean; upset: boolean; ready: boolean }; /** müştəriyə sonradan yazmaq üçün kanal ünvanı (sifariş/randevu ilə saxlanır) */ reach?: { type: "telegram" | "whatsapp"; chatId: string; ref?: string; lang?: string } }): Promise<AiResult>;
   privateData(tenantId: string): Promise<AiResult>;
   setPrivateData(tenantId: string, body: object): Promise<AiResult>;
   deletePrivateData(tenantId: string): Promise<AiResult>;
@@ -61,7 +61,14 @@ export type AiClient = {
   kbDelete(tenantId: string, sourceId: string): Promise<AiResult>;
   kbUnanswered(tenantId: string): Promise<AiResult>;
   kbDeleteUnanswered(tenantId: string, id: string): Promise<AiResult>;
-  kbLeads(tenantId: string): Promise<AiResult>;
+  kbLeads(tenantId: string, kind?: "order" | "booking"): Promise<AiResult>;
+  booking(tenantId: string): Promise<AiResult>;
+  kbLearn(tenantId: string, b: { messages: { from: "visitor" | "operator"; text: string }[]; chatId?: string }): Promise<AiResult>;
+  kbSuggestions(tenantId: string): Promise<AiResult>;
+  kbDeleteSuggestion(tenantId: string, id: string): Promise<AiResult>;
+  kbAcceptSuggestion(tenantId: string, id: string, b: { questions?: string[]; answer?: string }): Promise<AiResult>;
+  setBooking(tenantId: string, b: object): Promise<AiResult>;
+  deleteBooking(tenantId: string): Promise<AiResult>;
   orderForm(tenantId: string): Promise<AiResult>;
   setOrderForm(tenantId: string, form: object): Promise<AiResult>;
   deleteOrderForm(tenantId: string): Promise<AiResult>;
@@ -141,7 +148,7 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     usage: (id) => request("GET", `${t(id)}/usage`),
     usageSummary: () => request("GET", "/usage/summary"),
     listings: (id, query) => request("GET", `${t(id)}/listings${query ? `?${query}` : ""}`),
-    chat: (id, message, history, opts) => request("POST", `${t(id)}/chat`, { message, history, ...(opts?.test && { test: true }), ...(opts?.sid && { sid: opts.sid }), ...(opts?.identity && { identity: opts.identity }), ...(opts?.live && { live: true }), ...(opts?.image && { image: { data: opts.image } }), ...(opts?.channel && { channel: opts.channel }), ...(opts?.handoff && { handoff: opts.handoff }) }, 75_000),
+    chat: (id, message, history, opts) => request("POST", `${t(id)}/chat`, { message, history, ...(opts?.test && { test: true }), ...(opts?.sid && { sid: opts.sid }), ...(opts?.identity && { identity: opts.identity }), ...(opts?.live && { live: true }), ...(opts?.image && { image: { data: opts.image } }), ...(opts?.channel && { channel: opts.channel }), ...(opts?.handoff && { handoff: opts.handoff }), ...(opts?.reach && { reach: opts.reach }) }, 75_000),
     privateData: (id) => request("GET", `${t(id)}/private-data`),
     setPrivateData: (id, body) => request("PUT", `${t(id)}/private-data`, body),
     deletePrivateData: (id) => request("DELETE", `${t(id)}/private-data`),
@@ -180,7 +187,14 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     kbDelete: (id, sid) => request("DELETE", `${t(id)}/kb/sources/${encodeURIComponent(sid)}`),
     kbUnanswered: (id) => request("GET", `${t(id)}/kb/unanswered`),
     kbDeleteUnanswered: (id, x) => request("DELETE", `${t(id)}/kb/unanswered/${encodeURIComponent(x)}`),
-    kbLeads: (id) => request("GET", `${t(id)}/kb/leads`),
+    kbLeads: (id, kind) => request("GET", `${t(id)}/kb/leads${kind ? `?kind=${kind}&limit=500` : ""}`),
+    booking: (id) => request("GET", `${t(id)}/booking`),
+    kbLearn: (id, b) => request("POST", `${t(id)}/kb/learn`, b, 60_000),
+    kbSuggestions: (id) => request("GET", `${t(id)}/kb/suggestions`),
+    kbDeleteSuggestion: (id, x) => request("DELETE", `${t(id)}/kb/suggestions/${encodeURIComponent(x)}`),
+    kbAcceptSuggestion: (id, x, b) => request("POST", `${t(id)}/kb/suggestions/${encodeURIComponent(x)}/accept`, b),
+    setBooking: (id, b) => request("PUT", `${t(id)}/booking`, b),
+    deleteBooking: (id) => request("DELETE", `${t(id)}/booking`),
     kbAddLead: (id, lead) => request("POST", `${t(id)}/kb/leads`, lead),
     orderForm: (id) => request("GET", `${t(id)}/order-form`),
     setOrderForm: (id, form) => request("PUT", `${t(id)}/order-form`, form),

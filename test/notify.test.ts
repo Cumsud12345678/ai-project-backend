@@ -51,7 +51,7 @@ test("bağlama: link -> /start kod -> bağlandı; kod təkrar işləmir; ayırma
 test("webhook: səhv gizli başlıq 404; adi mesaja izah", async () => {
   assert.equal((await tg({ message: { text: "/start x" } }, "yanlis")).status, 404);
   await start(5003, "salam");
-  await until(() => toChat(5003).some((m) => m.text.includes("yalnız canlı söhbət bildirişləri")));
+  await until(() => toChat(5003).some((m) => m.text.includes("bildiriş mesajına “Reply” et")));
 });
 
 test("yeni canlı söhbət: bağlı operatora Telegram mesajı; panel bağlı ikən ziyarətçi mesajı da, panel açıq ikən yox", async () => {
@@ -92,4 +92,38 @@ test("operator botu bloklayıbsa bağlantı avtomatik silinir", async () => {
     await new Promise((r) => setTimeout(r, 100));
     assert.equal((await c.call("GET", "/tenant/notify")).body.telegram, null);
   } finally { p.telegram.sendMessage = orig; }
+});
+
+test("Telegram-dan cavab: bildirişə Reply → mesaj canlı söhbətə gedir; sonrakı ziyarətçi mesajları fasiləsiz çatır; yad operator yaza bilmir", async () => {
+  const { c, key } = await owner();
+  await link(c, 7001);
+  const v = p.client();
+  const s = await v.call("POST", `/widget/${key}/live`, { message: "Çatdırılma neçəyədir?" }, { origin: ORIGIN });
+  assert.equal(s.status, 201);
+  await until(() => toChat(7001).some((m) => m.text.includes("Yeni canlı söhbət")));
+  const note = toChat(7001).find((m) => m.text.includes("Yeni canlı söhbət"))!.text;
+  assert.match(note, /Reply/);
+  assert.match(note, new RegExp(`#L[\\w-]+:${s.body.id}`));
+  const reply = (chatId: number, text: string, replied = note) => tg({ message: { text, chat: { id: chatId, type: "private" }, from: { first_name: "Aynur" }, reply_to_message: { text: replied, from: { is_bot: true } } } });
+
+  await reply(7001, "5 manatdır, bu gün çatdırırıq");
+  await until(() => toChat(7001).some((m) => m.text === "✅ Göndərildi"));
+  const sync = await v.call("POST", `/widget/${key}/live/${s.body.id}/sync`, { token: s.body.token, after: 0 }, { origin: ORIGIN });
+  assert.equal(sync.body.messages.at(-1).from, "operator");
+  assert.equal(sync.body.messages.at(-1).text, "5 manatdır, bu gün çatdırırıq");
+  const chat = (await c.call("GET", `/tenant/live/${s.body.id}`)).body.chat;
+  assert.ok(chat.assignee, "Telegram-dan yazan operator söhbətə təyin olunur");
+
+  // Ziyarətçinin növbəti iki mesajı ardıcıl (3 dəqiqəlik fasilə olmadan) çatır
+  for (const t of ["Ünvan Nərimanovdur", "Saat 6-da evdəyəm"]) assert.equal((await v.call("POST", `/widget/${key}/live/${s.body.id}/sync`, { token: s.body.token, after: 0, text: t }, { origin: ORIGIN })).status, 200);
+  await until(() => toChat(7001).some((m) => m.text.includes("Saat 6-da evdəyəm")));
+  assert.ok(toChat(7001).some((m) => m.text.includes("Ünvan Nərimanovdur")));
+
+  // Başqa (bu komandada olmayan) Telegram istifadəçisi eyni bildirişə Reply etsə: icazə yoxdur
+  await reply(7999, "mən də yazım");
+  await until(() => toChat(7999).some((m) => m.text.includes("icazən yoxdur")));
+  // Bağlanmış söhbətə yazmaq olmur
+  assert.equal((await c.call("POST", `/tenant/live/${s.body.id}/close`)).status, 200);
+  await reply(7001, "yenə salam");
+  await until(() => toChat(7001).some((m) => m.text.includes("❌ Söhbət bağlanıb")));
 });

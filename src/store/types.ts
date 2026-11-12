@@ -96,6 +96,10 @@ export type WidgetSettings = {
 
 export type TeamMember = { email: string; userId?: string; addedAt: Date };
 /** Operatorun ziyarətçiyə görünən profili (hər müştəri hesabında ayrıca): canlı söhbətdə "Leyla qoşuldu" + şəkil */
+/** Müştəriyə yazmaq üçün kanal ünvanı (Telegram/WhatsApp söhbəti) */
+export type Reach = { type: "telegram" | "whatsapp"; chatId: string; ref?: string; lang?: "az" | "en" | "ru" | "tr" };
+/** Planlaşdırılmış mesaj (randevu xatırlatması): vaxtı çatanda müştəriyə gedir */
+export type Reminder = { id: string; tenantId: string; ref: string; at: Date; reach: Reach; text: string; createdAt: Date };
 export type OperatorProfile = { name: string; photo?: WidgetImage; updatedAt: Date };
 
 /** Müştərinin aktiv AI tenant-ı. `config` apiSecret olmadan saxlanır. */
@@ -131,6 +135,8 @@ export type TenantRecord = {
   followup?: FollowupSettings;
   /** Ağıllı operator çağırışı qaydaları */
   handoff?: HandoffSettings;
+  /** Kanal üzrə AI rejimi: auto (AI cavab verir), draft (AI qaralama yazır, operator göndərir), off (yalnız operator) */
+  aiMode?: { telegram?: AiMode; whatsapp?: AiMode };
   /** Hazır cavablar: operatorlar söhbətdə bir kliklə mesaja əlavə edir */
   canned?: CannedReply[];
   /** Yeni müraciətin ötürüldüyü yerlər. Bitrix24 və webhook linkləri sirr daşıyır: şifrəli saxlanır (CHANNEL_SECRET_KEY). */
@@ -179,6 +185,7 @@ export type SetupRequest = {
 };
 
 /** Ağıllı operator çağırışı: hansı hallarda AI söhbəti operatora ötürsün (müştəri özü istəyəndə həmişə) */
+export type AiMode = "auto" | "draft" | "off";
 export type HandoffSettings = { cantHelp: boolean; upset: boolean; ready: boolean; /** ardıcıl 2 cavabsız sual */ misses: boolean };
 
 /** Susan müştəriyə xatırlatma (Telegram/WhatsApp): AI cavabından sonra müştəri delayMin dəqiqə yazmasa bir dəfə */
@@ -216,6 +223,8 @@ export type LiveChat = {
   csat?: { rating: number; comment?: string; at: Date };
   /** AI xülasəsi (niyyət, əhval, etirazlar, növbəti addım). count: hansı mesaj sayında hazırlanıb (yeni mesaj gəlsə köhnəlir) */
   summary?: ChatSummary & { at: Date; count: number };
+  /** "AI qaralama" rejimi: ziyarətçinin son mesajına AI-ın hazırladığı cavab (operator bir kliklə göndərir) */
+  aiDraft?: { text: string; at: Date } | null;
   /** Ziyarətçinin söhbəti başladığı səhifə (yalnız yol və başlıq, sorğu parametrləri saxlanmır) */
   page?: { path: string; title?: string };
   /** Sayt ziyarətçisi: pid (brauzer ID-sindən törəmə, bloklamaq üçün) və brauzerin özü bildirdiyi məlumat */
@@ -276,9 +285,15 @@ export interface Store {
   setWidgetLogo(tenantId: string, logo: WidgetImage | null, kind?: WidgetImageKind): Promise<void>;
   /** Bir operatorun profilini atomik yazır (null = silinir) */
   setOpProfile(tenantId: string, userId: string, profile: OperatorProfile | null): Promise<void>;
+  addReminder(r: Reminder): Promise<void>;
+  /** Vaxtı çatmış xatırlatmalar (köhnədən yeniyə) */
+  dueReminders(now: Date, limit: number): Promise<Reminder[]>;
+  deleteReminder(id: string): Promise<void>;
+  /** Bir randevunun bütün xatırlatmaları (ləğv / vaxt dəyişəndə) */
+  deleteRemindersByRef(tenantId: string, ref: string): Promise<void>;
   /** Vidjetin ayrı sahələrini yazır (widget.<sahə>), qalanına (loqo, profil şəkli) toxunmur. Vidjet yoxdursa heç nə etmir. */
   patchWidget(tenantId: string, fields: Partial<Omit<WidgetSettings, "logo" | "avatar">>): Promise<void>;
-  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "testedAt" | "setup" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats" | "automations" | "waIgnore" | "followup" | "handoff">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
+  updateTenant(tenantId: string, patch: Partial<Pick<TenantRecord, "config" | "businessName" | "domain" | "keyRotatedAt" | "testedAt" | "setup" | "widget" | "report" | "team" | "brandRemoved" | "canned" | "leadForward" | "suspended" | "blocked" | "campaignStats" | "automations" | "waIgnore" | "followup" | "handoff" | "aiMode">> & { telegram?: TelegramLink | null; whatsapp?: WhatsAppLink | null }): Promise<void>;
 
   /** Vidjetin saytda yükləndiyini qeyd edir (digər sahələrə toxunmur, updatedAt dəyişmir). */
   touchWidget(tenantId: string, at: Date): Promise<void>;
@@ -292,7 +307,7 @@ export interface Store {
   createLive(c: LiveChat): Promise<void>;
   getLive(tenantId: string, id: string): Promise<LiveChat | null>;
   /** Mesaj əlavə edir (ən çox 300) və sahələri yeniləyir; söhbət tapılmasa null. */
-  pushLive(tenantId: string, id: string, msg: LiveMessage | null, patch?: Partial<Pick<LiveChat, "status" | "operatorSeenAt" | "visitorSeenAt" | "name" | "contact" | "assignee">>): Promise<LiveChat | null>;
+  pushLive(tenantId: string, id: string, msg: LiveMessage | null, patch?: Partial<Pick<LiveChat, "status" | "operatorSeenAt" | "visitorSeenAt" | "name" | "contact" | "assignee" | "aiDraft">>): Promise<LiveChat | null>;
   /** updatedAt-a toxunmadan yalnız izləmə sahələrini yeniləyir */
   patchLive(tenantId: string, id: string, patch: Partial<Pick<LiveChat, "visitorSeenAt" | "notifiedAt" | "notifyCount" | "notes" | "tags" | "csat" | "contact" | "summary">>): Promise<void>;
   findLiveByChannel(tenantId: string, type: "telegram" | "whatsapp", chatId: string): Promise<LiveChat | null>;

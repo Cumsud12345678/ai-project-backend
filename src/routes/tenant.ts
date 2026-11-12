@@ -9,7 +9,11 @@ import { HttpError } from "../http.js";
 import { notifyOrder, notifyTopupRequest, parseAmount } from "../billing.js";
 import { FEATURE_KEYS, invalidateEntitlements, loadEntitlements } from "../plans.js";
 import { getPublicPlans } from "../public-plans.js";
-import { mailVisitorReply } from "../live.js";
+import { sendOperatorMessage } from "../live-send.js";
+import { bookingText, isEmailContact, leadView, ORDER_STAGES, orderStageText, parseReach, sendToReach, type Lead, type OrderStage } from "../customer-notify.js";
+import { scheduleBookingReminder } from "../booking.js";
+import { aiModeOf, aiModesView, parseAiMode } from "../ai-mode.js";
+import { learnFromLive } from "../learn.js";
 import { exportCsv, funnel, type ExportKind } from "../stats.js";
 import { hub } from "../hub.js";
 import { getVisitor, hasInvite, listVisitors, setInvite } from "../presence.js";
@@ -382,7 +386,9 @@ export function tenantRoutes(deps: Deps) {
     const { tenant: t } = await opTenant(currentUser(res));
     const open = await store.listLive(t.tenantId, "open", 200);
     // openNow: işçi saatları nəzərə alınmaqla ziyarətçiyə hazırda "Operatorla yaz" göstərilirmi
-    res.json({ enabled: Boolean(t.widget?.live?.enabled), openNow: liveOpenNow(t), hasHours: Boolean(t.widget?.live?.hours), open: open.length, waiting: open.filter(isWaiting).length });
+    // Qaralama/söndürülüb rejimində və ya açıq söhbət varsa canlı qutu canlı söhbət ayarından asılı olmayaraq işləyir
+    const inbox = Boolean(t.widget?.live?.enabled) || aiModeOf(t, "telegram") !== "auto" || aiModeOf(t, "whatsapp") !== "auto" || open.length > 0;
+    res.json({ enabled: inbox, openNow: liveOpenNow(t), hasHours: Boolean(t.widget?.live?.hours), open: open.length, waiting: open.filter(isWaiting).length });
   });
   r.get("/live", async (req, res) => {
     const { tenant: t } = await opTenant(currentUser(res));
@@ -550,7 +556,7 @@ export function tenantRoutes(deps: Deps) {
         .map((o) => ({ id: o.id, createdAt: o.createdAt, status: o.status, count: o.messages.length, tags: o.tags ?? [], csat: o.csat?.rating ?? null, first: o.messages[0]?.text.slice(0, 120) ?? "" }))
       : [];
     res.json({ chat: { id: c.id, name: c.name, contact: c.contact, status: c.status, context: c.context, messages: c.messages, createdAt: c.createdAt, channel: c.channel?.type ?? null, assignee: c.assignee ?? null, notes: c.notes ?? [], tags: c.tags ?? [], csat: c.csat ?? null, page: c.page ?? null, previous, visitor: c.visitor ? { ...c.visitor, pid: undefined } : null, blocked: isBlocked(t, blockKeyOfChat(c)),
-      ...(c.summary && { summary: { ...c.summary, stale: c.summary.count !== c.context.length + c.messages.length } }) } });
+      ...(c.summary && { summary: { ...c.summary, stale: c.summary.count !== c.context.length + c.messages.length } }), ...(c.aiDraft && { aiDraft: c.aiDraft }) } });
   });
   // Canlı söhbətdə ziyarətçinin göndərdiyi şəkil: yalnız bu hesabın operatorları, yalnız həmin söhbətin faylı
   r.get("/live/:id/files/:fid", async (req, res) => {
@@ -616,22 +622,9 @@ export function tenantRoutes(deps: Deps) {
     if (!limiter.hit(`live:op:${user.id}`, 60, 60_000)) throw new HttpError(429, "Çox tez-tez mesaj göndərirsən", "RATE_LIMITED");
     const { tenant: t } = await opTenant(user);
     const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
-    if (!text || text.length > 1000) throw new HttpError(400, "Mesaj 1-1000 simvol olmalıdır");
     const chat = await store.getLive(t.tenantId, String(req.params.id));
     if (!chat) throw new HttpError(404, "Söhbət tapılmadı", "LIVE_NOT_FOUND");
-    if (chat.status === "closed") throw new HttpError(409, "Söhbət bağlanıb", "LIVE_CLOSED");
-    // Kanal (Telegram/WhatsApp) söhbətində əvvəlcə çatdırılır: alınmasa mesaj yazılmır, operator xətanı görür
-    if (chat.channel) {
-      try { await deliverToChannel(deps, t, chat, signText(t, chat, user.id, text)); }
-      catch { throw new HttpError(502, chat.channel.type === "telegram" ? "Mesaj Telegram-a göndərilə bilmədi" : "Mesaj WhatsApp-a göndərilə bilmədi", "CHANNEL_SEND_FAILED"); }
-    }
-    const who = nameOf(user);
-    const next = await store.pushLive(t.tenantId, chat.id, { from: "operator", text, at: new Date(), by: who, uid: user.id }, { operatorSeenAt: new Date(), ...(!chat.assignee && { assignee: { userId: user.id, name: who } }) });
-    void mailVisitorReply(deps, t, chat, text); // yalnız ziyarətçi çatdan ayrılıbsa və e-poçt yazıbsa
-    const total = next?.messages.length ?? chat.messages.length;
-    hub.toChat(chat.id, { t: "new", total });                                   // ziyarətçi dərhal oxuyur
-    hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "message" });   // operatorun digər tabları və komanda yenilənir
-    res.status(201).json({ total: next?.messages.length ?? chat.messages.length });
+    res.status(201).json({ total: await sendOperatorMessage(deps, t, user, chat, text) });
   });
   // Operatorun faylı: şəkil və ya PDF (+ istəyə bağlı izah). Kanal söhbətində əvvəlcə kanala çatdırılır.
   r.post("/live/:id/files", async (req, res) => {
@@ -677,7 +670,9 @@ export function tenantRoutes(deps: Deps) {
       hub.toChat(chat.id, { t: "new", total: chat.messages.length + 1 });
       hub.toOperators(t.tenantId, { t: "live", id: chat.id, kind: "close" });
       void runAutomations(deps, t, chatClosedEvent(chat, nameOf(currentUser(res))));
-      if (chat.channel) void deliverToChannel(deps, t, chat, channelTexts(chatLang(t, [...chat.messages].reverse().find((m) => m.from === "visitor")?.text ?? ""), 0, 0).live.back).catch(() => {}); // bot geri qayıtdı xəbəri (alınmasa vacib deyil)
+      void learnFromLive(deps, t, chat); // operatorun cavablarından bilik bazası üçün təklif
+      // "Bot geri qayıtdı" yalnız AI avtomatik rejimdədirsə (qaralama/söndürülüb rejimində bot cavab vermir)
+      if (chat.channel && aiModeOf(t, chat.channel.type) === "auto") void deliverToChannel(deps, t, chat, channelTexts(chatLang(t, [...chat.messages].reverse().find((m) => m.from === "visitor")?.text ?? ""), 0, 0).live.back).catch(() => {}); // bot geri qayıtdı xəbəri (alınmasa vacib deyil)
     }
     res.json({ ok: true });
   });
@@ -805,6 +800,15 @@ export function tenantRoutes(deps: Deps) {
     const { tenant: t } = await opTenant(user);
     await store.setOpProfile(t.tenantId, user.id, null);
     res.json({ profile: null });
+  });
+
+  // ---- Kanal üzrə AI rejimi: avtomatik / qaralama (operator təsdiqləyir) / söndürülüb ----
+  r.get("/ai-mode", async (_req, res) => { res.json({ aiMode: aiModesView(await mine(currentUser(res).id)) }); });
+  r.put("/ai-mode", async (req, res) => {
+    const t = await mine(currentUser(res).id);
+    const aiMode = parseAiMode(req.body);
+    await store.updateTenant(t.tenantId, { aiMode });
+    res.json({ aiMode });
   });
 
   // ---- Ağıllı operator çağırışı: AI hansı hallarda söhbəti operatora ötürsün ----
@@ -948,9 +952,71 @@ export function tenantRoutes(deps: Deps) {
     res.status(202).json(await ai.kbRefresh((await mine(user.id)).tenantId, sid(req.params.id)));
   });
   r.delete("/kb/sources/:id", async (req, res) => { res.json(await ai.kbDelete((await mine(currentUser(res).id)).tenantId, sid(req.params.id))); });
+  // Operator cavablarından öyrənilən təkliflər: təsdiq (düzəldilmiş sual/cavab ilə) bilik bazasına yazır
+  r.get("/kb/suggestions", async (_req, res) => { res.json(await ai.kbSuggestions((await mine(currentUser(res).id)).tenantId)); });
+  r.delete("/kb/suggestions/:id", async (req, res) => { res.json(await ai.kbDeleteSuggestion((await mine(currentUser(res).id)).tenantId, sid(req.params.id))); });
+  r.post("/kb/suggestions/:id/accept", async (req, res) => {
+    const user = currentUser(res); kbWrite(user.id);
+    const b = req.body ?? {};
+    const questions = Array.isArray(b.questions) ? b.questions.filter((q: unknown) => typeof q === "string").slice(0, 8) : undefined;
+    res.status(201).json(await ai.kbAcceptSuggestion((await mine(user.id)).tenantId, sid(req.params.id), { ...(questions?.length && { questions }), ...(typeof b.answer === "string" && { answer: b.answer.slice(0, 2000) }) }));
+  });
   r.get("/kb/unanswered", async (_req, res) => { res.json(await ai.kbUnanswered((await mine(currentUser(res).id)).tenantId)); });
   r.delete("/kb/unanswered/:id", async (req, res) => { res.json(await ai.kbDeleteUnanswered((await mine(currentUser(res).id)).tenantId, sid(req.params.id))); });
-  r.get("/kb/leads", async (_req, res) => { res.json(await ai.kbLeads((await mine(currentUser(res).id)).tenantId)); });
+  r.get("/kb/leads", async (_req, res) => {
+    const out = await ai.kbLeads((await mine(currentUser(res).id)).tenantId) as { items?: Lead[] };
+    res.json({ ...out, items: (out.items ?? []).map(leadView) });
+  });
+
+  // ---- Sifariş lövhəsi: mərhələ dəyişəndə müştəriyə (Telegram/WhatsApp və ya e-poçt) avtomatik mesaj ----
+  r.get("/orders", async (_req, res) => {
+    const out = await ai.kbLeads((await mine(currentUser(res).id)).tenantId, "order") as { items?: Lead[] };
+    res.json({ items: (out.items ?? []).filter((l) => l.order).map(leadView) });
+  });
+  r.patch("/orders/:id/stage", async (req, res) => {
+    const user = currentUser(res), b = req.body ?? {};
+    const t = await mine(user.id);
+    if (!ORDER_STAGES.includes(b.stage as OrderStage)) throw new HttpError(400, "Mərhələ düzgün deyil");
+    const note = typeof b.note === "string" ? b.note.replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, " ").trim().slice(0, 300) : "";
+    const { lead } = await ai.kbUpdateLead(t.tenantId, sid(req.params.id), { orderStage: b.stage, by: nameOf(user), ...(note && { note: `Müştəriyə: ${note}` }) }) as { lead: Lead };
+    let notified: "channel" | "email" | null = null, notifyError: string | undefined;
+    const text = b.notify === true ? orderStageText(b.stage, lead.id, t.businessName, lead.order?.reach?.lang, note) : null;
+    if (text) {
+      const reach = parseReach(lead.order?.reach);
+      try {
+        if (reach) { await sendToReach(deps, t, reach, text); notified = "channel"; }
+        else if (isEmailContact(lead.contact ?? "")) { await deps.mailer.send(lead.contact!, `${t.businessName}: ${text.split("\n")[0]!.replace(`${t.businessName}: `, "")}`, text); notified = "email"; }
+      } catch (e) { notifyError = e instanceof Error ? e.message : String(e); }
+    }
+    hub.toOperators(t.tenantId, { t: "leads", kind: "order" });
+    res.json({ lead: leadView(lead), notified, ...(notifyError && { notifyError }) });
+  });
+
+  // ---- Randevu təqvimi: ayar (xidmətlər, iş saatları), siyahı, status (ləğv olunanda müştəriyə mesaj) ----
+  r.get("/booking", async (_req, res) => { res.json(await ai.booking((await mine(currentUser(res).id)).tenantId)); });
+  r.put("/booking", async (req, res) => { res.json(await ai.setBooking((await mine(currentUser(res).id)).tenantId, req.body ?? {})); });
+  r.delete("/booking", async (_req, res) => { res.json(await ai.deleteBooking((await mine(currentUser(res).id)).tenantId)); });
+  r.get("/bookings", async (_req, res) => {
+    const out = await ai.kbLeads((await mine(currentUser(res).id)).tenantId, "booking") as { items?: Lead[] };
+    res.json({ items: (out.items ?? []).filter((l) => l.booking).map(leadView).sort((a, b) => String(a.booking?.start).localeCompare(String(b.booking?.start))) });
+  });
+  r.patch("/bookings/:id", async (req, res) => {
+    const user = currentUser(res), b = req.body ?? {};
+    const t = await mine(user.id);
+    if (!["booked", "done", "noshow", "cancelled"].includes(b.status)) throw new HttpError(400, "Status düzgün deyil");
+    const note = typeof b.note === "string" ? b.note.replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, " ").trim().slice(0, 300) : "";
+    const { lead } = await ai.kbUpdateLead(t.tenantId, sid(req.params.id), { bookingStatus: b.status, by: nameOf(user), ...(note && { note: `Müştəriyə: ${note}` }) }) as { lead: Lead };
+    const bk = lead.booking, reach = parseReach(bk?.reach);
+    let notified: "channel" | null = null, notifyError: string | undefined;
+    if (bk && b.status !== "booked") await store.deleteRemindersByRef(t.tenantId, lead.id);
+    if (bk && b.status === "booked" && reach) await scheduleBookingReminder(deps, t, { id: lead.id, date: bk.date, time: bk.time, service: bk.service, start: bk.start }, reach).catch(() => false);
+    if (bk && b.status === "cancelled" && b.notify === true && reach) {
+      try { await sendToReach(deps, t, reach, bookingText("cancelled", bk, t.businessName, reach.lang, note)); notified = "channel"; }
+      catch (e) { notifyError = e instanceof Error ? e.message : String(e); }
+    }
+    hub.toOperators(t.tenantId, { t: "leads", kind: "booking" });
+    res.json({ lead: leadView(lead), notified, ...(notifyError && { notifyError }) });
+  });
   // Müraciət: status, prioritet, məsul, daxili qeyd (kim etdiyi tarixçəyə yazılır)
   r.patch("/kb/leads/:id", async (req, res) => {
     const user = currentUser(res), b = req.body ?? {};
