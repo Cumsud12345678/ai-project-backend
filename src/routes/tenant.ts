@@ -1,5 +1,5 @@
 import express, { Router } from "express";
-import { deliverFileToChannel, deliverToChannel, startChannelLive } from "../channel-live.js";
+import { deliverFileToChannel, deliverToChannel, signText, startChannelLive } from "../channel-live.js";
 import { parseOperatorFile } from "../live-files.js";
 import { channelTexts, chatLang } from "../channel-i18n.js";
 import { MAX_TEAM, memberTenant, nameOf, tenantFor, validEmail } from "../team.js";
@@ -460,7 +460,7 @@ export function tenantRoutes(deps: Deps) {
     if (!sess) throw new HttpError(404, "Bu müştəri botla yazışmayıb: ona yalnız o yazandan sonra cavab vermək olar", "CONTACT_NOT_FOUND");
     const who = nameOf(user);
     const chat = await startChannelLive(deps, t, { channel, chatId, ...(sess.ref && { ref: sess.ref }), ...(sess.phone && { phone: sess.phone }), name: sess.name ?? "", history: sess.history, quiet: true });
-    try { await deliverToChannel(deps, t, chat, text); }
+    try { await deliverToChannel(deps, t, chat, signText(t, chat, user.id, text)); }
     catch {
       await store.pushLive(t.tenantId, chat.id, { from: "system", text: "closed", at: new Date() }, { status: "closed" });
       throw new HttpError(502, channel === "telegram" ? "Mesaj Telegram-a göndərilə bilmədi" : "Mesaj WhatsApp-a göndərilə bilmədi", "CHANNEL_SEND_FAILED");
@@ -622,7 +622,7 @@ export function tenantRoutes(deps: Deps) {
     if (chat.status === "closed") throw new HttpError(409, "Söhbət bağlanıb", "LIVE_CLOSED");
     // Kanal (Telegram/WhatsApp) söhbətində əvvəlcə çatdırılır: alınmasa mesaj yazılmır, operator xətanı görür
     if (chat.channel) {
-      try { await deliverToChannel(deps, t, chat, text); }
+      try { await deliverToChannel(deps, t, chat, signText(t, chat, user.id, text)); }
       catch { throw new HttpError(502, chat.channel.type === "telegram" ? "Mesaj Telegram-a göndərilə bilmədi" : "Mesaj WhatsApp-a göndərilə bilmədi", "CHANNEL_SEND_FAILED"); }
     }
     const who = nameOf(user);
@@ -645,7 +645,7 @@ export function tenantRoutes(deps: Deps) {
     if (chat.status === "closed") throw new HttpError(409, "Söhbət bağlanıb", "LIVE_CLOSED");
     const id = randomUUID();
     if (chat.channel) {
-      try { await deliverFileToChannel(deps, t, chat, { id, b64: f.b64, mime: f.mime, name: f.name, caption }); }
+      try { await deliverFileToChannel(deps, t, chat, { id, b64: f.b64, mime: f.mime, name: f.name, caption: signText(t, chat, user.id, caption) }); }
       catch { throw new HttpError(502, chat.channel.type === "telegram" ? "Fayl Telegram-a göndərilə bilmədi" : "Fayl WhatsApp-a göndərilə bilmədi", "CHANNEL_SEND_FAILED"); }
     }
     await store.addLiveFile({ id, tenantId: t.tenantId, chatId: chat.id, mime: f.mime, name: f.name, data: f.b64, at: new Date() });

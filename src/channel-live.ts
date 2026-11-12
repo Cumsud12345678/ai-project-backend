@@ -30,6 +30,13 @@ export const isBotCmd = (t: string) => /^\/(bot|ai)(@\w+)?$/i.test(t.trim());
 export const liveEnabled = (t: TenantRecord) => liveOpenNow(t);
 
 /** Operatorun mesajını müştərinin kanalına göndərir. Alınmasa xəta atır. */
+/** Operator imzası (Telegram/WhatsApp): profili varsa mesajın əvvəlinə adı yazılır, müştəri kimlə danışdığını bilir */
+export function signText(t: Pick<TenantRecord, "opProfiles">, chat: Pick<LiveChat, "channel">, uid: string, text: string): string {
+  const name = t.opProfiles?.[uid]?.name?.replace(/[*_~`]/g, "").trim();
+  if (!name || !chat.channel || !text) return text;
+  return chat.channel.type === "whatsapp" ? `*${name}:*\n${text}` : `${name}:\n${text}`;
+}
+
 export async function deliverToChannel(deps: Deps, t: TenantRecord, chat: LiveChat, text: string): Promise<void> {
   const ch = chat.channel;
   if (!ch) return;

@@ -74,3 +74,21 @@ test("vidjet konfiqurasiyası: köməkçinin adı varsa botName qayıdır", asyn
   const b = await setup();
   assert.equal((await b.w("GET", "/config")).body.botName, undefined);
 });
+
+test("Telegram: profili olan operatorun mesajı adı ilə imzalanır, profilsizin mesajı olduğu kimi gedir", async () => {
+  const { c } = await setup();
+  const token = `93000${n}000:AAH${"q".repeat(32)}`;
+  assert.equal((await c.call("PUT", "/tenant/channels/telegram", { token })).status, 200);
+  const hook = p.telegram.hooks.get(token)!;
+  await fetch(p.base + new URL(hook.url).pathname, { method: "POST", headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": hook.secret }, body: JSON.stringify({ update_id: 90000 + n, message: { text: "/operator", chat: { id: 321, type: "private" }, from: { first_name: "Ali", is_bot: false } } }) });
+  let items: { id: string }[] = [];
+  for (let i = 0; i < 50 && !items.length; i++) { items = (await c.call("GET", "/tenant/live?status=open")).body.items; if (!items.length) await new Promise((r) => setTimeout(r, 20)); }
+  const id = items[0]!.id;
+  assert.equal((await c.call("POST", `/tenant/live/${id}/messages`, { text: "Profilsiz" })).status, 201);
+  assert.equal(p.telegram.sent.at(-1)!.text, "Profilsiz");
+  await c.call("PUT", "/tenant/operator-profile", { name: "Leyla" });
+  assert.equal((await c.call("POST", `/tenant/live/${id}/messages`, { text: "Salam, baxıram" })).status, 201);
+  assert.equal(p.telegram.sent.at(-1)!.text, "Leyla:\nSalam, baxıram");
+  const chat = (await c.call("GET", `/tenant/live/${id}`)).body.chat;
+  assert.equal(chat.messages.at(-1).text, "Salam, baxıram", "paneldə mesaj imzasız saxlanır");
+});
