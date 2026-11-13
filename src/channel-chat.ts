@@ -44,11 +44,7 @@ export function formatReply(out: Record<string, any>, hide: Set<number> = new Se
   const parts = [clip(out.answer, 3000) || "..."];
   const items = (Array.isArray(out.listings) ? out.listings : []).slice(0, 3).map((l: Record<string, unknown>, i: number) => hide.has(i) ? "" : listingText(l)).filter(Boolean);
   if (items.length) parts.push(items.join("\n"));
-  const src = (Array.isArray(out.sources) ? out.sources : []).slice(0, 2).map((s: Record<string, unknown>) => {
-    const url = httpUrl(s.url);
-    return `${clip(s.title, 100)}${url ? ` ${url}` : ""}`.trim();
-  }).filter(Boolean);
-  if (src.length) parts.push(`Mənbə: ${src.join(", ")}`);
+  // Bilik mənbələri (fayl/səhifə adı) müştəriyə göstərilmir: daxili məlumatdır, operator onları paneldə görür
   return parts.join("\n\n").slice(0, 3900);
 }
 

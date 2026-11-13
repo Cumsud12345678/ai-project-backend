@@ -45,7 +45,7 @@ test("secrets: şifrələmə geri açılır, yanlış açar və dəyişdirilmiş
 
 test("formatReply: elanlar, mənbələr və uzunluq", () => {
   const t = formatReply({ answer: "Tapdım", listings: [{ title: "Sonic", price: 139, currency: "AZN", url: "https://x.az/1" }, { title: "Bad", url: "javascript:alert(1)" }], sources: [{ title: "Çatdırılma", url: "https://x.az/c" }] });
-  assert.match(t, /Tapdım/); assert.match(t, /• Sonic — 139 AZN\nhttps:\/\/x\.az\/1/); assert.match(t, /Mənbə: Çatdırılma https:\/\/x\.az\/c/);
+  assert.match(t, /Tapdım/); assert.match(t, /• Sonic — 139 AZN\nhttps:\/\/x\.az\/1/); assert.doesNotMatch(t, /Mənbə|x\.az\/c/, "bilik mənbəyi müştəriyə yazılmır");
   assert.ok(!t.includes("javascript:"));
   assert.ok(formatReply({ answer: "a".repeat(9000) }).length <= 3900);
 });

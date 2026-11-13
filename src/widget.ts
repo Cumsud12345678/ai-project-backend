@@ -396,7 +396,8 @@ export function widgetRoutes(deps: Deps) {
       if (notify === "usage80" || notify === "usage100") void notifyUsage(deps, t, notify, out.billing?.plan);
       if (notify === "trialEnd") void notifyTrialEnd(deps, t);
       const listings = (Array.isArray(out.listings) ? out.listings : []).slice(0, 10).map(publicListing);
-      const sources = (Array.isArray(out.sources) ? out.sources : []).slice(0, 3).map((s: Record<string, unknown>) => ({ title: str(s.title, 120) ?? "", url: httpUrl(s.url) }));
+      // Ziyarətçiyə yalnız açıq veb səhifə mənbələri ("ətraflı oxu" linki) göstərilir; fayl və mətn adları daxili məlumatdır
+      const sources = (Array.isArray(out.sources) ? out.sources : []).map((s: Record<string, unknown>) => ({ title: str(s.title, 120) ?? "", url: httpUrl(s.url) })).filter((s: { title: string; url?: string }) => Boolean(s.title && s.url)).slice(0, 3);
       const confirm = publicConfirm(out.confirm);
       const answer = String(out.answer ?? "").slice(0, 8000);
       // AI operatora ötürmə qərarı verib (səbəbi ilə): canlı operator işləyirsə vidjet canlı söhbəti açır, işləmirsə əlaqə forması (səbəb ilə)

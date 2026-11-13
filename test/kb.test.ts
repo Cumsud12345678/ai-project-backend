@@ -80,7 +80,7 @@ test("vidjet cavabı: mənbələr təmizlənir (yalnız http(s) link), unanswere
     assert.equal(r.status, 200);
     assert.equal(r.body.unanswered, true);
     assert.equal(r.body.sources[0].url, "https://magaza.az/faq");
-    assert.equal(r.body.sources[1].url, undefined);
+    assert.equal(r.body.sources.length, 1, "linksiz (fayl/mətn) və təhlükəli linkli mənbə ziyarətçiyə getmir");
   } finally { p.ai.chat = orig; }
 });
 
