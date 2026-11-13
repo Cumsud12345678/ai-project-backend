@@ -19,12 +19,22 @@ export type TelegramApi = {
 
 export function createTelegramApi(fetchFn: typeof fetch = fetch): TelegramApi {
   async function call<T>(token: string, method: string, body?: object): Promise<T> {
-    let res: Response;
-    try {
-      res = await fetchFn(`https://api.telegram.org/bot${token}/${method}`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}), signal: AbortSignal.timeout(15_000),
-      });
-    } catch { throw new TelegramError(0, "Telegram-a qoşulmaq olmur"); }
+    let res: Response | undefined;
+    // AI cavabı hazırlanarkən (bir neçə saniyə) Telegram köhnə keep-alive bağlantını bağlayır və növbəti sorğu "fetch failed" ilə düşür.
+    // Ona görə şəbəkə xətasında bir dəfə yeni bağlantı ilə təkrar yoxlanılır (vaxt aşımında yox: sorğu artıq çatmış ola bilər).
+    for (let attempt = 0; !res; attempt++) {
+      try {
+        res = await fetchFn(`https://api.telegram.org/bot${token}/${method}`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}), signal: AbortSignal.timeout(15_000),
+        });
+      } catch (e) {
+        const timeout = e instanceof Error && e.name === "TimeoutError";
+        if (attempt === 0 && !timeout) { await new Promise((r) => setTimeout(r, 300)); continue; }
+        // Səbəb kodu jurnala (URL-siz, token görünmür)
+        const code = (e as { cause?: { code?: string } })?.cause?.code ?? (timeout ? "TIMEOUT" : e instanceof Error ? e.name : "");
+        throw new TelegramError(0, `Telegram-a qoşulmaq olmur (${method}${code ? `, ${code}` : ""})`);
+      }
+    }
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: T; description?: string };
     if (!res.ok || !data.ok) throw new TelegramError(res.status, String(data.description ?? `Telegram xətası ${res.status}`).slice(0, 200));
     return data.result as T;
