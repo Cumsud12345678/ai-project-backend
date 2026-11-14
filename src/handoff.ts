@@ -6,7 +6,8 @@ import type { Deps } from "./deps.js";
 import { HttpError } from "./http.js";
 import type { HandoffSettings, TenantRecord } from "./store/types.js";
 
-export const HANDOFF_REASONS = ["asked", "cant_help", "upset", "ready_to_buy", "misses"] as const;
+// "limit": portal özü ötürür (botun limiti doldu), AI bu səbəbi seçə bilməz
+export const HANDOFF_REASONS = ["asked", "cant_help", "upset", "ready_to_buy", "misses", "limit"] as const;
 export type HandoffReason = (typeof HANDOFF_REASONS)[number];
 export const DEFAULT_HANDOFF: HandoffSettings = { cantHelp: true, upset: true, ready: true, misses: true };
 
@@ -25,13 +26,13 @@ export function parseHandoff(body: unknown): HandoffSettings {
   return out;
 }
 
-export const cleanReason = (v: unknown): HandoffReason => (HANDOFF_REASONS as readonly string[]).includes(v as string) ? (v as HandoffReason) : "asked";
+export const cleanReason = (v: unknown): HandoffReason => v !== "limit" && (HANDOFF_REASONS as readonly string[]).includes(v as string) ? (v as HandoffReason) : "asked";
 const clip = (v: unknown, n: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, n) : "");
 
 /** Canlı söhbətdə görünən etiket (asked: etiket yoxdur) */
-export const REASON_TAG: Record<HandoffReason, string | null> = { asked: null, cant_help: "AI cavab tapmadı", misses: "AI cavab tapmadı", upset: "Narazı", ready_to_buy: "Almağa hazır" };
+export const REASON_TAG: Record<HandoffReason, string | null> = { asked: null, cant_help: "AI cavab tapmadı", misses: "AI cavab tapmadı", upset: "Narazı", ready_to_buy: "Almağa hazır", limit: "Bot limiti doldu" };
 /** Operator bildirişinin başlığı */
-export const REASON_LABEL: Record<HandoffReason, string> = { asked: "🙋 Operator istəyir", cant_help: "🤖 AI kömək edə bilmədi", misses: "🤖 Ardıcıl cavabsız suallar", upset: "😠 Narazı müştəri", ready_to_buy: "🔥 Almağa hazırdır" };
+export const REASON_LABEL: Record<HandoffReason, string> = { asked: "🙋 Operator istəyir", cant_help: "🤖 AI kömək edə bilmədi", misses: "🤖 Ardıcıl cavabsız suallar", upset: "😠 Narazı müştəri", ready_to_buy: "🔥 Almağa hazırdır", limit: "⏳ Botun limiti doldu, operator cavab versin" };
 export const urgent = (r: HandoffReason) => r === "upset" || r === "ready_to_buy";
 
 /** Canlı söhbətə yazılacaq etiketlər və AI qeydi */

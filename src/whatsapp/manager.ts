@@ -7,6 +7,7 @@ import type { Deps } from "../deps.js";
 import { recordError } from "../errorlog.js";
 import { alertChannel } from "../alerts.js";
 import { fetchImage } from "../safe-image.js";
+import { waCapOk } from "./cap.js";
 import type { TenantRecord, WhatsAppLink } from "../store/types.js";
 
 /** Kitabxanadan asılı olmayan minimal socket interfeysi (testlərdə saxta socket verilir). */
@@ -186,8 +187,6 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     if (until) e.pauses.delete(jid);
     // Sahibin "cavab yazma" siyahısı: nömrə və ya WhatsApp adı uyğun gəlsə köməkçi bu söhbətə qarışmır
     if (t.waIgnore?.length && isIgnored(t.waIgnore, await phoneOf(e, jid, m), m.pushName)) return dbg(e, jid, "cavab yazılmayanlar siyahısındadır");
-    // Nömrənin qadağan olunmaması üçün sərt tavan: müştəri başına saatda 150 cavab
-    if (!deps.limiter.hit(`wa:cap:${e.tenantId}`, 150, 60 * 60_000)) return dbg(e, jid, "saatlıq tavan");
     const sock = e.sock;
     if (!sock) return dbg(e, jid, "socket yoxdur");
     dbg(e, jid, "emal olunur");
@@ -242,6 +241,8 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     const phone = await phoneOf(e, jid, m);
     await handleChat(deps, t, {
       channel: "whatsapp", label: "WhatsApp", chatId: phone || userPart(jid), ref: jid, text, ...(phone && { phone }), senderName: clip(m.pushName, 60),
+      // Nömrə bloklanmasın deyə saatlıq tavan (plana görə). Canlı operator yazışması bura çatmır; dolanda sahib xəbərdar edilir
+      capOk: () => waCapOk(deps, t),
       typing: () => sock.sendPresenceUpdate("composing", jid),
       ...(audio && { audio: { ...(audio.seconds && { seconds: audio.seconds }), load: async () => (sock.downloadMedia ? sock.downloadMedia(m) : null) } }),
       ...(withImage && { image: { load: async () => (sock.downloadMedia ? sock.downloadMedia(m) : null) } }),

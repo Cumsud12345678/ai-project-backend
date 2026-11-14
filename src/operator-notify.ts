@@ -93,7 +93,7 @@ const refOf = (text: string) => [...text.matchAll(/#L([\w-]{1,64}):([\w-]{1,64})
 const panelUrl = (deps: Deps) => (deps.config.allowedOrigins[0] ? `\n\n${deps.config.allowedOrigins[0]}/inbox` : "");
 
 /** Yeni sifariş / randevu: Telegram-ı bağlı olan sahibə və komandaya (sayt üzrə saatda 60-a qədər). */
-export async function notifyTeam(deps: Deps, t: TenantRecord, text: string, path: "/orders" | "/bookings"): Promise<void> {
+export async function notifyTeam(deps: Deps, t: TenantRecord, text: string, path: string): Promise<void> {
   if (!notifyAvailable(deps)) return;
   try {
     if (!deps.limiter.hit(`notify:tg:lead:${t.tenantId}`, 60, 60 * 60_000)) return;

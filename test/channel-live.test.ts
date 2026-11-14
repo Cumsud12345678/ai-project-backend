@@ -169,3 +169,33 @@ test("Kanal söhbətləri: botun cavab verdiyi Telegram yazışmaları panelə g
   const after = (await c.call("GET", "/tenant/channel-chats?channel=telegram")).body.items.find((x: { chatId: string }) => x.chatId === "901");
   assert.ok(after.liveId, "operatora ötürülüb: canlı söhbət ID-si");
 });
+
+test("gündəlik limit dolanda: canlı operator işləyirsə söhbət operatora ötürülür, bot susur; operator yoxdursa xəbərdarlıq", async () => {
+  const { c, token, say } = await setup();
+  assert.equal((await c.call("PUT", "/tenant/widget", { limits: { perVisitorDay: 1 } })).status, 200);
+  p.ai.nextChat = { answer: "Cavab 1", listings: [] };
+  await say("birinci sual", 4401);
+  assert.ok(await waitFor(() => p.telegram.sent.some((s) => s.token === token && s.text === "Cavab 1")));
+  const calls0 = chatCalls().length;
+  await say("ikinci sual", 4401);
+  assert.ok(await waitFor(() => p.telegram.sent.some((s) => s.token === token && s.chatId === "4401" && /Operatora qoşulursunuz/.test(s.text))));
+  assert.equal(chatCalls().length, calls0, "AI çağırılmır");
+  const live = (await c.call("GET", "/tenant/live?status=open")).body.items.find((x: { channel: string }) => x.channel === "telegram");
+  assert.ok(live, "söhbət canlı qutuda");
+  const full = (await c.call("GET", `/tenant/live/${live.id}`)).body.chat;
+  assert.equal(full.messages[0].text, "ikinci sual");
+  assert.ok((full.tags ?? []).includes("Bot limiti doldu"));
+  // Operatorla yazışma limitə sayılmır: müştərinin növbəti mesajı operatora gedir
+  await say("üçüncü mesaj", 4401);
+  assert.ok(await waitFor(() => false, 80) === false);
+  assert.ok((await c.call("GET", `/tenant/live/${live.id}`)).body.chat.messages.some((m: { text: string }) => m.text === "üçüncü mesaj"));
+
+  const b = await setup(false);
+  assert.equal((await b.c.call("PUT", "/tenant/widget", { limits: { perVisitorDay: 1 } })).status, 200);
+  p.ai.nextChat = { answer: "Cavab A", listings: [] };
+  await b.say("sual 1", 4402);
+  assert.ok(await waitFor(() => p.telegram.sent.some((s) => s.token === b.token && s.text === "Cavab A")));
+  await b.say("sual 2", 4402);
+  assert.ok(await waitFor(() => p.telegram.sent.some((s) => s.token === b.token && /sual limitinə çatdınız/.test(s.text))));
+  assert.equal((await b.c.call("GET", "/tenant/live?status=open")).body.items.length, 0);
+});

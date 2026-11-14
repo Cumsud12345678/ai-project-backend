@@ -89,6 +89,8 @@ export type ChatIO = {
   ref?: string;
   /** Müştərinin telefon nömrəsi (rəqəmlər), məlumdursa */
   phone?: string;
+  /** Kanalın öz saatlıq tavanı (WhatsApp: nömrə bloklanmasın). false: bot bu mesaja cavab verməməlidir */
+  capOk?(): Promise<boolean>;
 };
 
 /** Bir daxil olan mətn mesajını emal edir. Eyni söhbət üzrə ardıcıl işləyir. */
@@ -246,11 +248,23 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
       session = { ...session, pending: null };
     }
 
+    // Bot limiti doldu: canlı operator işləyirsə söhbət operator qutusuna düşür (operatorun yazışması limitə sayılmır),
+    // işləmirsə müştəriyə xəbərdarlıq (fallback) gedir. Dəqiqəlik limit (spam) operatora ötürülmür.
+    const toOperator = async (fallback: () => Promise<unknown>) => {
+      if (!liveEnabled(tenant)) { await fallback(); return; }
+      await startChannelLive(deps, tenant, { channel, chatId, ...(io.ref && { ref: io.ref }), ...(io.phone && { phone: io.phone }), name: clip(io.senderName, 80), history: session.history, first: text || (io.image ? "[şəkil]" : ""), reason: "limit" });
+      await store.saveChannelSession({ ...session, ...(clip(io.senderName, 80) && { name: clip(io.senderName, 80) }), ...(io.ref && { ref: io.ref }), ...(io.phone && { phone: io.phone }), updatedAt: new Date() });
+      await io.send(M.live.on);
+    };
+    // Kanalın öz tavanı (WhatsApp saatlıq): canlı yazışma bura çatmır (yuxarıda qayıdır), yəni operatorla yazışma kəsilmir.
+    // Operator yoxdursa bot susur: sahibə artıq bildiriş gedib, mesaj onun telefonundadır.
+    if (io.capOk && !(await io.capOk())) return toOperator(async () => {});
+
     // Limitlər vidjetlə eyni qaydadadır: müştərinin təyin etdiyi günlük və saatlıq həddlər
     const lim = limitsOf(tenant.widget);
     if (!limiter.hit(`${lk}min:${tenant.tenantId}:${chatId}`, 10, 60_000)) return warn(M.slowDown);
-    if (lim.perVisitorDay > 0 && !limiter.hit(`${lk}day:${tenant.tenantId}:${chatId}`, lim.perVisitorDay, 24 * 60 * 60_000)) return warn(M.dayLimit);
-    if (lim.siteHour > 0 && !limiter.hit(`${lk}hour:${tenant.tenantId}`, lim.siteHour, 60 * 60_000)) return warn(M.busy);
+    if (lim.perVisitorDay > 0 && !limiter.hit(`${lk}day:${tenant.tenantId}:${chatId}`, lim.perVisitorDay, 24 * 60 * 60_000)) return toOperator(() => warn(M.dayLimit));
+    if (lim.siteHour > 0 && !limiter.hit(`${lk}hour:${tenant.tenantId}`, lim.siteHour, 60 * 60_000)) return toOperator(() => warn(M.busy));
 
     // Şəkil: ayrıca limit (ziyarətçi başına 10 dəqiqədə 6, sayt üzrə saatda 200), sonra yüklənir və yoxlanır
     let image: string | undefined;
