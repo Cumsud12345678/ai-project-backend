@@ -69,6 +69,8 @@ export type WidgetSettings = {
   enabled: boolean;
   /** Domendən əlavə icazə verilən mənbələr (məs. https://staging.motoelan.com). */
   origins: string[];
+  /** Kod icazəsiz saytda işə düşəndə (domen uyğun gəlmir): panel sahibə göstərir ki, vidjetin niyə görünmədiyini bilsin */
+  blockedOrigin?: { origin: string; at: Date };
   title: string;
   greeting: string;
   /** Loqonun yanındakı qısa yazı (məs. "AI-dan soruş"). Boş sətir = yazı göstərilmir. Olmayanda defolt işləyir. */
@@ -155,7 +157,8 @@ export type TenantRecord = {
 };
 
 /** Müştərinin Telegram botu. Token şifrələnmiş saxlanır, panelə qayıtmır. `hook` webhook ünvanındakı təsadüfi hissədir, `secret` Telegram-ın hər sorğuya qoyduğu başlıqdır. */
-export type TelegramLink = { tokenEnc: string; botId: number; botUsername: string; hook: string; secret: string; enabled: boolean; connectedAt: Date };
+export type TelegramLink = { tokenEnc: string; botId: number; botUsername: string; hook: string; secret: string; enabled: boolean; connectedAt: Date;
+  /** Saatlıq yoxlamada token işləmədi (panel göstərir, düzələndə silinir) */ error?: string; errorAt?: Date };
 /** Müştərinin QR ilə qoşulmuş WhatsApp nömrəsi. Sessiya açarları ayrıca (`wa_auth`) şifrəli saxlanır. `ackAt`: qeyri-rəsmi qoşulmanın riskini qəbul etdiyi an. */
 export type WhatsAppLink = { enabled: boolean; phone: string; connectedAt: Date; ackAt: Date; /** Sahib telefondan özü yazanda bot həmin söhbətdə 12 saat susur */ pauseOnOwnReply: boolean };
 /** Kanaldakı (Telegram) söhbətin serverdə saxlanan vəziyyəti: vidjetdən fərqli olaraq tarixçəni brauzer göndərmir. */

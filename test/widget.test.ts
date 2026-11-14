@@ -86,6 +86,16 @@ test("config: icazəli saytlar CORS alır, yadlar 403 və CORS başlığı almı
   assert.equal((await raw(`/widget/${key}/config`)).status, 403, "Origin yoxdursa icazə yoxdur");
 });
 
+test("icazəsiz saytda kod: səbəb paneldə görünür; ünvan əlavə olunanda gizlənir", async () => {
+  const { c, key } = await tenantWithWidget();
+  assert.equal((await raw(`/widget/${key}/config`, { headers: { origin: "https://salon.tilda.ws" } })).status, 403);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal((await c.call("GET", "/tenant/widget")).body.widget.blockedOrigin.origin, "https://salon.tilda.ws");
+  assert.equal((await c.call("PUT", "/tenant/widget", { origins: ["https://salon.tilda.ws"] })).status, 200);
+  assert.equal((await c.call("GET", "/tenant/widget")).body.widget.blockedOrigin, undefined);
+  assert.equal((await raw(`/widget/${key}/config`, { headers: { origin: "https://salon.tilda.ws" } })).status, 200);
+});
+
 test("preflight (OPTIONS): icazəli sayta 204 + başlıqlar, yada 403", async () => {
   const { key } = await tenantWithWidget();
   const ok = await raw(`/widget/${key}/chat`, { method: "OPTIONS", headers: { origin: "https://motoelan.com", "access-control-request-method": "POST", "access-control-request-headers": "content-type" } });

@@ -81,10 +81,10 @@ export function buildCustomers(t: Pick<TenantRecord, "blocked">, chats: LiveChat
   }
   for (const l of leads) {
     const k = contactKey(l.contact);
-    const c = card([k ?? `lead:${l.id}`], { name: l.name, at: l.at });
-    touch(c, l.name, l.contact, l.at);
+    const c = card([k ?? `lead:${l.id}`], { name: l.name ?? "", at: l.at });
+    touch(c, l.name ?? "", l.contact ?? "", l.at);
     if (!c.channels.includes("form")) c.channels.push("form");
-    c.leads.push({ id: l.id, at: l.at, status: l.status ?? (l.handled ? "solved" : "new"), question: l.question.slice(0, 160) });
+    c.leads.push({ id: l.id, at: l.at, status: l.status ?? (l.handled ? "solved" : "new"), question: String(l.question ?? "").slice(0, 160) }); // köhnə/natamam yazı səhifəni yıxmasın
   }
 
   const needle = q.trim().toLocaleLowerCase();

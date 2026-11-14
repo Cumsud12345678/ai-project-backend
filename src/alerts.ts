@@ -10,6 +10,7 @@ import { sendPlanReminders } from "./billing.js";
 import type { Deps } from "./deps.js";
 import { notifyAvailable, sendNotify } from "./operator-notify.js";
 import type { User } from "./store/types.js";
+import { checkTelegramBots } from "./channel-health.js";
 
 export const ALERT_KINDS = ["errors", "health", "topup", "channel", "limit", "domain", "provider", "setup"] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
@@ -199,8 +200,11 @@ export async function alertTick(deps: Deps) {
   if (!health.db.down) await checkErrors(deps).catch(() => {});
   // Abunə xatırlatmaları: saatda bir dəfə (AI servisi hər abunə üçün bir dəfə qaytarır)
   if (!health.ai.down && Date.now() - remindAt >= 60 * 60_000) { remindAt = Date.now(); await sendPlanReminders(deps).catch(() => {}); }
+  // Telegram botlarının tokeni: saatda bir (ləğv olunubsa sahib xəbər tutur)
+  if (Date.now() - tgCheckAt >= 60 * 60_000) { tgCheckAt = Date.now(); await checkTelegramBots(deps).catch(() => {}); }
 }
 let remindAt = 0;
+let tgCheckAt = 0;
 
 /** Server açılanda: hər 2 dəqiqədən bir yoxlama. */
 export function startAlertScheduler(deps: Deps, everyMs = 2 * 60_000) {

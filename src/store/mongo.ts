@@ -113,7 +113,8 @@ export async function createMongoStore(uri: string, dbName: string): Promise<Sto
     async deleteSessionsForUser(userId) { await sessions.deleteMany({ userId }); },
 
     async saveCode(c) { await codes.replaceOne({ email: c.email, purpose: c.purpose }, c, { upsert: true }); },
-    async findCode(email, purpose) { return strip(await codes.findOne({ email, purpose })) as CodeRecord | null; },
+    // TTL indeksi vaxtı keçmiş kodu ~1 dəqiqəyədək gecikmə ilə silir: müddət burada da yoxlanır
+    async findCode(email, purpose) { return strip(await codes.findOne({ email, purpose, expiresAt: { $gt: new Date() } })) as CodeRecord | null; },
     async bumpCodeAttempts(email, purpose) { await codes.updateOne({ email, purpose }, { $inc: { attempts: 1 } }); },
     async deleteCode(email, purpose: CodePurpose) { await codes.deleteOne({ email, purpose }); },
     async deleteCodesForEmail(email) { await codes.deleteMany({ email }); },

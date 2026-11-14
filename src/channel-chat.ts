@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { chatClosedEvent, runAutomations } from "./automations.js";
 import { sniffImage } from "./safe-image.js";
 import { AiError } from "./ai.js";
-import { notifyBalance, notifyDailyLimit, notifyTrialEnd, notifyUsage } from "./billing.js";
+import { notifyBalance, notifyDailyLimit, notifyTrialEnd, notifyTrialLow, notifyUsage } from "./billing.js";
 import { loadEntitlements } from "./plans.js";
 import type { Deps } from "./deps.js";
 import { recordError } from "./errorlog.js";
@@ -295,6 +295,7 @@ export function handleChat(deps: Deps, tenant: TenantRecord, io: ChatIO): Promis
     if (notify === "low" || notify === "empty") void notifyBalance(deps, tenant, notify, out.billing?.balanceAzn);
     if (notify === "usage80" || notify === "usage100") void notifyUsage(deps, tenant, notify, out.billing?.plan);
     if (notify === "trialEnd") void notifyTrialEnd(deps, tenant);
+    if (notify === "trialLow") void notifyTrialLow(deps, tenant, out.billing?.trial?.left);
     const withPhoto = io.photo
       ? (Array.isArray(out.listings) ? out.listings : []).slice(0, 3).map((l: Record<string, unknown>, i: number) => ({ l, i, img: httpUrl(l.image) })).filter((x: { img: string }) => x.img)
       : [];

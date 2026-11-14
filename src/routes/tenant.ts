@@ -23,7 +23,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { makeTicket, wsUrlOf } from "../realtime.js";
 import { currentUser, requireAuth } from "../middleware.js";
 import { type LiveChat, type TenantRecord, type User } from "../store/types.js";
-import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, imageUrl, widgetColor, WIDGET_IMAGE_KINDS, sha, opPhotoUrl } from "../widget.js";
+import { DEFAULT_GREETING, DEFAULT_GREETING_SUPPORT, DEFAULT_LABEL, defaultWidget, modeOf, limitsOf, newWidgetKey, parseLogo, parseWidgetPatch, imageUrl, widgetColor, WIDGET_IMAGE_KINDS, sha, opPhotoUrl, originAllowed } from "../widget.js";
 import { blockOf, domainRoot, recordDomain } from "../domains.js";
 import { createTenantFor, withoutSecrets } from "../tenant-create.js";
 import { conversationSummary, liveSummary } from "../chat-summary.js";
@@ -85,14 +85,14 @@ export function tenantRoutes(deps: Deps) {
   }
   const mine = async (userId: string) => {
     const t = await store.findTenantByUser(userId);
-    if (!t) throw new HttpError(404, "Əvvəlcə elan mənbəyini qoş", "NO_TENANT");
+    if (!t) throw new HttpError(404, "Əvvəlcə biznes hesabını yarat (Quraşdırma bölməsi)", "NO_TENANT");
     return t;
   };
 
   /** Sahib və ya komanda üzvü (operator): canlı söhbət marşrutları ikisinə də açıqdır. */
   const opTenant = async (user: User) => {
     const x = await tenantFor(store, user);
-    if (!x) throw new HttpError(404, "Əvvəlcə elan mənbəyini qoş", "NO_TENANT");
+    if (!x) throw new HttpError(404, "Əvvəlcə biznes hesabını yarat (Quraşdırma bölməsi)", "NO_TENANT");
     return x;
   };
 
@@ -301,7 +301,10 @@ export function tenantRoutes(deps: Deps) {
   };
   const widgetView = (t: TenantRecord, widget: NonNullable<TenantRecord["widget"]>) => ({
     // Loqonun baytları panelə qayıtmır: yalnız ünvan
-    widget: { ...widget, color: widgetColor(widget), colorSet: undefined, logo: undefined, avatar: undefined, logoUrl: widget.logo ? imageUrl(config.publicPortalUrl, widget, "logo") : null, avatarUrl: widget.avatar ? imageUrl(config.publicPortalUrl, widget, "avatar") : null, theme: widget.theme ?? "light", label: widget.label ?? DEFAULT_LABEL, limits: limitsOf(widget) }, scriptUrl: `${config.publicPortalUrl}/widget.js`, domain: t.domain, brandRemoved: Boolean(t.brandRemoved), brandName: config.brandName,
+    widget: { ...widget,
+      // İcazəsiz saytdan cəhd: indi icazəlidirsə (domen/ünvan əlavə olunub) və ya 7 gündən köhnədirsə göstərilmir
+      blockedOrigin: widget.blockedOrigin && !originAllowed(widget.blockedOrigin.origin, { domain: t.domain, widget }) && Date.now() - new Date(widget.blockedOrigin.at).getTime() < 7 * 86_400_000 ? widget.blockedOrigin : undefined,
+      color: widgetColor(widget), colorSet: undefined, logo: undefined, avatar: undefined, logoUrl: widget.logo ? imageUrl(config.publicPortalUrl, widget, "logo") : null, avatarUrl: widget.avatar ? imageUrl(config.publicPortalUrl, widget, "avatar") : null, theme: widget.theme ?? "light", label: widget.label ?? DEFAULT_LABEL, limits: limitsOf(widget) }, scriptUrl: `${config.publicPortalUrl}/widget.js`, domain: t.domain, brandRemoved: Boolean(t.brandRemoved), brandName: config.brandName,
   });
 
   r.get("/widget", async (_req, res) => {

@@ -99,7 +99,7 @@ export function telegramWebhook(deps: Deps) {
 
 const view = (t: TenantRecord, publicUrl: string, secretKey: string) => {
   const l = t.telegram;
-  return { connected: Boolean(l), enabled: Boolean(l?.enabled), botUsername: l?.botUsername ?? null, connectedAt: l?.connectedAt ?? null, httpsReady: publicUrl.startsWith("https://"), keyReady: Boolean(secretKey) };
+  return { connected: Boolean(l), enabled: Boolean(l?.enabled), botUsername: l?.botUsername ?? null, connectedAt: l?.connectedAt ?? null, error: l?.error ?? null, httpsReady: publicUrl.startsWith("https://"), keyReady: Boolean(secretKey) };
 };
 
 /** Panel: /tenant/channels/telegram */

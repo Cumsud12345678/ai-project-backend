@@ -55,13 +55,20 @@ export function notifyUsage(deps: Deps, t: TenantRecord, kind: "usage80" | "usag
   return mailOwner(deps, t, `Cavab limiti doldu: ${t.businessName}`, `Bu dövrün cavab limiti (${inc}) doldu: köməkçi ziyarətçilərə cavab vermir, əvəzinə əlaqə forması göstərilir (müraciətlər itmir). Planı yüksəltsəniz və ya əlavə paket alsanız, köməkçi dərhal davam edir. Limit növbəti dövrdə özü yenilənir.\n\n${PLAN_PANEL}`, { action: "Planı idarə et", preheader: "Köməkçi ziyarətçilərə cavab vermir" });
 }
 
-/** Pulsuz sınaq cavabları bitdi (AI servisi bir dəfə xəbər verir) */
+/** Pulsuz sınaq cavablarının çoxu işləndi (AI servisi bir dəfə xəbər verir) */
+export function notifyTrialLow(deps: Deps, t: TenantRecord, left?: number) {
+  return mailOwner(deps, t, `Pulsuz sınaq bitmək üzrədir: ${t.businessName}`, `Pulsuz sınaq cavablarının çoxu istifadə olundu${left ? `: ${left} cavab qalıb` : ""}. Bitəndə köməkçi ziyarətçilərə cavab verməyəcək. Fasilə olmaması üçün indidən plan seçin: bilik bazanız və ayarlarınız olduğu kimi qalır.\n\n${PLAN_PANEL}`, { action: "Plan seç", preheader: left ? `${left} cavab qalıb` : "Sınaq bitmək üzrədir" });
+}
+
+/** Pulsuz sınaq bitdi: cavablar və ya müddət (AI servisi bir dəfə xəbər verir) */
 export function notifyTrialEnd(deps: Deps, t: TenantRecord) {
-  return mailOwner(deps, t, `Pulsuz sınaq bitdi: ${t.businessName}`, `Pulsuz sınaq cavabları bitdi: köməkçi ziyarətçilərə cavab vermir, əvəzinə əlaqə forması göstərilir (müraciətlər itmir). Bilik bazanız və ayarlarınız saxlanılır: plan seçən kimi köməkçi davam edir.\n\n${PLAN_PANEL}`, { action: "Plan seç", preheader: "Köməkçinin işləməsi üçün plan seçin" });
+  return mailOwner(deps, t, `Pulsuz sınaq bitdi: ${t.businessName}`, `Pulsuz sınaq bitdi: köməkçi ziyarətçilərə cavab vermir, əvəzinə əlaqə forması göstərilir (müraciətlər itmir). Bilik bazanız və ayarlarınız saxlanılır: plan seçən kimi köməkçi davam edir.\n\n${PLAN_PANEL}`, { action: "Plan seç", preheader: "Köməkçinin işləməsi üçün plan seçin" });
 }
 
 /** Abunənin bitməsinə az qalıb / bitib (saatlıq yoxlamadan) */
-export function notifyPlanReminder(deps: Deps, t: TenantRecord, r: { kind: string; planName?: string; end?: string; next?: string | null }) {
+export function notifyPlanReminder(deps: Deps, t: TenantRecord, r: { kind: string; planName?: string; end?: string; next?: string | null; left?: number }) {
+  if (r.kind === "trialExpiring") return mailOwner(deps, t, `Pulsuz sınaq ${date(r.end)} tarixində bitir: ${t.businessName}`, `Pulsuz sınaq müddəti ${date(r.end)} tarixində bitir${r.left ? ` (${r.left} cavab hələ istifadə olunmayıb)` : ""}. Bundan sonra köməkçi ziyarətçilərə cavab verməyəcək. Fasilə olmaması üçün plan seçin: bilik bazanız və ayarlarınız olduğu kimi qalır.\n\n${PLAN_PANEL}`, { action: "Plan seç", preheader: `${date(r.end)} tarixində bitir` });
+  if (r.kind === "trialEnded") return notifyTrialEnd(deps, t);
   if (r.kind === "expiring") return mailOwner(deps, t, `Planın müddəti bitir: ${t.businessName}`, `“${r.planName}” planının müddəti ${date(r.end)} tarixində bitir. Fasilə olmaması üçün vaxtında yeniləyin: yeni dövr köhnəsinin bitdiyi gündən başlayır, heç bir gün itmir.\n\n${PLAN_PANEL}`, { action: "Planı yenilə", preheader: `${date(r.end)} tarixində bitir` });
   return mailOwner(deps, t, `Planın müddəti bitdi: ${t.businessName}`, `“${r.planName}” planının müddəti bitdi və köməkçi ziyarətçilərə cavab vermir (əvəzinə əlaqə forması göstərilir). Bilik bazanız və ayarlarınız saxlanılır: planı yeniləyən kimi köməkçi davam edir.\n\n${PLAN_PANEL}`, { action: "Planı yenilə", preheader: "Köməkçi ziyarətçilərə cavab vermir" });
 }
@@ -83,7 +90,7 @@ export function notifyOrderDone(deps: Deps, t: TenantRecord, out: Record<string,
 /** Saatlıq: bitməyə yaxın və bitmiş abunələr üçün sahibə xatırlatma */
 export async function sendPlanReminders(deps: Deps) {
   const out = await deps.ai.planReminders();
-  for (const r of (out.reminders ?? []) as { tenantId: string; kind: string; planName?: string; end?: string; next?: string | null }[]) {
+  for (const r of (out.reminders ?? []) as { tenantId: string; kind: string; planName?: string; end?: string; next?: string | null; left?: number }[]) {
     const t = await deps.store.findTenantById(r.tenantId).catch(() => null);
     if (t) { invalidateEntitlements(t.tenantId); await notifyPlanReminder(deps, t, r); }
   }

@@ -8,6 +8,7 @@ import { recordError } from "../errorlog.js";
 import { alertChannel } from "../alerts.js";
 import { fetchImage } from "../safe-image.js";
 import { waCapOk } from "./cap.js";
+import { notifyChannelDown } from "../channel-health.js";
 import type { TenantRecord, WhatsAppLink } from "../store/types.js";
 
 /** Kitabxanadan asılı olmayan minimal socket interfeysi (testlərdə saxta socket verilir). */
@@ -104,7 +105,7 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     void recordError(e.deps.store, { source: "channel", message: `WhatsApp: ${message}`, tenantId: e.tenantId, code });
     // Bağlantının özü qırılıbsa (tək mesajın xətası deyil) adminə xəbər: müştəri yenidən QR ilə qoşmalıdır
     if (code === "WA_REPLACED" || code === "WA_GIVEUP" || code === "WA_START") {
-      void e.deps.store.findTenantById(e.tenantId).then((t) => t && alertChannel(e.deps, e.tenantId, t.businessName, "WhatsApp", e.error ?? message)).catch(() => {});
+      void e.deps.store.findTenantById(e.tenantId).then((t) => t && Promise.all([alertChannel(e.deps, e.tenantId, t.businessName, "WhatsApp", e.error ?? message), notifyChannelDown(e.deps, t, "WhatsApp", e.error ?? message)])).catch(() => {});
     }
   };
 
@@ -144,6 +145,8 @@ export function createWhatsAppManager(opts: { factory?: WaFactory; /** cavabdan 
     console.warn(`[whatsapp] ${e.tenantId}: bağlantı bağlandı (kod ${code ?? "?"}, ${update.lastDisconnect?.error?.message ?? ""})`);
     e.sock = null;
     if (code === LOGGED_OUT) { // istifadəçi telefondan "Əlaqəli cihazlar"dan çıxardı və ya WhatsApp sessiyanı ləğv etdi
+      // Sahib bunu bilmədən də ola bilər (WhatsApp özü sessiyanı ləğv edir): xəbər verilir ki, müştərilər cavabsız qalmasın
+      void e.deps.store.findTenantById(e.tenantId).then((t) => t && notifyChannelDown(e.deps, t, "WhatsApp", "nömrə telefondan ayrıldı (\"Əlaqəli cihazlar\"dan çıxarılıb və ya WhatsApp sessiyanı bağlayıb)")).catch(() => {});
       await e.deps.store.deleteWaAuth(e.tenantId);
       await e.deps.store.updateTenant(e.tenantId, { whatsapp: null });
       await e.deps.store.deleteChannelSessions(e.tenantId, "whatsapp");

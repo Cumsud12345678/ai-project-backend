@@ -20,7 +20,7 @@ import type { Deps } from "./deps.js";
 import { HttpError } from "./http.js";
 import type { LiveChat, TenantRecord, WidgetImage, WidgetImageKind, WidgetSettings } from "./store/types.js";
 import { cleanContact } from "./kb.js";
-import { notifyBalance, notifyDailyLimit, notifyTrialEnd, notifyUsage } from "./billing.js";
+import { notifyBalance, notifyDailyLimit, notifyTrialEnd, notifyTrialLow, notifyUsage } from "./billing.js";
 import { loadEntitlements } from "./plans.js";
 import { hub } from "./hub.js";
 import { beat, pidOf, takeInvite, type ChatState } from "./presence.js";
@@ -248,7 +248,14 @@ export function widgetRoutes(deps: Deps) {
       // Admin hesabı dayandırıbsa vidjet saytda görünmür (eyni cavab: ziyarətçi səbəbi görmür)
       if (!tenant?.widget?.enabled || tenant.suspended) throw new HttpError(404, "Vidjet tapılmadı və ya söndürülüb", "WIDGET_OFF");
       const origin = req.get("origin");
-      if (!originAllowed(origin, tenant)) throw new HttpError(403, "Bu saytdan vidjetə icazə yoxdur", "ORIGIN_NOT_ALLOWED");
+      if (!originAllowed(origin, tenant)) {
+        // Sahib kodu başqa domendə (məs. sayt qurucusunun alt domeni) qoyubsa vidjet görünmür: səbəbi panelə yazılır (10 dəqiqədə bir dəfə)
+        let o: URL | null = null;
+        try { o = origin ? new URL(origin) : null; } catch { o = null; }
+        if (o && (o.protocol === "https:" || o.protocol === "http:") && limiter.hit(`w:blocked:${tenant.tenantId}`, 1, 10 * 60_000))
+          void store.patchWidget(tenant.tenantId, { blockedOrigin: { origin: o.origin, at: new Date() } }).catch(() => {});
+        throw new HttpError(403, "Bu saytdan vidjetə icazə yoxdur", "ORIGIN_NOT_ALLOWED");
+      }
       res.set({
         "Access-Control-Allow-Origin": origin!,
         Vary: "Origin",
@@ -395,6 +402,7 @@ export function widgetRoutes(deps: Deps) {
       if (notify === "low" || notify === "empty") void notifyBalance(deps, t, notify, out.billing?.balanceAzn);
       if (notify === "usage80" || notify === "usage100") void notifyUsage(deps, t, notify, out.billing?.plan);
       if (notify === "trialEnd") void notifyTrialEnd(deps, t);
+      if (notify === "trialLow") void notifyTrialLow(deps, t, out.billing?.trial?.left);
       const listings = (Array.isArray(out.listings) ? out.listings : []).slice(0, 10).map(publicListing);
       // Ziyarətçiyə yalnız açıq veb səhifə mənbələri ("ətraflı oxu" linki) göstərilir; fayl və mətn adları daxili məlumatdır
       const sources = (Array.isArray(out.sources) ? out.sources : []).map((s: Record<string, unknown>) => ({ title: str(s.title, 120) ?? "", url: httpUrl(s.url) })).filter((s: { title: string; url?: string }) => Boolean(s.title && s.url)).slice(0, 3);

@@ -53,7 +53,7 @@ export function fakeAi(): FakeAi {
     async deleteBooking(...a) { return rec("deleteBooking", a, { ok: true }); },
     async recordClick(...a) { return rec("recordClick", a, { ok: true }); },
     async conversation(...a) { return rec("conversation", a, { sid: "aaaaaaaa11", messages: [{ id: "1", at: "2026-10-17T00:00:00.000Z", message: "salam", answer: "Salam!", results: 1 }] }); },
-    async privateData(...a) { return rec("privateData", a, { configured: false, identity: { configured: false } }); },
+    async privateData(...a) { return rec("privateData", a, { configured: false, sources: [], identity: { configured: false } }); },
     async setPrivateData(...a) { return rec("setPrivateData", a, { configured: true, ready: false, identity: { configured: false } }); },
     async deletePrivateData(...a) { return rec("deletePrivateData", a, { ok: true }); },
     async newIdentitySecret(...a) { return rec("newIdentitySecret", a, { identitySecret: "cais_test" }); },
