@@ -44,6 +44,7 @@ export type AiClient = {
   queries(tenantId: string, query: string): Promise<AiResult>;
   queryStats(tenantId: string, days?: number): Promise<AiResult>;
   queryTrend(tenantId: string, days?: number): Promise<AiResult>;
+  productInterest(tenantId: string, days?: number): Promise<AiResult>;
   /** Sualları mövzulara bölür və biliyə nə əlavə olunmalı olduğunu təklif edir (AI, balansdan çıxılır) */
   insights(tenantId: string, body: { days?: number; fresh?: boolean; disliked?: string[] }): Promise<AiResult>;
   clearQueries(tenantId: string): Promise<AiResult>;
@@ -171,6 +172,7 @@ export function createAiClient(baseUrl: string, token: string): AiClient {
     recordClick: (id, sid, c) => request("POST", `${t(id)}/conversations/${encodeURIComponent(sid)}/clicks`, c),
     queries: (id, query) => request("GET", `${t(id)}/queries${query ? `?${query}` : ""}`),
     queryTrend: (id, days) => request("GET", `${t(id)}/queries/trend${days ? `?days=${days}` : ""}`),
+    productInterest: (id, days) => request("GET", `${t(id)}/queries/products${days ? `?days=${days}` : ""}`),
     insights: (id, body) => request("POST", `${t(id)}/insights`, body, 75_000),
     queryStats: (id, days) => request("GET", `${t(id)}/queries/stats${days ? `?days=${days}` : ""}`),
     clearQueries: (id) => request("DELETE", `${t(id)}/queries`),
