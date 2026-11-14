@@ -24,3 +24,11 @@ test("analitika: trend və bəyənmə, təhlil AI-a ötürülür; girişsiz 401;
   for (let i = 0; i < 7; i++) last = (await c.call("POST", "/tenant/insights/analyze", { days: 30 })).status;
   assert.equal(last, 429);
 });
+
+test("son təhlil: AI-a yalnız keşdən soruşulur (pulsuz)", async () => {
+  const c = await p.signedIn("ins-last@example.com");
+  assert.equal((await c.call("POST", "/tenant", { config: { businessName: "Mağaza", domain: "magaza.az", profile: { mode: "support" }, source: { type: "rest" } } })).status, 201);
+  assert.equal((await c.call("GET", "/tenant/insights/last?days=7")).status, 200);
+  const last = p.ai.calls.filter((x) => x.fn === "insights").at(-1)!;
+  assert.deepEqual(last.args[1], { days: 7, cachedOnly: true });
+});

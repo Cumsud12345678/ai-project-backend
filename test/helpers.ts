@@ -17,7 +17,7 @@ export const config: Config = {
   resendApiKey: undefined, mailFrom: "x", mailReplyTo: undefined, trustProxy: 1, secretKey: "test-secret-key-test-secret-key-0000", isProd: false,
 };
 
-export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown>; nextDraft?: Record<string, unknown>; nextLead?: Record<string, unknown>; leads?: Record<string, unknown>[]; interest?: Record<string, unknown>; heard?: string; aiState: Record<string, unknown>; pingFail: boolean; providerState: Record<string, unknown>; ent: Record<string, any>; reminders: Record<string, unknown>[]; payments: Record<string, { id: string; at: string; amountAzn: number }[]> | null };
+export type FakeAi = AiClient & { calls: { fn: string; args: unknown[] }[]; failNext?: AiError; nextChat?: Record<string, unknown>; nextDraft?: Record<string, unknown>; nextLead?: Record<string, unknown>; leads?: Record<string, unknown>[]; heard?: string; aiState: Record<string, unknown>; pingFail: boolean; providerState: Record<string, unknown>; ent: Record<string, any>; reminders: Record<string, unknown>[]; payments: Record<string, { id: string; at: string; amountAzn: number }[]> | null };
 
 /** Saxta AI servisi: çağırışları qeyd edir, istənilsə xəta qaytarır. */
 export function fakeAi(): FakeAi {
@@ -39,7 +39,6 @@ export function fakeAi(): FakeAi {
     async usageSummary(...a) { return rec("usageSummary", a, { today: { date: "2026-10-19", requests: 2, tokens: 60 }, thisMonth: { month: "2026-10", requests: 5, tokens: 150 }, lastMonth: { month: "2026-09", requests: 0, tokens: 0 }, daily: [], monthly: [], tenants: [{ tenantId: "tenant-1", requests: 5, tokens: 150 }, { tenantId: "gone", requests: 1, tokens: 1 }] }); },
     async listings(...a) { return rec("listings", a, { count: 0, listings: [] }); },
     async queries(...a) { return rec("queries", a, { enabled: true, retentionDays: 90, total: 1, queries: [{ id: "1", at: "2026-10-17T00:00:00.000Z", message: "toyota", results: 2, tokens: 30, cached: false, error: false }] }); },
-    async productInterest(...a) { return rec("productInterest", a, ai.interest ?? { enabled: true, days: 30, conversations: 0, prevConversations: 0, items: [] }); },
     async queryTrend(...a) { return rec("queryTrend", a, { enabled: true, days: 7, daily: Array.from({ length: 7 }, (_, i) => ({ day: `2026-10-${String(22 + i).padStart(2, "0")}`, total: i, unanswered: i % 2 })) }); },
     async insights(...a) { return rec("insights", a, { asked: 12, topics: [{ name: "Çatdırılma", count: 8, unanswered: 2, examples: ["çatdırılma var?"] }], gaps: [{ title: "Çatdırılma qaydası", why: "Cavabsız qalıb", count: 2, examples: ["çatdırılma var?"] }], cached: false, analyzedAt: new Date().toISOString() }); },
     async queryStats(...a) { return rec("queryStats", a, { enabled: true, days: 30, total: 1, noResults: 0, errors: 0, cached: 0, top: [{ message: "toyota", count: 1 }], topNoResults: [] }); },

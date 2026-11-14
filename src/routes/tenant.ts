@@ -1,4 +1,3 @@
-import { productInsights } from "../product-insights.js";
 import express, { Router } from "express";
 import { deliverFileToChannel, deliverToChannel, signText, startChannelLive } from "../channel-live.js";
 import { parseOperatorFile } from "../live-files.js";
@@ -811,11 +810,11 @@ export function tenantRoutes(deps: Deps) {
     const [trend, fb] = await Promise.all([ai.queryTrend(t.tenantId, days), store.feedbackCounts(t.tenantId, new Date(Date.now() - days * 86_400_000)).catch(() => ({ up: 0, down: 0 }))]);
     res.json({ days, enabled: trend.enabled !== false, daily: trend.daily ?? [], feedback: { up: fb.up, down: fb.down, satisfaction: fb.up + fb.down ? Math.round((fb.up / (fb.up + fb.down)) * 100) : null } });
   });
-  // Məhsullar üzrə: maraq (AI-ın göstərdiyi), sifariş və randevu payları, əvvəlki dövrlə müqayisə
-  r.get("/insights/products", async (req, res) => {
+  // Son AI təhlili (6 saatlıq keşdən): səhifə açılan kimi göstərilir, AI çağırılmır
+  r.get("/insights/last", async (req, res) => {
     const t = await mine(currentUser(res).id);
     const d = Number(req.query.days);
-    res.set("cache-control", "no-store").json(await productInsights(deps, t, [7, 30, 90].includes(d) ? d : 30));
+    res.set("cache-control", "no-store").json(await ai.insights(t.tenantId, { days: Number.isFinite(d) && d > 0 ? Math.min(Math.round(d), 90) : 30, cachedOnly: true }));
   });
   r.post("/insights/analyze", async (req, res) => {
     const user = currentUser(res);
